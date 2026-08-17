@@ -2,45 +2,42 @@
 
 ## Install scope
 
-The installer manages or verifies these locations under `$CODEX_HOME` (default `~/.codex`):
+The user's Agent resolves the active paths before installation by inspecting the current runtime, configuration, installed Skill listings, and current official locations. It does not assume one generic Skill root. Managed destinations are:
 
-- `skills/codex-orchestration` — symlink to the checkout.
-- `skills/diagnosing-bugs` — symlink to the bundled complete debugging Skill when no valid installation exists.
-- `skills/prototype` — symlink to the bundled complete prototype Skill when no valid installation exists.
-- `agents/*.toml` — managed custom-agent copies.
-- `hooks/orchestration_route.py` and `hooks/subagent_scope.py` — only with `--with-hooks`.
-- `hooks.json` — merged with existing registrations, only with `--with-hooks`.
-- `codex-orchestration/model-routing.toml` — only with `--routing-config`.
+- `<skills-root>/codex-orchestration` — the main Skill copy.
+- `<skills-root>/diagnosing-bugs` — the bundled complete debugging Skill copy.
+- `<skills-root>/prototype` — the bundled complete prototype Skill copy.
+- `<codex-home>/agents/*.toml` — managed custom-agent copies.
+- `<codex-home>/hooks/orchestration_route.py` and `<codex-home>/hooks/subagent_scope.py` — only when Hooks are approved.
+- `<codex-home>/hooks.json` — merged only when Hooks are approved.
+- `<codex-home>/codex-orchestration/model-routing.toml` — only when local routing is approved.
 
-Unrelated files and hook registrations are preserved. Managed drift is reported and requires `--replace`.
+`INSTALL.md` is the authority for path discovery, planning, conflict handling, optional choices, and verification. Installation creates copies rather than links so the same contract works on macOS and native Windows. Existing symlinks and non-directory parents are conflicts: the Agent does not traverse, unlink, replace, or write through them. Unrelated files and Hook registrations are preserved.
 
 ## Existing Skill preflight
 
 All three Skill targets are checked before any installation write:
 
-- A link to this checkout is `CURRENT`.
-- A valid same-named Skill from another source is `REUSE` and remains untouched.
+- An exact source copy is `current`.
 - A missing Skill is planned for creation.
-- An existing target with no valid matching `name` is a conflict; the installer stops before creating Skills or Agent files.
+- A same-named but different Skill, a symlink, a non-directory Skill target, or a non-directory parent is a conflict and remains untouched.
 
-`--replace` may replace a reviewed differing symlink, including a same-named external symlink. It never replaces a physical Skill directory; move that directory manually if replacement is intentional.
+Managed Agent, Hook, and routing targets are classified the same way. Differing managed files are drift. The Agent shows the difference and replaces it only after explicit approval; conflicts are left for the user to resolve without deletion.
 
-The same preflight covers every managed Agent, optional Hook, and routing target. Known drift or a physical-path conflict prevents the complete plan from being applied; Hook registrations are updated only after the managed files pass preflight.
+Preflight is complete only after every destination is classified and one complete plan has been shown. Hooks and model routing require separate decisions.
 
 ## Model routes
 
-The repository does not ship active routes. Start from `examples/model-routing.toml`, replace placeholders with values available on the current host, review the full order, then install it explicitly.
+The repository does not ship active routes. Start from `examples/model-routing.toml`, replace placeholders with values available on the current host, and review the full order before approving the Agent's write.
 
 Without a local route file, the main agent inherits the current Codex model configuration.
 
-## Installer modes
+## Verification
 
-```bash
-python3 scripts/install.py                         # dry run
-python3 scripts/install.py --check                 # fail if managed state differs
-python3 scripts/install.py --apply                 # skill + agents
-python3 scripts/install.py --apply --with-hooks    # skill + agents + hooks
-python3 scripts/install.py --apply --replace       # replace reviewed managed drift
+```text
+python scripts/validate.py
+python scripts/validate.py --runtime --codex-home <codex-home> --skills-root <skills-root>
+python scripts/validate.py --runtime --hooks --codex-home <codex-home> --skills-root <skills-root>
 ```
 
-Use `--codex-home` only for an alternate Codex home or isolated testing.
+Use the interpreter command available on the host. `--skills-root` is required so validation cannot guess a non-active location. Runtime validation checks exact bundled Skill and Agent copies and rejects linked managed targets. Add `--hooks` only when Hooks were approved; it then checks the exact scripts, parses `hooks.json`, and requires one effective registration per managed event. The installing Agent separately verifies any approved model route.

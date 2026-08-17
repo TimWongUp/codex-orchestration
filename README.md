@@ -2,31 +2,29 @@
 
 # Codex Orchestration
 
-A macOS-first orchestration kit for Codex custom subagents: one main orchestrator, one active writer, explicit task packages, configurable model routing, and risk-based review.
+A cross-platform orchestration kit for Codex custom subagents: one main orchestrator, one active writer, explicit task packages, configurable model routing, and risk-based review.
 
 It exists to make multi-agent coding predictable without turning every task into a committee. Simple work stays with the main agent; delegation is reserved for work with a clear payoff.
 
 ## Who it is for
 
-Use this project if you run Codex on macOS and want reusable custom agents for exploration, research, implementation, prototypes, debugging, and focused review.
+This release targets Codex on macOS and native Windows for reusable exploration, research, implementation, prototype, debugging, and focused-review agents. A release candidate is supported only after both platform CI jobs pass.
 
-The current release intentionally supports macOS only. Windows packaging and runtime behavior are not documented as supported yet.
+Installation is performed by the user's Agent from a reviewed repository contract. The contract detects the active Codex paths and applies the platform-appropriate file and Hook configuration without requiring a platform-specific installer.
 
-## Install from a checkout
+## Ask an Agent to install it
 
-Requirements: macOS, Codex with custom subagents enabled, and Python 3.9 or newer.
+Requirements: macOS or native Windows, Codex with custom subagents enabled, and Python 3.9 or newer for validation.
 
-```bash
-python3 scripts/validate.py
-python3 scripts/install.py
-python3 scripts/install.py --apply --with-hooks
+Open this repository in Codex and ask:
+
+```text
+Install this repository for my local Codex environment. Read INSTALL.md completely, show me the full plan, and preserve unrelated or unapproved configuration.
 ```
 
-The first installer run is a dry run. Before writing anything, it checks all three Skill names and every managed Agent, Hook, and routing target. A valid existing same-named Skill is reused without modification; a conflict or unapproved drift stops the install without applying the plan. Existing unrelated agents and hooks are preserved. Reviewed managed-file drift requires an explicit `--replace`.
+The Agent validates the checkout, detects the current platform and Codex paths, classifies every destination, and shows all proposed writes before applying them. Required Skills and Agent profiles are copied for portability. Hooks and model routing are separate, optional decisions. Existing unrelated configuration and unapproved drift are preserved.
 
-### Let an agent install it
-
-Open a Codex task in this repository and use the complete [agent-assisted installation prompt](docs/agent-install.md). It makes the agent inspect the checkout, dry-run every change, request decisions for hooks and model routing, and verify the installed runtime.
+The complete and authoritative procedure is [INSTALL.md](INSTALL.md). You can audit it before asking an Agent to perform the installation.
 
 ## First successful use
 
@@ -46,7 +44,7 @@ For a broader feature discussion, ask Codex to use `web-researcher` for public i
 - Writable implementation, debugging, and prototype workers governed by a single-writer lease.
 - Optional `UserPromptSubmit` and `SubagentStart` hooks.
 - A local, optional model-routing file. No model IDs are pinned in the repository.
-- A macOS installer that preserves unrelated Codex configuration.
+- An Agent installation contract for macOS and native Windows that preserves unrelated Codex configuration.
 
 The write lease is an orchestration contract, not an operating-system ACL. The main agent remains responsible for Git, validation, review selection, and final delivery.
 
@@ -55,7 +53,7 @@ The write lease is an orchestration contract, not an operating-system ACL. The m
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/configuration.md)
 - [Hooks and long-lived prompts](docs/hooks-and-prompts.md)
-- [Agent-assisted installation](docs/agent-install.md)
+- [Agent installation contract](INSTALL.md)
 - [Contributing](CONTRIBUTING.md)
 
 The bundled method Skills were originally authored by Matt Pocock and are distributed under the MIT License. See [third-party notices](THIRD_PARTY_NOTICES.md).

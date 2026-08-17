@@ -4,13 +4,7 @@
 
 `orchestration_route.py` adds a short main-agent reminder on `UserPromptSubmit`. `subagent_scope.py` tells derived agents whether they are read-only or a lease-gated worker.
 
-Install them with:
-
-```bash
-python3 scripts/install.py --apply --with-hooks
-```
-
-The installer adds namespaced command registrations while preserving unrelated hook groups. Hook text never grants a write lease.
+Hooks are optional during the Agent-driven procedure in `INSTALL.md`. The Agent copies both scripts, shows the exact `hooks.json` merge, writes the platform-appropriate command fields, and preserves unrelated hook groups. Runtime validation checks them only when explicitly invoked with `--hooks`. Hook text never grants a write lease.
 
 ## Long-lived main-agent prompt
 

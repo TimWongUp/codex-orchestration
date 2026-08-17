@@ -16,10 +16,4 @@ Worker rounds one and two keep the same model and thread. Round three closes the
 
 ## Local file
 
-Copy `examples/model-routing.toml` outside the repository and replace placeholders with model identifiers available on the current host. Install it with:
-
-```bash
-python3 scripts/install.py --apply --routing-config /path/to/model-routing.toml
-```
-
-The installer writes it to `$CODEX_HOME/codex-orchestration/model-routing.toml`. It never generates or changes routes implicitly.
+During the Agent-driven installation in `INSTALL.md`, model routing is a separate optional choice. The Agent starts from `examples/model-routing.toml`, replaces placeholders only with model identifiers available on the current host, shows the complete route order, and writes the approved file to `$CODEX_HOME/codex-orchestration/model-routing.toml`. It never generates or changes routes implicitly.

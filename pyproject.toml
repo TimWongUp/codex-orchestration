@@ -1,7 +1,7 @@
 [project]
 name = "codex-orchestration"
-version = "0.2.0"
-description = "A macOS-first orchestration kit for Codex custom subagents"
+version = "0.3.0"
+description = "A cross-platform orchestration kit for Codex custom subagents"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 
