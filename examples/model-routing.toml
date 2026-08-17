@@ -1,0 +1,32 @@
+schema_version = 1
+
+# Copy this file outside the repository and replace every placeholder.
+# Each role may have one or more ordered route entries.
+
+[[roles.worker]]
+model = "MODEL_ID_PRIMARY"
+reasoning_effort = "REASONING_LEVEL"
+
+[[roles.worker]]
+model = "MODEL_ID_FALLBACK"
+reasoning_effort = "REASONING_LEVEL"
+
+[[roles.explorer]]
+model = "MODEL_ID_PRIMARY"
+reasoning_effort = "REASONING_LEVEL"
+
+[[roles.reference-researcher]]
+model = "MODEL_ID_PRIMARY"
+reasoning_effort = "REASONING_LEVEL"
+
+[[roles.web-researcher]]
+model = "MODEL_ID_PRIMARY"
+reasoning_effort = "REASONING_LEVEL"
+
+[[roles.correctness-reviewer]]
+model = "MODEL_ID_PRIMARY"
+reasoning_effort = "REASONING_LEVEL"
+
+# Optional keys per entry:
+# service_tier = "SERVICE_TIER"
+# note = "Human-readable routing rationale"
