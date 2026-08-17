@@ -22,7 +22,7 @@ python3 scripts/install.py
 python3 scripts/install.py --apply --with-hooks
 ```
 
-安装器第一次运行只输出计划。无关 Agent 和 Hook 会被保留；如受管文件已漂移，必须显式传入 `--replace` 才会覆盖。
+安装器第一次运行只输出计划，并在任何写入前检查三个 Skill 名称以及全部受管 Agent、Hook 和路由目标。主机上已有合法同名 Skill 时直接复用且不修改；发生冲突或未批准的漂移时，不执行计划并停止安装。无关 Agent 和 Hook 会被保留；如受管文件已漂移，必须显式传入 `--replace` 才会覆盖。
 
 ### 让 Agent 安装
 
@@ -41,6 +41,7 @@ python3 scripts/install.py --apply --with-hooks
 ## 包含什么
 
 - 支持 `coverage`、`panel`、`hybrid` 三种只读协作模式的主代理编排 Skill。
+- `diagnosing-bugs-worker` 与 `prototype-worker` 使用的完整方法 Skill。
 - 只读探索、研究、设计和专项 Review Agent。
 - 受全局单 Writer 租约约束的实现、Bug 诊断和原型 Worker。
 - 可选的 `UserPromptSubmit` 与 `SubagentStart` Hooks。
@@ -57,6 +58,8 @@ python3 scripts/install.py --apply --with-hooks
 - [Agent 安装提示词](docs/agent-install.md)
 - [贡献指南](CONTRIBUTING.md)
 
+随包方法 Skill 的原作者为 Matt Pocock，以 MIT License 分发，详见[第三方声明](THIRD_PARTY_NOTICES.md)。
+
 ## 许可证
 
-[MIT](LICENSE)
+Codex Orchestration 使用 [MIT License](LICENSE)；随包第三方材料保留其原始声明和许可证。

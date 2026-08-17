@@ -7,12 +7,18 @@ import argparse
 import copy
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_NAME = "codex-orchestration"
+BUNDLED_SKILLS = {
+    SKILL_NAME: ROOT,
+    "diagnosing-bugs": ROOT / "skills" / "diagnosing-bugs",
+    "prototype": ROOT / "skills" / "prototype",
+}
 HOOK_SPECS = {
     "UserPromptSubmit": "orchestration_route.py",
     "SubagentStart": "subagent_scope.py",
@@ -41,18 +47,74 @@ def atomic_write(target: Path, content: bytes) -> None:
             temporary.unlink()
 
 
+def atomic_symlink(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+    )
+    os.close(handle)
+    temporary = Path(temporary_name)
+    temporary.unlink()
+    try:
+        temporary.symlink_to(source, target_is_directory=True)
+        os.replace(temporary, target)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def parent_directory_available(target: Path) -> bool:
+    parent = target.parent
+    while not os.path.lexists(parent):
+        if parent == parent.parent:
+            return False
+        parent = parent.parent
+    return parent.is_dir()
+
+
 def file_status(source: Path, target: Path) -> str:
+    if not os.path.lexists(target):
+        return "missing" if parent_directory_available(target) else "conflict"
     if not target.is_file():
-        return "missing"
+        return "conflict"
     return "current" if source.read_bytes() == target.read_bytes() else "drift"
 
 
-def skill_status(target: Path) -> str:
+def skill_name_from_text(source: str) -> str | None:
+    lines = source.splitlines()
+    if not lines or lines[0] != "---":
+        return None
+    try:
+        boundary = lines.index("---", 1)
+    except ValueError:
+        return None
+    for line in lines[1:boundary]:
+        match = re.match(r"^name:\s*(.+?)\s*$", line)
+        if not match:
+            continue
+        value = match.group(1)
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        return value if re.fullmatch(r"[A-Za-z0-9_-]+", value) else None
+    return None
+
+
+def installed_skill_name(target: Path) -> str | None:
+    try:
+        source = (target / "SKILL.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    return skill_name_from_text(source)
+
+
+def skill_status(name: str, source: Path, target: Path) -> str:
     if not os.path.lexists(target):
-        return "missing"
-    if target.is_symlink() and target.resolve() == ROOT:
+        return "missing" if parent_directory_available(target) else "conflict"
+    if target.is_symlink() and target.resolve() == source.resolve():
         return "current"
-    return "drift"
+    if installed_skill_name(target) == name:
+        return "external"
+    return "conflict"
 
 
 def hook_command(codex_home: Path, script: str) -> str:
@@ -67,6 +129,7 @@ def reconcile_hooks(data: dict, codex_home: Path) -> dict:
     if not isinstance(events, dict):
         raise ValueError("hooks.json field 'hooks' must be an object")
     for event, script in HOOK_SPECS.items():
+        managed_command = hook_command(codex_home, script)
         groups = events.setdefault(event, [])
         if not isinstance(groups, list):
             raise ValueError(f"hooks.json event '{event}' must be a list")
@@ -78,7 +141,11 @@ def reconcile_hooks(data: dict, codex_home: Path) -> dict:
                 group["hooks"] = [
                     hook
                     for hook in hooks
-                    if not (isinstance(hook, dict) and script in str(hook.get("command", "")))
+                    if not (
+                        isinstance(hook, dict)
+                        and hook.get("type") == "command"
+                        and hook.get("command") == managed_command
+                    )
                 ]
         groups[:] = [group for group in groups if not isinstance(group, dict) or group.get("hooks")]
         groups.append(
@@ -86,7 +153,7 @@ def reconcile_hooks(data: dict, codex_home: Path) -> dict:
                 "hooks": [
                     {
                         "type": "command",
-                        "command": hook_command(codex_home, script),
+                        "command": managed_command,
                     }
                 ]
             }
@@ -94,44 +161,93 @@ def reconcile_hooks(data: dict, codex_home: Path) -> dict:
     return updated
 
 
-def install_skill(target: Path, apply: bool, replace: bool) -> tuple[bool, bool]:
-    current = skill_status(target)
-    if current == "current":
-        print(f"CURRENT skill: {target}")
-        return True, False
-    if current == "drift" and not replace:
-        print(f"REFUSED skill drift: {target}; review it and add --replace")
-        return False, True
-    label = "WOULD CREATE" if current == "missing" else "WOULD REPLACE"
-    if not apply:
-        print(f"{label} skill link: {target} -> {ROOT}")
-        return True, True
-    if current == "drift":
-        if not target.is_symlink():
-            print(f"REFUSED non-symlink skill target: {target}; move it manually")
-            return False, True
-        target.unlink()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.symlink_to(ROOT, target_is_directory=True)
-    print(f"{'CREATED' if current == 'missing' else 'REPLACED'} skill link: {target}")
-    return True, True
+def plan_skills(codex_home: Path, replace: bool) -> tuple[list[tuple[str, Path, Path, str]], bool]:
+    plans: list[tuple[str, Path, Path, str]] = []
+    healthy = True
+    for name, source in BUNDLED_SKILLS.items():
+        target = codex_home / "skills" / name
+        status = skill_status(name, source, target)
+        if status == "current":
+            action = "current"
+        elif status == "external":
+            action = "replace" if replace and target.is_symlink() else "reuse"
+        elif status == "missing":
+            action = "create"
+        elif replace and target.is_symlink():
+            action = "replace"
+        else:
+            action = "conflict"
+            healthy = False
+        plans.append((name, source, target, action))
+    return plans, healthy
 
 
-def install_file(source: Path, target: Path, apply: bool, replace: bool) -> tuple[bool, bool]:
-    current = file_status(source, target)
-    if current == "current":
-        print(f"CURRENT: {target}")
-        return True, False
-    if current == "drift" and not replace:
-        print(f"REFUSED drift: {target}; review it and add --replace")
-        return False, True
-    label = "WOULD CREATE" if current == "missing" else "WOULD REPLACE"
-    if not apply:
-        print(f"{label}: {target}")
-        return True, True
-    atomic_write(target, source.read_bytes())
-    print(f"{'CREATED' if current == 'missing' else 'REPLACED'}: {target}")
-    return True, True
+def execute_skill_plans(
+    plans: list[tuple[str, Path, Path, str]], apply: bool, healthy: bool
+) -> bool:
+    changed = False
+    for name, source, target, action in plans:
+        if action == "current":
+            print(f"CURRENT skill: {name}: {target}")
+            continue
+        if action == "reuse":
+            print(f"REUSE existing skill: {name}: {target}")
+            continue
+        if action == "conflict":
+            print(f"REFUSED skill conflict: {name}: {target}; move it manually")
+            continue
+        changed = True
+        label = "CREATE" if action == "create" else "REPLACE"
+        if not apply or not healthy:
+            print(f"WOULD {label} skill link: {name}: {target} -> {source}")
+            continue
+        atomic_symlink(source, target)
+        print(f"{label}D skill link: {name}: {target}")
+    return changed
+
+
+def plan_files(
+    specs: list[tuple[Path, Path]], replace: bool
+) -> tuple[list[tuple[Path, Path, str]], bool]:
+    plans: list[tuple[Path, Path, str]] = []
+    healthy = True
+    for source, target in specs:
+        status = file_status(source, target)
+        if status in {"current", "missing"}:
+            action = "current" if status == "current" else "create"
+        elif status == "drift" and replace:
+            action = "replace"
+        elif status == "conflict" and replace and target.is_symlink():
+            action = "replace"
+        else:
+            action = status
+            healthy = False
+        plans.append((source, target, action))
+    return plans, healthy
+
+
+def execute_file_plans(plans: list[tuple[Path, Path, str]], apply: bool, healthy: bool) -> bool:
+    changed = False
+    for source, target, action in plans:
+        if action == "current":
+            print(f"CURRENT: {target}")
+            continue
+        if action == "drift":
+            print(f"REFUSED drift: {target}; review it and add --replace")
+            changed = True
+            continue
+        if action == "conflict":
+            print(f"REFUSED file conflict: {target}; move it manually")
+            changed = True
+            continue
+        changed = True
+        label = "CREATE" if action == "create" else "REPLACE"
+        if not apply or not healthy:
+            print(f"WOULD {label}: {target}")
+            continue
+        atomic_write(target, source.read_bytes())
+        print(f"{label}D: {target}")
+    return changed
 
 
 def validate_routing_source(source: Path) -> None:
@@ -160,7 +276,6 @@ def main() -> int:
         parser.error("--apply and --check are mutually exclusive")
 
     codex_home = args.codex_home.expanduser().resolve()
-    healthy = True
     changed = False
 
     routing_source: Path | None = None
@@ -193,35 +308,36 @@ def main() -> int:
             return 1
         hooks_path = candidate_hooks_path
 
-    ok, differs = install_skill(codex_home / "skills" / SKILL_NAME, args.apply, args.replace)
-    healthy &= ok
-    changed |= differs
-
-    for source in sorted((ROOT / "agents").glob("*.toml")):
-        ok, differs = install_file(
-            source, codex_home / "agents" / source.name, args.apply, args.replace
+    skill_plans, skills_healthy = plan_skills(codex_home, args.replace)
+    file_specs = [
+        (source, codex_home / "agents" / source.name)
+        for source in sorted((ROOT / "agents").glob("*.toml"))
+    ]
+    if args.with_hooks:
+        file_specs.extend(
+            (source, codex_home / "hooks" / source.name)
+            for source in sorted((ROOT / "hooks").glob("*.py"))
         )
-        healthy &= ok
-        changed |= differs
+    if routing_source:
+        file_specs.append((routing_source, codex_home / SKILL_NAME / "model-routing.toml"))
+
+    file_plans, files_healthy = plan_files(file_specs, args.replace)
+    install_healthy = skills_healthy and files_healthy
+    changed |= execute_skill_plans(skill_plans, args.apply, install_healthy)
+    changed |= execute_file_plans(file_plans, args.apply, install_healthy)
+
+    hooks_changed = bool(
+        args.with_hooks and expected_hooks is not None and expected_hooks != hooks_data
+    )
+    changed |= hooks_changed
+    if not install_healthy:
+        return 1
 
     if args.with_hooks:
-        hook_files_healthy = True
-        for source in sorted((ROOT / "hooks").glob("*.py")):
-            ok, differs = install_file(
-                source, codex_home / "hooks" / source.name, args.apply, args.replace
-            )
-            healthy &= ok
-            hook_files_healthy &= ok
-            changed |= differs
-
         assert hooks_path is not None
         assert hooks_data is not None
         assert expected_hooks is not None
-        hooks_current = expected_hooks == hooks_data
-        changed |= not hooks_current
-        if not hook_files_healthy:
-            print(f"SKIPPED hooks registry: {hooks_path}; hook files are not ready")
-        elif hooks_current:
+        if not hooks_changed:
             print(f"CURRENT: {hooks_path}")
         elif not args.apply:
             print(f"WOULD UPDATE: {hooks_path}")
@@ -232,18 +348,6 @@ def main() -> int:
             )
             print(f"UPDATED: {hooks_path}")
 
-    if routing_source:
-        ok, differs = install_file(
-            routing_source,
-            codex_home / SKILL_NAME / "model-routing.toml",
-            args.apply,
-            args.replace,
-        )
-        healthy &= ok
-        changed |= differs
-
-    if not healthy:
-        return 1
     if args.check and changed:
         return 1
     return 0

@@ -9,6 +9,12 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+UPSTREAM_REVISION = "8b78b531ab965735c5dc74f6f7a219e1e37326df"
+BUNDLED_SKILLS = {
+    "codex-orchestration": ROOT,
+    "diagnosing-bugs": ROOT / "skills" / "diagnosing-bugs",
+    "prototype": ROOT / "skills" / "prototype",
+}
 WRITERS = {"worker", "diagnosing-bugs-worker", "prototype-worker"}
 READERS = {
     "default",
@@ -50,6 +56,25 @@ def top_level_values(source: str) -> dict[str, str]:
     return values
 
 
+def skill_document_name(source: str) -> str | None:
+    lines = source.splitlines()
+    if not lines or lines[0] != "---":
+        return None
+    try:
+        boundary = lines.index("---", 1)
+    except ValueError:
+        return None
+    for line in lines[1:boundary]:
+        match = re.match(r"^name:\s*(.+?)\s*$", line)
+        if not match:
+            continue
+        value = match.group(1)
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        return value if re.fullmatch(r"[A-Za-z0-9_-]+", value) else None
+    return None
+
+
 def public_text_files() -> list[Path]:
     suffixes = {".md", ".toml", ".py", ".yml", ".yaml", ".json"}
     return [
@@ -68,7 +93,7 @@ def validate_source() -> list[str]:
     worker_contract = (ROOT / "references" / "worker-writing.md").read_text(encoding="utf-8")
 
     for phrase in (
-        "version: 0.1.1",
+        "version: 0.2.0",
         "references/model-routing.md",
         "references/worker-writing.md",
         "coverage",
@@ -80,6 +105,38 @@ def validate_source() -> list[str]:
         "Do not interrupt, close, replace, or switch the model",
     ):
         require(phrase in skill, f"missing Skill contract: {phrase}", failures)
+
+    for name, path in BUNDLED_SKILLS.items():
+        bundled = (path / "SKILL.md").read_text(encoding="utf-8")
+        require(
+            skill_document_name(bundled) == name,
+            f"bundled Skill name mismatch: {name}",
+            failures,
+        )
+        if name != "codex-orchestration":
+            for phrase in (
+                "author: Matt Pocock",
+                "source: https://github.com/mattpocock/skills",
+                f"source_revision: {UPSTREAM_REVISION}",
+                "license: MIT",
+            ):
+                require(phrase in bundled, f"{name} missing attribution: {phrase}", failures)
+
+    notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    upstream_license = (ROOT / "licenses" / "mattpocock-skills-MIT.txt").read_text(encoding="utf-8")
+    require(
+        "Original author: Matt Pocock" in notices, "third-party author notice missing", failures
+    )
+    require(
+        f"`{UPSTREAM_REVISION}`" in notices,
+        "third-party source revision notice missing or stale",
+        failures,
+    )
+    require(
+        "Copyright (c) 2026 Matt Pocock" in upstream_license,
+        "upstream MIT copyright notice missing",
+        failures,
+    )
 
     profiles: dict[str, dict[str, str]] = {}
     for path in sorted((ROOT / "agents").glob("*.toml")):
@@ -105,6 +162,18 @@ def validate_source() -> list[str]:
             f"{name} must be read-only",
             failures,
         )
+    require(
+        "load the `diagnosing-bugs` Skill"
+        in (ROOT / "agents" / "diagnosing-bugs-worker.toml").read_text(encoding="utf-8"),
+        "diagnosing-bugs-worker does not load its method Skill",
+        failures,
+    )
+    require(
+        "load the `prototype` Skill"
+        in (ROOT / "agents" / "prototype-worker.toml").read_text(encoding="utf-8"),
+        "prototype-worker does not load its method Skill",
+        failures,
+    )
 
     grant = "WRITE LEASE" + ": " + "granted"
     require(
@@ -149,12 +218,17 @@ def validate_source() -> list[str]:
 
 def validate_runtime(codex_home: Path) -> list[str]:
     failures: list[str] = []
-    skill_target = codex_home / "skills" / "codex-orchestration"
-    require(
-        skill_target.is_symlink() and skill_target.resolve() == ROOT,
-        "runtime skill link differs",
-        failures,
-    )
+    for name in BUNDLED_SKILLS:
+        skill_target = codex_home / "skills" / name / "SKILL.md"
+        try:
+            installed = skill_target.read_text(encoding="utf-8") if skill_target.is_file() else ""
+        except (OSError, UnicodeError):
+            installed = ""
+        require(
+            skill_document_name(installed) == name,
+            f"runtime Skill missing or mismatched: {name}",
+            failures,
+        )
     for source in sorted((ROOT / "agents").glob("*.toml")):
         target = codex_home / "agents" / source.name
         require(

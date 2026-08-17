@@ -2,7 +2,7 @@
 name: codex-orchestration
 description: Orchestrate Codex custom subagents for explicit delegation, parallel investigation, writable worker leases, model-diverse panels, and risk-based review. Use when the user asks for subagents or parallel work, or when a coding task has a clear delegation payoff. Keep simple tasks and ordinary documentation with the main agent. Derived subagents must not invoke this Skill.
 metadata:
-  version: 0.1.1
+  version: 0.2.0
 ---
 
 # Codex subagent orchestration
@@ -16,8 +16,8 @@ The main agent owns the goal, decomposition, model selection, write lease, Git o
 ## Roles
 
 - `worker`: bounded production implementation.
-- `diagnosing-bugs-worker`: difficult bugs or performance regressions with an unknown cause.
-- `prototype-worker`: throwaway code that answers one design question.
+- `diagnosing-bugs-worker`: difficult bugs or performance regressions with an unknown cause; load and follow the `diagnosing-bugs` Skill.
+- `prototype-worker`: throwaway code that answers one design question; load and follow the `prototype` Skill.
 - `explorer`: local entry points, call paths, data flow, and tests.
 - `reference-researcher`: official documentation, standards, papers, and version facts.
 - `web-researcher`: ecosystem practice, product patterns, case studies, postmortems, and community experience.

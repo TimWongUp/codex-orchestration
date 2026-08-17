@@ -22,7 +22,7 @@ python3 scripts/install.py
 python3 scripts/install.py --apply --with-hooks
 ```
 
-The first installer run is a dry run. Existing unrelated agents and hooks are preserved. Reviewed managed-file drift requires an explicit `--replace`.
+The first installer run is a dry run. Before writing anything, it checks all three Skill names and every managed Agent, Hook, and routing target. A valid existing same-named Skill is reused without modification; a conflict or unapproved drift stops the install without applying the plan. Existing unrelated agents and hooks are preserved. Reviewed managed-file drift requires an explicit `--replace`.
 
 ### Let an agent install it
 
@@ -41,6 +41,7 @@ For a broader feature discussion, ask Codex to use `web-researcher` for public i
 ## What is included
 
 - A main-agent orchestration Skill with `coverage`, `panel`, and `hybrid` read-only collaboration modes.
+- The complete `diagnosing-bugs` and `prototype` method Skills used by their workers.
 - Read-only explorer, research, design, and review agents.
 - Writable implementation, debugging, and prototype workers governed by a single-writer lease.
 - Optional `UserPromptSubmit` and `SubagentStart` hooks.
@@ -57,6 +58,8 @@ The write lease is an orchestration contract, not an operating-system ACL. The m
 - [Agent-assisted installation](docs/agent-install.md)
 - [Contributing](CONTRIBUTING.md)
 
+The bundled method Skills were originally authored by Matt Pocock and are distributed under the MIT License. See [third-party notices](THIRD_PARTY_NOTICES.md).
+
 ## License
 
-[MIT](LICENSE)
+Codex Orchestration is [MIT licensed](LICENSE). Bundled third-party material retains its original notice and license.

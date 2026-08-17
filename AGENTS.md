@@ -3,7 +3,7 @@
 ## Scope
 
 - `README.md` and `README.zh-CN.md` are human-facing. Read them only when changing public usage or installation behavior.
-- Runtime behavior is defined by `SKILL.md`, `agents/`, `hooks/`, `references/`, and `scripts/`.
+- Runtime behavior is defined by `SKILL.md`, `skills/`, `agents/`, `hooks/`, `references/`, and `scripts/`.
 - The current supported platform is macOS. Do not claim Windows support without a tested Windows adapter.
 
 ## Commands
@@ -17,6 +17,7 @@
 
 - Keep agent profiles model-neutral. User model routes live outside the repository.
 - Preserve unrelated files and hook registrations during installation.
+- Preserve author, source, revision, license metadata, and `THIRD_PARTY_NOTICES.md` when updating bundled third-party Skills.
 - The main agent owns orchestration and Git; writable workers require the canonical lease in `references/worker-writing.md`.
 - Public files must not contain personal paths, private endpoints, credentials, or machine-specific model IDs.
 
