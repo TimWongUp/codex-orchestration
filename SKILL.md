@@ -2,7 +2,7 @@
 name: codex-orchestration
 description: Orchestrate Codex custom subagents for explicit delegation, parallel investigation, writable worker leases, model-diverse panels, and risk-based review. Use when the user asks for subagents or parallel work, or when a coding task has a clear delegation payoff. Keep simple tasks and ordinary documentation with the main agent. Derived subagents must not invoke this Skill.
 metadata:
-  version: 0.1.0
+  version: 0.1.1
 ---
 
 # Codex subagent orchestration
@@ -114,7 +114,9 @@ For staged work, perform one full review after all accepted stages are merged in
 
 ## Waiting and stopping
 
-Continue non-overlapping main-agent work while agents run. Slow progress, silence, or a timeout is not enough to interrupt an agent. Interrupt only after observable drift or dead state persists after a non-interrupting correction.
+Continue non-overlapping main-agent work while agents run. A wait timeout means only that the current wait window ended before completion; keep the running agent and wait again later.
+
+Do not interrupt, close, replace, or switch the model of a running agent solely because progress is slow, output is sparse, or a wait timed out. Interrupt or replace it only after an explicit agent error, a user stop or replacement request, an obsolete task, or observable drift or dead state that persists after a non-interrupting correction.
 
 When the user asks to stop, create no new agents and safely collect or close existing work.
 

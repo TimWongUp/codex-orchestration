@@ -68,7 +68,7 @@ def validate_source() -> list[str]:
     worker_contract = (ROOT / "references" / "worker-writing.md").read_text(encoding="utf-8")
 
     for phrase in (
-        "version: 0.1.0",
+        "version: 0.1.1",
         "references/model-routing.md",
         "references/worker-writing.md",
         "coverage",
@@ -76,6 +76,8 @@ def validate_source() -> list[str]:
         "hybrid",
         "Single writer",
         "Do not create a worktree unless the user explicitly requests one",
+        "A wait timeout means only",
+        "Do not interrupt, close, replace, or switch the model",
     ):
         require(phrase in skill, f"missing Skill contract: {phrase}", failures)
 
