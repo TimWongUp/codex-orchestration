@@ -6,13 +6,20 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
+from typing import Protocol, cast
+
+
+class ExecutableLoader(Protocol):
+    def exec_module(self, module: ModuleType) -> None: ...
+
 
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR_PATH = ROOT / "scripts" / "validate.py"
 SPEC = importlib.util.spec_from_file_location("source_validator", VALIDATOR_PATH)
 assert SPEC is not None and SPEC.loader is not None
 VALIDATOR = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(VALIDATOR)
+cast(ExecutableLoader, SPEC.loader).exec_module(VALIDATOR)
 
 
 class SourceValidationTest(unittest.TestCase):
