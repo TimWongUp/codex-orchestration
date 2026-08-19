@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,6 +45,38 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_source_contract(self) -> None:
         self.assertEqual(VALIDATOR.validate_source(), [])
+
+    def test_hook_outputs_match_contract(self) -> None:
+        def run_hook(script: str, payload: str = "") -> dict[str, str]:
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "hooks" / script)],
+                input=payload,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return cast(dict[str, str], json.loads(result.stdout)["hookSpecificOutput"])
+
+        route = run_hook("orchestration_route.py")
+        self.assertEqual(route["hookEventName"], "UserPromptSubmit")
+        self.assertIn("continue non-overlapping main work", route["additionalContext"])
+        self.assertIn("If a wait times out", route["additionalContext"])
+        self.assertIn("interrupt or close only when", route["additionalContext"])
+
+        for payload, expected in (
+            ('{"agent_type":"worker"}', "complete canonical"),
+            ('{"agentType":"explorer"}', "read-only"),
+            ('{"agent_type":"unknown"}', "read-only"),
+            ("[]", "read-only"),
+        ):
+            with self.subTest(payload=payload):
+                scope = run_hook("subagent_scope.py", payload)
+                self.assertEqual(scope["hookEventName"], "SubagentStart")
+                self.assertIn(expected, scope["additionalContext"])
+                if "worker" in payload:
+                    for field in VALIDATOR.WORKER_PACKAGE_FIELDS:
+                        self.assertIn(field, scope["additionalContext"])
 
     def test_runtime_validation_accepts_copied_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
