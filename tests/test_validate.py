@@ -107,9 +107,7 @@ class SourceValidationTest(unittest.TestCase):
                 state_root,
             )
             self.assertEqual(
-                cast(dict[str, object], interrupt["hookSpecificOutput"])[
-                    "permissionDecision"
-                ],
+                cast(dict[str, object], interrupt["hookSpecificOutput"])["permissionDecision"],
                 "deny",
             )
 
@@ -197,9 +195,7 @@ class SourceValidationTest(unittest.TestCase):
                 state_root,
             )
             self.assertEqual(
-                cast(dict[str, object], unmarked_items["hookSpecificOutput"])[
-                    "permissionDecision"
-                ],
+                cast(dict[str, object], unmarked_items["hookSpecificOutput"])["permissionDecision"],
                 "deny",
             )
 
@@ -213,9 +209,7 @@ class SourceValidationTest(unittest.TestCase):
                 state_root,
             )
             self.assertEqual(
-                cast(dict[str, object], close_running["hookSpecificOutput"])[
-                    "permissionDecision"
-                ],
+                cast(dict[str, object], close_running["hookSpecificOutput"])["permissionDecision"],
                 "deny",
             )
 
@@ -257,9 +251,7 @@ class SourceValidationTest(unittest.TestCase):
                             "type": "input_text",
                             "text": json.dumps(
                                 {
-                                    "status": {
-                                        "agent-a": {"completed": "review complete"}
-                                    },
+                                    "status": {"agent-a": {"completed": "review complete"}},
                                     "timed_out": False,
                                 }
                             ),
@@ -479,9 +471,7 @@ class SourceValidationTest(unittest.TestCase):
                 if matcher is not None:
                     group["matcher"] = matcher
                 hooks[event] = [group]
-            (codex_home / "hooks.json").write_text(
-                json.dumps({"hooks": hooks}), encoding="utf-8"
-            )
+            (codex_home / "hooks.json").write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
 
             result = subprocess.run(
                 [
@@ -562,9 +552,7 @@ class SourceValidationTest(unittest.TestCase):
                 if matcher is not None:
                     group["matcher"] = "Agent" if event == "PreToolUse" else matcher
                 hooks[event] = [group]
-            (codex_home / "hooks.json").write_text(
-                json.dumps({"hooks": hooks}), encoding="utf-8"
-            )
+            (codex_home / "hooks.json").write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
 
             failures = VALIDATOR.validate_hooks(codex_home)
 

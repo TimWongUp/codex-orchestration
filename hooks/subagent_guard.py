@@ -145,8 +145,10 @@ def _pre_tool_use(payload: dict[str, Any]) -> dict[str, object]:
 
     if tool_kind == "send_input":
         interrupt = arguments.get("interrupt")
-        if interrupt is not None and interrupt is not False and not _interrupt_authorized(
-            arguments
+        if (
+            interrupt is not None
+            and interrupt is not False
+            and not _interrupt_authorized(arguments)
         ):
             return _deny(
                 "Keep the running agent. Queue follow-up input with interrupt=false and continue "
