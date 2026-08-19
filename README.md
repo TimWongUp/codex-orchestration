@@ -2,29 +2,41 @@
 
 # Codex Orchestration
 
-A cross-platform orchestration kit for Codex custom subagents: one main orchestrator, one active writer, explicit task packages, configurable model routing, and risk-based review.
+A disciplined, cross-platform orchestration system for Codex custom subagents. It gives the main agent a concrete operating model for deciding when to delegate, what context every subagent receives, who may write, how results are accepted, and how much independent review a change needs.
 
-It exists to make multi-agent coding predictable without turning every task into a committee. Simple work stays with the main agent; delegation is reserved for work with a clear payoff.
+Codex Orchestration is deliberately not a “spawn as many agents as possible” framework. Simple work stays with the main agent. Read-only agents can investigate in parallel by evidence area or independent viewpoint, while implementation follows a global single-writer lease. The main agent retains the goal, Git, validation, review selection, and final delivery, so delegation increases useful coverage without blurring ownership.
+
+Repository: [github.com/TimWongUp/codex-orchestration](https://github.com/TimWongUp/codex-orchestration)
+
+## Install with Codex
+
+Requirements: macOS or native Windows, Codex with custom subagents enabled, and Python 3.9 or newer for validation.
+
+Open the repository in Codex and paste this prompt:
+
+```text
+Install Codex Orchestration from https://github.com/TimWongUp/codex-orchestration for my local Codex environment. Read INSTALL.md completely, show me the full plan before making changes, and preserve unrelated or unapproved configuration.
+```
+
+The Agent validates the checkout, discovers the Codex home and active Skill root instead of guessing paths, classifies every destination, and shows all proposed writes before applying them. Required Skills and Agent profiles are copied for portability. Hooks and model routing remain separate, optional decisions. Existing unrelated configuration and unapproved drift are preserved.
+
+The authoritative procedure is [INSTALL.md](INSTALL.md), including conflict handling and runtime verification.
+
+## What makes it different
+
+- **Delegation has a threshold.** Subagents are used only when parallel evidence, specialization, or a bounded worker can materially improve the result.
+- **Every handoff is explicit.** Task packages define one goal, scope, constraints, completion evidence, and return format instead of relying on conversational guesswork.
+- **Parallel reading, serialized writing.** Explorers, researchers, designers, and reviewers may run concurrently; only the main agent or one leased worker writes at a time.
+- **Collaboration has named modes.** `coverage` divides evidence, `panel` compares independent model judgments, and `hybrid` combines both without treating majority vote as truth.
+- **Review scales with risk.** The R0–R3 gate ranges from main-agent validation to focused reviewers, remediation, and adversarial verification.
+- **Models stay local and replaceable.** Agent profiles are model-neutral; optional routing lives outside the repository and can match the models available on each machine.
+- **Safety boundaries are stated honestly.** Hooks reinforce routing and identity, but acceptance still depends on the main agent checking the real diff and validation evidence.
 
 ## Who it is for
 
 This release targets Codex on macOS and native Windows for reusable exploration, research, implementation, prototype, debugging, and focused-review agents. A release candidate is supported only after both platform CI jobs pass.
 
 Installation is performed by the user's Agent from a reviewed repository contract. The contract detects the active Codex paths and applies the platform-appropriate file and Hook configuration without requiring a platform-specific installer.
-
-## Ask an Agent to install it
-
-Requirements: macOS or native Windows, Codex with custom subagents enabled, and Python 3.9 or newer for validation.
-
-Open this repository in Codex and ask:
-
-```text
-Install this repository for my local Codex environment. Read INSTALL.md completely, show me the full plan, and preserve unrelated or unapproved configuration.
-```
-
-The Agent validates the checkout, detects the current platform and Codex paths, classifies every destination, and shows all proposed writes before applying them. Required Skills and Agent profiles are copied for portability. Hooks and model routing are separate, optional decisions. Existing unrelated configuration and unapproved drift are preserved.
-
-The complete and authoritative procedure is [INSTALL.md](INSTALL.md). You can audit it before asking an Agent to perform the installation.
 
 ## First successful use
 
@@ -38,9 +50,9 @@ For a broader feature discussion, ask Codex to use `web-researcher` for public i
 
 ## What is included
 
-- A main-agent orchestration Skill with `coverage`, `panel`, and `hybrid` read-only collaboration modes.
+- A main-agent orchestration Skill that owns delegation, task packaging, write leases, acceptance, and the R0–R3 review gate.
 - The complete `diagnosing-bugs` and `prototype` method Skills used by their workers.
-- Read-only explorer, research, design, and review agents.
+- Read-only explorer, official-reference research, web research, frontend-design, expert, and focused-review agents.
 - Writable implementation, debugging, and prototype workers governed by a single-writer lease.
 - Optional `UserPromptSubmit` and `SubagentStart` hooks.
 - A local, optional model-routing file. No model IDs are pinned in the repository.

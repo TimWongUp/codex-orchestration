@@ -2,29 +2,41 @@
 
 # Codex Orchestration
 
-一套跨平台的 Codex 自定义子代理编排工具：由主代理统一编排，同一时刻只有一个 Writer，任务包显式传递，模型路由可自定义，Review 按风险选择。
+一套有明确纪律、可跨平台使用的 Codex 自定义子代理编排系统。它不只提供一组 Agent，而是给主代理一套完整的工作方式：什么时候值得委派、每个子代理必须拿到哪些上下文、谁可以写入、如何验收结果，以及不同风险的改动需要多强的独立 Review。
 
-它的目标是让多代理开发可预测，同时避免把每个任务都变成“代理委员会”。简单工作仍由主代理完成，只有收益明确时才委派。
+Codex Orchestration 刻意不追求“Agent 越多越好”。简单任务仍由主代理直接完成；只读 Agent 可以按证据范围或独立观点并行调查，正式实现则遵循全局单 Writer 租约。目标、Git、验证、Reviewer 选择和最终交付始终由主代理负责，让并行协作真正增加覆盖面，而不是稀释责任。
+
+项目仓库：[github.com/TimWongUp/codex-orchestration](https://github.com/TimWongUp/codex-orchestration)
+
+## 用 Codex 安装
+
+要求：macOS 或原生 Windows、已启用自定义子代理的 Codex，以及用于验证的 Python 3.9 或更高版本。
+
+在 Codex 中打开本仓库，然后粘贴下面这段提示词：
+
+```text
+从 https://github.com/TimWongUp/codex-orchestration 为我的本地 Codex 环境安装 Codex Orchestration。完整阅读 INSTALL.md，修改前先展示全部计划，并保留无关或未经我批准的配置。
+```
+
+Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根目录，而不是猜测路径；随后分类每个安装目标，并在写入前展示全部变更。必需的 Skill 和 Agent 配置使用复制安装以保证可移植性；Hooks 与模型路由分别作为可选决定。无关配置和未经批准的漂移会被保留。
+
+完整且唯一权威的安装流程位于 [INSTALL.md](INSTALL.md)，其中也定义了冲突处理与运行时验证标准。
+
+## 鲜明特点
+
+- **委派有门槛。** 只有并行证据、专业分工或边界清晰的 Worker 能实质改善结果时，才启动子代理。
+- **每次交接都显式。** 任务包明确一个目标、范围、约束、完成证据和返回格式，不把关键要求留给 Agent 猜。
+- **读取可并行，写入必须串行。** Explorer、研究、设计和 Review Agent 可以并发；同一时刻只能由主代理或一个获得租约的 Worker 写入。
+- **协作方式有明确语义。** `coverage` 拆分证据范围，`panel` 比较不同模型的独立判断，`hybrid` 组合两者，但不会把多数票当作真相。
+- **Review 强度随风险升级。** R0–R3 从主代理自行验收到专项 Reviewer、修复闭环和对抗式复核逐级增强。
+- **模型路由留在本机。** Agent 配置不绑定模型；可选路由文件根据每台机器实际可用的模型独立配置。
+- **不夸大安全边界。** Hooks 负责强化路由和身份提醒，最终仍由主代理检查真实 diff 与验证证据。
 
 ## 适合谁
 
 当前版本以 macOS 和原生 Windows 上的 Codex 为目标，提供可复用的代码探索、资料研究、正式实现、原型、疑难 Bug 和专项 Review 子代理。候选版本只有在两个平台的 CI 都通过后才声明受支持。
 
 安装由用户的 Agent 根据仓库内经过审查的安装契约执行。Agent 会检测当前 Codex 路径，并按平台处理文件与 Hook 配置，不依赖平台专用安装器。
-
-## 让 Agent 安装
-
-要求：macOS 或原生 Windows、已启用自定义子代理的 Codex，以及用于验证的 Python 3.9 或更高版本。
-
-在 Codex 中打开本仓库，然后输入：
-
-```text
-为我的本地 Codex 环境安装这个仓库。完整阅读 INSTALL.md，先展示全部计划，并保留无关或未经我批准的配置。
-```
-
-Agent 会验证仓库、检测当前平台和 Codex 路径、分类每个目标，并在写入前展示全部变更。必需的 Skill 和 Agent 配置使用复制安装以保证可移植性；Hooks 与模型路由分别作为可选决定。无关配置和未经批准的漂移会被保留。
-
-完整且唯一权威的步骤位于 [INSTALL.md](INSTALL.md)，可以先审查再让 Agent 执行。
 
 ## 第一次成功使用
 
@@ -38,9 +50,9 @@ Agent 会验证仓库、检测当前平台和 Codex 路径、分类每个目标�
 
 ## 包含什么
 
-- 支持 `coverage`、`panel`、`hybrid` 三种只读协作模式的主代理编排 Skill。
+- 负责委派、任务包、写入租约、验收和 R0–R3 Review 门的主代理编排 Skill。
 - `diagnosing-bugs-worker` 与 `prototype-worker` 使用的完整方法 Skill。
-- 只读探索、研究、设计和专项 Review Agent。
+- 只读代码探索、官方资料研究、Web 研究、前端设计、专家和专项 Review Agent。
 - 受全局单 Writer 租约约束的实现、Bug 诊断和原型 Worker。
 - 可选的 `UserPromptSubmit` 与 `SubagentStart` Hooks。
 - 可选的本地模型路由文件；仓库不固定任何模型 ID。
