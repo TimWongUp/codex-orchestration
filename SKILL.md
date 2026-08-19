@@ -116,7 +116,9 @@ For staged work, perform one full review after all accepted stages are merged in
 
 Continue non-overlapping main-agent work while agents run. A wait timeout means only that the current wait window ended before completion; keep the running agent and wait again later.
 
-Do not interrupt, close, replace, or switch the model of a running agent solely because progress is slow, output is sparse, or a wait timed out. Interrupt or replace it only after an explicit agent error, a user stop or replacement request, an obsolete task, or observable drift or dead state that persists after a non-interrupting correction.
+Keep every requested agent in the pending set until `wait_agent` reports a terminal status, and consolidate only after the pending set is empty. Queue follow-up input with `interrupt=false`. When the user explicitly requests a stop or replacement, prefix the interrupting message with `USER_REQUESTED_INTERRUPT:`; otherwise keep the agent running. Call `close_agent` only after `wait_agent` has reported `completed`, `errored`, `interrupted`, `shutdown`, or `not_found` for that target.
+
+Do not interrupt, close, replace, or switch the model of a running agent solely because progress is slow, output is sparse, or a wait timed out. An explicit agent error, an obsolete task, or observable drift should first receive a non-interrupting correction unless the user has requested an immediate stop.
 
 When the user asks to stop, create no new agents and safely collect or close existing work.
 

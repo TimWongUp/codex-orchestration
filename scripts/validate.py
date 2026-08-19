@@ -57,6 +57,16 @@ FORBIDDEN_PUBLIC_PATTERNS = {
     "gpt-" + "5.6": "machine-specific model route",
     "deepseek-" + "v4": "machine-specific model route",
 }
+HOOK_REGISTRATIONS = (
+    ("UserPromptSubmit", "orchestration_route.py", None),
+    ("SubagentStart", "subagent_scope.py", None),
+    (
+        "PreToolUse",
+        "subagent_guard.py",
+        r"send_input$|close_agent$",
+    ),
+    ("PostToolUse", "subagent_guard.py", r"wait_agent$"),
+)
 
 
 def require(condition: bool, message: str, failures: list[str]) -> None:
@@ -270,6 +280,31 @@ def validate_source() -> list[str]:
             compile(hook.read_text(encoding="utf-8"), str(hook), "exec")
         except SyntaxError as error:
             failures.append(f"hook syntax error: {hook.name}: {error}")
+    guard_source = (ROOT / "hooks" / "subagent_guard.py").read_text(encoding="utf-8")
+    for phrase in (
+        "USER_REQUESTED_INTERRUPT:",
+        "permissionDecision",
+        "wait_agent",
+        "close_agent",
+    ):
+        require(phrase in guard_source, f"subagent guard missing contract: {phrase}", failures)
+    for event, _script, matcher in HOOK_REGISTRATIONS:
+        if matcher is None:
+            continue
+        pattern = re.compile(matcher)
+        tools = ("send_input", "close_agent") if event == "PreToolUse" else ("wait_agent",)
+        for tool in tools:
+            for candidate in (
+                tool,
+                f"multi_agent_v1{tool}",
+                f"multi_agent_v1__{tool}",
+                f"multi_agent_v1.{tool}",
+            ):
+                require(
+                    pattern.search(candidate) is not None,
+                    f"{event} matcher misses supported tool name: {candidate}",
+                    failures,
+                )
     require(
         (ROOT / "skills" / "diagnosing-bugs" / "scripts" / "hitl-loop.template.ps1").is_file(),
         "Windows HITL template missing",
@@ -366,11 +401,8 @@ def validate_hooks(codex_home: Path) -> list[str]:
     if hooks_root.is_symlink() or not hooks_root.is_dir():
         return [f"runtime Hook directory missing, linked, or conflicting: {hooks_root}"]
 
-    targets: dict[str, Path] = {}
-    for event, script in {
-        "UserPromptSubmit": "orchestration_route.py",
-        "SubagentStart": "subagent_scope.py",
-    }.items():
+    targets: list[tuple[str, Path, str | None]] = []
+    for event, script, matcher in HOOK_REGISTRATIONS:
         source = ROOT / "hooks" / script
         target = hooks_root / script
         require(
@@ -380,7 +412,7 @@ def validate_hooks(codex_home: Path) -> list[str]:
             f"runtime hook differs: {target}",
             failures,
         )
-        targets[event] = target
+        targets.append((event, target, matcher))
 
     hooks_path = codex_home / "hooks.json"
     if hooks_path.is_symlink() or not hooks_path.is_file():
@@ -396,11 +428,13 @@ def validate_hooks(codex_home: Path) -> list[str]:
         return failures
 
     command_field = "commandWindows" if os.name == "nt" else "command"
-    for event, target in targets.items():
+    for event, target, expected_matcher in targets:
         groups = data["hooks"].get(event, [])
         count = 0
         if isinstance(groups, list):
             for group in groups:
+                if not isinstance(group, dict) or group.get("matcher") != expected_matcher:
+                    continue
                 hooks = group.get("hooks", []) if isinstance(group, dict) else []
                 if not isinstance(hooks, list):
                     continue

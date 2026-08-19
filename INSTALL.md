@@ -47,13 +47,17 @@ not delete, unlink, follow, or replace it.
 
 ## 3. Optional Hooks
 
-Ask whether the user wants the `UserPromptSubmit` and `SubagentStart` Hooks. If approved:
+Ask whether the user wants the orchestration Hooks. If approved:
 
-1. Copy `hooks/orchestration_route.py` and `hooks/subagent_scope.py` to `<codex-home>/hooks/`
-   under the same drift rules as required files.
+1. Copy `hooks/orchestration_route.py`, `hooks/subagent_scope.py`, and
+   `hooks/subagent_guard.py` to `<codex-home>/hooks/` under the same drift rules as required files.
 2. Read `<codex-home>/hooks.json`, or start from an empty object when it is absent.
-3. Merge one command Hook for each event while preserving unrelated top-level keys, event
-   groups, matchers, commands, and ordering where practical.
+3. Merge the managed command Hooks while preserving unrelated top-level keys, event groups,
+   matchers, commands, and ordering where practical. Register `orchestration_route.py` for
+   `UserPromptSubmit`, `subagent_scope.py` for `SubagentStart`, and `subagent_guard.py` for both
+   `PreToolUse` with matcher `send_input$|close_agent$` and `PostToolUse` with matcher
+   `wait_agent$`. Codex flattens namespaced local functions by concatenating the namespace and
+   function name, so the suffix matcher covers both flattened and unnamespaced forms.
 4. Resolve the current Python executable to an absolute path. The effective command contains
    exactly two arguments: that executable and the managed script's absolute path. On macOS write
    the correctly quoted POSIX `command`. On Windows write a valid `command` plus the canonical
@@ -61,8 +65,8 @@ Ask whether the user wants the `UserPromptSubmit` and `SubagentStart` Hooks. If 
    arguments, suffixes, or duplicate commands.
 5. Parse the final JSON and show the exact added or changed Hook groups before writing it.
 
-Hook installation is complete only when both scripts match the checkout and each event has one
-effective managed registration.
+Hook installation is complete only when all three scripts match the checkout and each event has
+one effective managed registration with the exact managed matcher.
 
 ## 4. Optional model routing
 
