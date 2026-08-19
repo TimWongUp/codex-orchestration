@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -36,6 +37,18 @@ READERS = {
     "expert",
 }
 FORBIDDEN_KEYS = {"model", "model_reasoning_effort", "service_tier"}
+WORKER_PACKAGE_FIELDS = (
+    "GOAL",
+    "SCOPE",
+    "CONSTRAINTS",
+    "DONE WHEN",
+    "RETURN",
+    "WRITE LEASE: granted",
+    "ALLOWED PATHS",
+    "BRANCH",
+    "ROUND",
+    "VALIDATION",
+)
 FORBIDDEN_PUBLIC_PATTERNS = {
     "/" + "Users/": "absolute macOS user path",
     "C:" + "\\Users\\": "absolute Windows user path",
@@ -178,6 +191,7 @@ def validate_source() -> list[str]:
     )
 
     profiles: dict[str, dict[str, str]] = {}
+    profile_sources: dict[str, str] = {}
     for path in sorted((ROOT / "agents").glob("*.toml")):
         source = path.read_text(encoding="utf-8")
         values = top_level_values(source)
@@ -185,14 +199,42 @@ def validate_source() -> list[str]:
         require(name is not None, f"missing agent name: {path.name}", failures)
         if name:
             profiles[name] = values
+            profile_sources[name] = source
             require(name == path.stem, f"agent filename/name mismatch: {path.name}", failures)
         pinned = FORBIDDEN_KEYS.intersection(values)
         require(not pinned, f"agent pins model settings: {path.name}: {sorted(pinned)}", failures)
     require(set(profiles) == WRITERS | READERS, "agent role set does not match contract", failures)
+    hook_source = (ROOT / "hooks" / "subagent_scope.py").read_text(encoding="utf-8")
+    hook_roles_match = re.search(
+        r"^WRITER_ROLES = frozenset\((\{[^\n]+\})\)$", hook_source, re.MULTILINE
+    )
+    hook_writer_roles = None
+    if hook_roles_match is not None:
+        try:
+            hook_writer_roles = ast.literal_eval(hook_roles_match.group(1))
+        except (SyntaxError, ValueError):
+            pass
+    require(
+        hook_writer_roles == WRITERS,
+        "SubagentStart Hook writer roles do not match agent contract",
+        failures,
+    )
     for name in WRITERS:
         require(
             profiles.get(name, {}).get("sandbox_mode") == "workspace-write",
             f"{name} must be writable",
+            failures,
+        )
+        for field in WORKER_PACKAGE_FIELDS:
+            require(
+                field in profile_sources.get(name, ""),
+                f"{name} does not expose worker package field: {field}",
+                failures,
+            )
+    for field in WORKER_PACKAGE_FIELDS:
+        require(
+            field in hook_source,
+            f"SubagentStart Hook does not expose worker package field: {field}",
             failures,
         )
     for name in READERS:
@@ -220,17 +262,7 @@ def validate_source() -> list[str]:
         "canonical grant literal must appear exactly once",
         failures,
     )
-    for field in (
-        "GOAL",
-        "SCOPE",
-        "CONSTRAINTS",
-        "DONE WHEN",
-        "RETURN",
-        "ALLOWED PATHS",
-        "BRANCH",
-        "ROUND",
-        "VALIDATION",
-    ):
+    for field in WORKER_PACKAGE_FIELDS:
         require(field in worker_contract, f"worker contract missing field: {field}", failures)
 
     for hook in sorted((ROOT / "hooks").glob("*.py")):

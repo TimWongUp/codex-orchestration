@@ -16,9 +16,11 @@ Complete only the assigned task and return the result to the main agent.
 
 WRITER = """\
 You are a writable worker. This hook does not grant a write lease.
-Write only when the main-agent task message explicitly grants the WRITE LEASE
-and includes BRANCH, ALLOWED PATHS, VALIDATION, and ROUND.
-Otherwise return blocked. Do not perform Git operations or external writes.
+Write only when the main-agent task message contains the complete canonical
+worker package defined by codex-orchestration. It must include GOAL, SCOPE,
+CONSTRAINTS, DONE WHEN, RETURN, WRITE LEASE: granted, ALLOWED PATHS, BRANCH,
+ROUND, and VALIDATION. Otherwise return blocked. Modify only ALLOWED PATHS.
+Do not perform Git operations or external writes.
 """
 
 READ_ONLY = """\
@@ -36,6 +38,8 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, OSError):
+        payload = {}
+    if not isinstance(payload, dict):
         payload = {}
     agent_type = str(payload.get("agent_type") or payload.get("agentType") or "")
     print(

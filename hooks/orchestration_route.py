@@ -8,6 +8,9 @@ import json
 CONTEXT = (
     "Main agent: load codex-orchestration when delegation has a clear payoff; "
     "apply its review gate before code delivery. Keep simple work local. "
+    "While agents run, continue non-overlapping main work. If a wait times out, "
+    "keep waiting later; interrupt or close only when the user asks, the agent "
+    "reports an error, or its result is no longer needed. "
     "Derived agents ignore this reminder."
 )
 

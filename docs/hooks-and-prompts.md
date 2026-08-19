@@ -2,7 +2,7 @@
 
 ## Optional hooks
 
-`orchestration_route.py` adds a short main-agent reminder on `UserPromptSubmit`. `subagent_scope.py` tells derived agents whether they are read-only or a lease-gated worker.
+`orchestration_route.py` adds a short main-agent reminder on `UserPromptSubmit`: continue non-overlapping work while agents run, treat a wait timeout as an unfinished wait rather than a failed agent, and interrupt or close only after a user request, an explicit agent error, or when the result is no longer needed. `subagent_scope.py` tells derived agents whether they are read-only or a lease-gated worker.
 
 Hooks are optional during the Agent-driven procedure in `INSTALL.md`. The Agent copies both scripts, shows the exact `hooks.json` merge, writes the platform-appropriate command fields, and preserves unrelated hook groups. Runtime validation checks them only when explicitly invoked with `--hooks`. Hook text never grants a write lease.
 
