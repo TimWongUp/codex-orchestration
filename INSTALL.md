@@ -3,6 +3,10 @@
 Use this contract when the user asks to install, update, repair, or verify this checkout for
 their local Codex environment. Read it completely before changing user configuration.
 
+This checkout is the source of truth for portable Skill, Agent, and Hook behavior. Installed
+copies are runtime artifacts and are never edited as an alternate source. Model routes, Hook
+registrations, executable paths, and unrelated user configuration remain local.
+
 ## 1. Preflight
 
 1. Using the Python interpreter command available on the host, confirm the checkout passes
@@ -45,6 +49,12 @@ only after showing the difference and receiving explicit approval. A conflict is
 user choosing a different target or explicitly moving the existing path; the installation does
 not delete, unlink, follow, or replace it.
 
+Do not register the checkout root itself as one Skill or copy the whole repository into
+`<skills-root>/codex-orchestration`. The main Skill is only the `SKILL.md` plus `references/`
+projection shown above; the bundled method Skills, Agents, and optional Hooks have distinct
+destinations. A separate deployment registry may point to this checkout as its content authority,
+but it must mark the suite as externally installed and defer all runtime writes to this contract.
+
 ## 3. Optional Hooks
 
 Ask whether the user wants the orchestration Hooks. If approved:
@@ -74,12 +84,30 @@ Ask separately whether the user wants local model routing. Without it, the orche
 inherits the current Codex model settings.
 
 If approved, start from `examples/model-routing.toml`, replace every placeholder only with
-models and reasoning levels available on the current host, show the complete route order, and
-write the approved file to `<codex-home>/codex-orchestration/model-routing.toml`. Preserve an
-existing route unless the user explicitly approves its replacement. Never copy another user's
-model identifiers or change unrelated Codex defaults.
+models and reasoning levels available on the current host, remove unused example entries, show
+the complete task overrides and route order, and write the approved file to
+`<codex-home>/codex-orchestration/model-routing.toml`. Preserve an existing route unless the user
+explicitly approves its replacement. Never copy another user's model identifiers or change
+unrelated Codex defaults.
 
-## 5. Verification
+## 5. One-time migration from another source
+
+When an existing installation is a link or copy from a personal checkout, Vault, or other source,
+preflight first records its resolved source and the complete differences from this checkout. Keep
+local model routing and unrelated Hook registrations; do not import private Agent or Hook behavior
+as repository source.
+
+The existing path remains a conflict until the user explicitly approves the exact cutover targets.
+After that approval, remove only the confirmed managed links or move conflicting physical paths to
+a user-approved location, install the required physical copies from the source projection in
+section 2, then apply any separately approved Hook update from section 3. Never replace the main
+Skill alone while leaving bundled method Skills, Agent profiles, or approved Hook scripts sourced
+from the old implementation.
+
+Run the full verification below before retiring the old source directory. Deleting or archiving
+that old source is a separate user decision; a successful runtime cutover does not imply it.
+
+## 6. Verification
 
 Run:
 

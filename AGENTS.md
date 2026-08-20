@@ -4,6 +4,8 @@
 
 - `README.md` and `README.zh-CN.md` are human-facing. Read them only when changing public usage or installation behavior.
 - Runtime behavior is defined by `SKILL.md`, `skills/`, `agents/`, `hooks/`, `references/`, and `scripts/`.
+- This repository is the source of truth for portable runtime behavior. Installed Skills, Agents,
+  and Hooks are deployment artifacts; machine-specific routing and registration stay outside the repository.
 - The target local platforms are macOS and native Windows. Claim support only after both CI
   runners pass for the release candidate.
 - When asked to install, update, repair, or verify this project, read `INSTALL.md` completely
@@ -23,6 +25,8 @@
 - Preserve author, source, revision, license metadata, and `THIRD_PARTY_NOTICES.md` when updating bundled third-party Skills.
 - The main agent owns orchestration and Git; writable workers require the canonical lease in `references/worker-writing.md`.
 - Public files must not contain personal paths, private endpoints, credentials, or machine-specific model IDs.
+- Do not back-port edits from an installed runtime wholesale. Classify drift, preserve portable behavior here,
+  and move host-specific choices into local configuration.
 
 ## Docs
 

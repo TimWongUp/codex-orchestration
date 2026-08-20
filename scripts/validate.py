@@ -74,6 +74,100 @@ def require(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
+def routing_example_failures(source: str) -> list[str]:
+    """Validate the deliberately small TOML subset used by the routing example."""
+    failures: list[str] = []
+    top_level: dict[str, object] = {}
+    overrides: list[dict[str, object]] = []
+    routes: dict[str, list[dict[str, object]]] = {}
+    current = top_level
+
+    for line_number, raw_line in enumerate(source.splitlines(), 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        section = re.fullmatch(r"\[\[(task_overrides|roles\.([A-Za-z0-9_-]+))\]\]", line)
+        if section:
+            if section.group(1) == "task_overrides":
+                current = {}
+                overrides.append(current)
+            else:
+                role = section.group(2)
+                current = {}
+                routes.setdefault(role, []).append(current)
+            continue
+        assignment = re.fullmatch(r"([A-Za-z0-9_-]+)\s*=\s*(.+)", line)
+        if not assignment:
+            failures.append(f"routing example line {line_number} is not supported TOML")
+            continue
+        key, raw_value = assignment.groups()
+        if key in current:
+            failures.append(f"routing example line {line_number} repeats {key}")
+            continue
+        try:
+            current[key] = ast.literal_eval(raw_value)
+        except (SyntaxError, ValueError):
+            failures.append(f"routing example line {line_number} has an invalid value")
+
+    require(
+        top_level == {"schema_version": 1}, "routing example schema_version is invalid", failures
+    )
+    allowed_roles = WRITERS | READERS | {"ROLE_NAME"}
+    override_keys = {"task_kind", "roles", "model", "reasoning_effort"}
+    route_keys = {"model", "reasoning_effort"}
+    optional_keys = {"service_tier", "note"}
+
+    require(bool(overrides), "routing example has no task override", failures)
+    for index, entry in enumerate(overrides, 1):
+        require(
+            override_keys <= entry.keys(),
+            f"routing override {index} is missing required fields",
+            failures,
+        )
+        require(
+            entry.keys() <= override_keys | optional_keys,
+            f"routing override {index} has unknown fields",
+            failures,
+        )
+        roles = entry.get("roles")
+        require(
+            isinstance(roles, list)
+            and bool(roles)
+            and all(isinstance(role, str) and role in allowed_roles for role in roles),
+            f"routing override {index} has invalid roles",
+            failures,
+        )
+
+    require(bool(routes), "routing example has no role routes", failures)
+    for role, entries in routes.items():
+        require(role in allowed_roles, f"routing example has unknown role: {role}", failures)
+        for index, entry in enumerate(entries, 1):
+            require(
+                route_keys <= entry.keys(),
+                f"routing route {role}[{index}] is missing required fields",
+                failures,
+            )
+            require(
+                entry.keys() <= route_keys | optional_keys,
+                f"routing route {role}[{index}] has unknown fields",
+                failures,
+            )
+
+    for entry in overrides + [item for entries in routes.values() for item in entries]:
+        model = entry.get("model")
+        require(
+            isinstance(model, str) and model.startswith("MODEL_ID_"),
+            "routing example contains a non-placeholder model",
+            failures,
+        )
+        require(
+            isinstance(entry.get("reasoning_effort"), str),
+            "routing example has an invalid reasoning_effort",
+            failures,
+        )
+    return failures
+
+
 def top_level_values(source: str) -> dict[str, str]:
     values: dict[str, str] = {}
     for line in source.splitlines():
@@ -155,7 +249,7 @@ def validate_source() -> list[str]:
     worker_contract = (ROOT / "references" / "worker-writing.md").read_text(encoding="utf-8")
 
     for phrase in (
-        "version: 0.4.0",
+        "version: 0.5.0",
         "references/model-routing.md",
         "references/worker-writing.md",
         "coverage",
@@ -170,6 +264,9 @@ def validate_source() -> list[str]:
         "Do not create a worktree unless the user explicitly requests one",
         "A wait timeout means only",
         "Do not interrupt, close, replace, or switch the model",
+        "matching local task override",
+        "unisolated prompt injection",
+        "same effective route",
     ):
         require(phrase in skill, f"missing Skill contract: {phrase}", failures)
 
@@ -270,6 +367,22 @@ def validate_source() -> list[str]:
         "prototype-worker does not load its method Skill",
         failures,
     )
+    for phrase in (
+        "Method-worker boundaries",
+        "returns a checkpoint to the main agent",
+        "never turns a prototype into production architecture",
+    ):
+        require(
+            phrase in worker_contract,
+            f"worker contract missing method boundary: {phrase}",
+            failures,
+        )
+    require(
+        "Community popularity is not proof of correctness"
+        in (ROOT / "agents" / "web-researcher.toml").read_text(encoding="utf-8"),
+        "web-researcher lost evidence hierarchy",
+        failures,
+    )
 
     grant = "WRITE LEASE" + ": " + "granted"
     require(
@@ -280,8 +393,7 @@ def validate_source() -> list[str]:
     for field in WORKER_PACKAGE_FIELDS:
         require(field in worker_contract, f"worker contract missing field: {field}", failures)
     require(
-        "Reusing a worker thread does not extend or recreate the previous lease"
-        in worker_contract,
+        "Reusing a worker thread does not extend or recreate the previous lease" in worker_contract,
         "worker contract permits implicit lease reuse",
         failures,
     )
@@ -328,6 +440,8 @@ def validate_source() -> list[str]:
         "Show one complete installation plan",
         "commandWindows",
         "Preserve unrelated Skills, Agents, configuration, and files",
+        "Do not register the checkout root itself as one Skill",
+        "One-time migration from another source",
         "--skills-root",
     ):
         require(phrase in install_contract, f"missing install contract: {phrase}", failures)
@@ -342,12 +456,11 @@ def validate_source() -> list[str]:
         "legacy write installer must not be shipped",
         failures,
     )
-    require(
-        "MODEL_ID_PRIMARY"
-        in (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8"),
-        "routing example lost placeholders",
-        failures,
-    )
+    routing_example = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
+    failures.extend(routing_example_failures(routing_example))
+    routing_contract = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
+    for phrase in ("effective route", "first candidate, not a hard pin"):
+        require(phrase in routing_contract, f"routing contract missing: {phrase}", failures)
     return failures
 
 
