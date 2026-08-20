@@ -1,6 +1,15 @@
 schema_version = 1
 
 # Copy this file outside the repository and replace every placeholder.
+# Optional task overrides are prepended to ordinary role routes.
+# They are first candidates, not hard pins for retries or panels.
+
+[[task_overrides]]
+task_kind = "TASK_KIND"
+roles = ["ROLE_NAME"]
+model = "MODEL_ID_OVERRIDE"
+reasoning_effort = "REASONING_LEVEL"
+
 # Each role may have one or more ordered route entries.
 
 [[roles.worker]]

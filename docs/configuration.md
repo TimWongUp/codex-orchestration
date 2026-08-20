@@ -1,5 +1,12 @@
 # Configuration
 
+## Authority boundary
+
+Portable orchestration behavior is edited and reviewed in this repository. Installed Skill,
+Agent, and Hook files are deployment artifacts and should not be edited directly. Host-specific
+model routes and Hook registrations remain outside Git so one repository can serve different
+machines without publishing private paths or model identifiers.
+
 ## Install scope
 
 The user's Agent resolves the active paths before installation by inspecting the current runtime, configuration, installed Skill listings, and current official locations. It does not assume one generic Skill root. Managed destinations are:
@@ -25,6 +32,12 @@ All three Skill targets are checked before any installation write:
 
 Managed Agent, Hook, and routing targets are classified the same way. Differing managed files are drift. The Agent shows the difference and replaces it only after explicit approval; conflicts are left for the user to resolve without deletion.
 
+Those rules govern ordinary installation. During a one-time migration from another source,
+`INSTALL.md` section 5 is authoritative: after the user approves the exact cutover targets, the
+Agent may remove only the confirmed managed links before installing the physical runtime
+projection. Old source directories are still retained unless the user separately approves their
+retirement.
+
 The optional guard stores only hashed session and agent identifiers as terminal marker filenames
 under the platform temporary directory. `wait_agent` timeouts do not create markers. Delete the
 temporary `codex-orchestration-subagents` directory only when no Codex session is using it.
@@ -34,6 +47,8 @@ Preflight is complete only after every destination is classified and one complet
 ## Model routes
 
 The repository does not ship active routes. Start from `examples/model-routing.toml`, replace placeholders with values available on the current host, and review the full order before approving the Agent's write.
+
+Optional `task_overrides` entries prepend one local model configuration for a clearly named task kind and a bounded list of roles. Explicit user choices still win; unmatched tasks use the ordinary role route, and unavailable override models fall back to that role's first available entry. Worker retries and model-diverse panels continue through this combined effective route rather than treating the override as a permanent pin.
 
 Without a local route file, the main agent inherits the current Codex model configuration.
 

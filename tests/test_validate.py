@@ -47,6 +47,24 @@ class SourceValidationTest(unittest.TestCase):
     def test_source_contract(self) -> None:
         self.assertEqual(VALIDATOR.validate_source(), [])
 
+    def test_routing_example_schema_rejects_unknown_roles_and_invalid_values(self) -> None:
+        source = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
+        self.assertEqual(VALIDATOR.routing_example_failures(source), [])
+
+        unknown_role = source.replace('roles = ["ROLE_NAME"]', 'roles = ["unknown-role"]')
+        self.assertIn(
+            "routing override 1 has invalid roles",
+            VALIDATOR.routing_example_failures(unknown_role),
+        )
+
+        invalid_value = source.replace('model = "MODEL_ID_OVERRIDE"', "model = [")
+        self.assertTrue(
+            any(
+                "invalid value" in failure
+                for failure in VALIDATOR.routing_example_failures(invalid_value)
+            )
+        )
+
     def test_hook_outputs_match_contract(self) -> None:
         def run_hook(script: str, payload: str = "") -> dict[str, str]:
             result = subprocess.run(

@@ -22,6 +22,8 @@ The Agent validates the checkout, discovers the Codex home and active Skill root
 
 The authoritative procedure is [INSTALL.md](INSTALL.md), including conflict handling and runtime verification.
 
+The repository is the only source of truth for portable Skill, Agent, and Hook behavior. Installed files are replaceable runtime artifacts; model routes, executable paths, and Hook registrations stay local.
+
 ## What makes it different
 
 - **Delegation has a threshold.** Subagents are used only when parallel evidence, specialization, or a bounded worker can materially improve the result.
@@ -29,7 +31,7 @@ The authoritative procedure is [INSTALL.md](INSTALL.md), including conflict hand
 - **Parallel reading, serialized writing.** Explorers, researchers, designers, and reviewers may run concurrently; only the main agent or one leased worker writes at a time.
 - **Collaboration has named modes.** `coverage` divides evidence, `panel` compares independent model judgments, and `hybrid` combines both without treating majority vote as truth.
 - **Review scales with risk.** The R0–R3 gate ranges from main-agent validation to focused reviewers, remediation, and adversarial verification.
-- **Models stay local and replaceable.** Agent profiles are model-neutral; optional routing lives outside the repository and can match the models available on each machine.
+- **Models stay local and replaceable.** Agent profiles are model-neutral; optional role routes and task-specific overrides live outside the repository and can match the models available on each machine.
 - **Safety boundaries are stated honestly.** Hooks reinforce routing and identity, but acceptance still depends on the main agent checking the real diff and validation evidence.
 
 ## Who it is for

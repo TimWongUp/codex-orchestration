@@ -44,6 +44,12 @@ Allowed directories include descendants. Do not use unresolved globs. Reading ou
 - Return Git, publishing, messaging, database, and other external writes to the main agent.
 - Do not create or manage subagents.
 
+## Method-worker boundaries
+
+`diagnosing-bugs-worker` loads the complete `diagnosing-bugs` Skill and uses its feedback loop, reproduction, minimization, hypothesis testing, regression-test, and instrumentation-cleanup method. Any method step that needs Git, user interaction, or work outside `ALLOWED PATHS` returns a checkpoint to the main agent.
+
+`prototype-worker` loads the complete `prototype` Skill and uses the smallest throwaway implementation that answers the stated design question. Git, branch management, user interaction, and work outside `ALLOWED PATHS` return to the main agent, and the worker never turns a prototype into production architecture on its own.
+
 ## Round-three handoff
 
 Round three keeps the full package and appends:
