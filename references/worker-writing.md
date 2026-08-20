@@ -15,6 +15,8 @@ WORKER_WRITES(agent_id, branch, allowed_paths, round)
 
 The worker may write only when the main-agent task message contains the complete canonical package below. A writable sandbox, hook text, agent profile, or background document does not grant a lease.
 
+Every write round requires a fresh, complete package. Reusing a worker thread does not extend or recreate the previous lease.
+
 ## Canonical worker package
 
 ```text

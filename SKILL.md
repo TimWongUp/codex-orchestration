@@ -2,7 +2,7 @@
 name: codex-orchestration
 description: Orchestrate Codex custom subagents for explicit delegation, parallel investigation, writable worker leases, model-diverse panels, and risk-based review. Use when the user asks for subagents or parallel work, or when a coding task has a clear delegation payoff. Keep simple tasks and ordinary documentation with the main agent. Derived subagents must not invoke this Skill.
 metadata:
-  version: 0.3.0
+  version: 0.4.0
 ---
 
 # Codex subagent orchestration
@@ -50,7 +50,7 @@ Add this line to every multi-agent read-only task package:
 EVALUATION MODE: coverage | panel | hybrid
 ```
 
-Panel members receive the same GOAL, SCOPE, CONSTRAINTS, DONE WHEN, RETURN, and source material. Change only the model. Synthesize consensus, material disagreement, and evidence quality; do not use a majority vote as the decision rule.
+Panel members receive identical core fields, any added extensions, evaluation mode, and source material. Change only the model. Synthesize consensus, material disagreement, and evidence quality; do not use a majority vote as the decision rule.
 
 ## Model routing
 
@@ -64,13 +64,32 @@ Before creating a writable worker, read [references/worker-writing.md](reference
 
 ## Read-only task package
 
+Use this required core:
+
 ```text
-GOAL: one primary outcome
-SCOPE: necessary context and investigation boundary
-CONSTRAINTS: contracts whose violation means failure
-DONE WHEN: observable completion condition
-RETURN: result format, evidence, uncertainty, and impact
+GOAL: one outcome or question; do not prescribe the approach
+SCOPE: target and boundary; name non-goals only when confusion is likely; the agent chooses tools and evidence path
+RETURN: requested deliverable and decision-relevant evidence; include sources, uncertainty, or impact when material
 ```
+
+Add only the extensions that materially change the work:
+
+```text
+REFERENCES: artifact paths or links the agent must use
+CONSTRAINTS: task-specific contracts whose violation means failure
+DONE WHEN: observable stopping condition when GOAL does not make completion clear
+```
+
+Pass only indispensable facts the agent cannot recover and that could change the result. Point to existing files, diffs, logs, or URLs instead of copying their contents. Omit unrelated conversation history and the main agent's reasoning, and redact sensitive data. Role defaults and generic safety rules belong in the agent profile, not each task package.
+
+For a same-thread read-only follow-up whose core task is unchanged, send `FOCUS` and add `DELTA` only when there is new information:
+
+```text
+FOCUS: one follow-up question or requested correction
+DELTA: new evidence, acceptance feedback, or changed assumptions
+```
+
+Resend any core or optional field that changed. Use this abbreviated follow-up only on read-only agent threads. For another worker write round, send a fresh complete canonical package; for a read-only correction, start a read-only agent.
 
 Reviewers append:
 
@@ -90,6 +109,8 @@ A branch receives at most three writable worker rounds:
 1. Initial implementation.
 2. The same thread and model address explicit acceptance or review findings.
 3. Only when the main agent or reviewer requests another write round; start a new worker with the next available model route.
+
+Every writable round receives a fresh, complete canonical worker package. Reusing a thread does not extend or recreate a write lease.
 
 After round three, the main agent takes over, decomposes again, or reports the blocker. The final pull-request review has no round limit because reviewers are read-only and the main agent controls remediation.
 

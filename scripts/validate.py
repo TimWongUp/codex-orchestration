@@ -155,12 +155,17 @@ def validate_source() -> list[str]:
     worker_contract = (ROOT / "references" / "worker-writing.md").read_text(encoding="utf-8")
 
     for phrase in (
-        "version: 0.3.0",
+        "version: 0.4.0",
         "references/model-routing.md",
         "references/worker-writing.md",
         "coverage",
         "panel",
         "hybrid",
+        "Use this required core",
+        "Add only the extensions that materially change the work",
+        "FOCUS",
+        "DELTA",
+        "Reusing a thread does not extend or recreate a write lease",
         "Single writer",
         "Do not create a worktree unless the user explicitly requests one",
         "A wait timeout means only",
@@ -274,6 +279,12 @@ def validate_source() -> list[str]:
     )
     for field in WORKER_PACKAGE_FIELDS:
         require(field in worker_contract, f"worker contract missing field: {field}", failures)
+    require(
+        "Reusing a worker thread does not extend or recreate the previous lease"
+        in worker_contract,
+        "worker contract permits implicit lease reuse",
+        failures,
+    )
 
     for hook in sorted((ROOT / "hooks").glob("*.py")):
         try:
