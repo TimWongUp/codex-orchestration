@@ -25,7 +25,7 @@ The authoritative procedure is [INSTALL.md](INSTALL.md), including conflict hand
 ## What makes it different
 
 - **Delegation has a threshold.** Subagents are used only when parallel evidence, specialization, or a bounded worker can materially improve the result.
-- **Every handoff is explicit.** Task packages define one goal, scope, constraints, completion evidence, and return format instead of relying on conversational guesswork.
+- **Handoffs are explicit but lightweight.** Read-only task packages start with goal, scope, and return needs; references, hard constraints, and stopping conditions appear only when they materially change the work.
 - **Parallel reading, serialized writing.** Explorers, researchers, designers, and reviewers may run concurrently; only the main agent or one leased worker writes at a time.
 - **Collaboration has named modes.** `coverage` divides evidence, `panel` compares independent model judgments, and `hybrid` combines both without treating majority vote as truth.
 - **Review scales with risk.** The R0–R3 gate ranges from main-agent validation to focused reviewers, remediation, and adversarial verification.
