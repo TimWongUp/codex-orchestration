@@ -65,6 +65,49 @@ class SourceValidationTest(unittest.TestCase):
             )
         )
 
+    def test_task_package_language_schema_accepts_supported_values(self) -> None:
+        source = (ROOT / "examples" / "preferences.toml").read_text(encoding="utf-8")
+        self.assertEqual(
+            VALIDATOR.preferences_failures(source, allow_placeholder=True),
+            [],
+        )
+        for language in ("en", "zh-CN"):
+            with self.subTest(language=language):
+                selected = source.replace('"LANGUAGE"', f'"{language}"')
+                self.assertEqual(VALIDATOR.preferences_failures(selected), [])
+
+        unsupported = source.replace('"LANGUAGE"', '"fr"')
+        self.assertIn(
+            "preferences task_package_language is invalid",
+            VALIDATOR.preferences_failures(unsupported),
+        )
+
+        extra_field = source + 'unexpected = "value"\n'
+        self.assertIn(
+            "preferences fields are invalid",
+            VALIDATOR.preferences_failures(extra_field, allow_placeholder=True),
+        )
+
+        boolean_version = source.replace("schema_version = 1", "schema_version = True")
+        self.assertIn(
+            "preferences schema_version is invalid",
+            VALIDATOR.preferences_failures(boolean_version, allow_placeholder=True),
+        )
+
+        for invalid_toml in (
+            source.replace('"LANGUAGE"', r'"\x4cANGUAGE"'),
+            source.replace('"LANGUAGE"', '"LANGUAGE" ""'),
+        ):
+            with self.subTest(invalid_toml=invalid_toml):
+                self.assertTrue(
+                    any(
+                        "invalid value" in failure
+                        for failure in VALIDATOR.preferences_failures(
+                            invalid_toml, allow_placeholder=True
+                        )
+                    )
+                )
+
     def test_hook_outputs_match_contract(self) -> None:
         def run_hook(script: str, payload: str = "") -> dict[str, str]:
             result = subprocess.run(
@@ -79,7 +122,8 @@ class SourceValidationTest(unittest.TestCase):
 
         route = run_hook("orchestration_route.py")
         self.assertEqual(route["hookEventName"], "UserPromptSubmit")
-        self.assertIn("continue non-overlapping main work", route["additionalContext"])
+        self.assertIn("Wait before decisions, writes, or final answers", route["additionalContext"])
+        self.assertIn("independent, non-overlapping work", route["additionalContext"])
         self.assertIn("If a wait times out", route["additionalContext"])
         self.assertIn("USER_REQUESTED_INTERRUPT:", route["additionalContext"])
         self.assertIn("terminal status", route["additionalContext"])
@@ -361,6 +405,25 @@ class SourceValidationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             codex_home, skills_root = self.copy_runtime(Path(temporary))
             self.assertEqual(VALIDATOR.validate_runtime(codex_home, skills_root), [])
+
+    def test_runtime_validation_checks_saved_task_package_language(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            preferences = codex_home / "codex-orchestration" / "preferences.toml"
+            preferences.parent.mkdir()
+            preferences.write_text(
+                'schema_version = 1\ntask_package_language = "zh-CN"\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(VALIDATOR.validate_runtime(codex_home, skills_root), [])
+
+            preferences.write_text(
+                'schema_version = 1\ntask_package_language = "fr"\n',
+                encoding="utf-8",
+            )
+            failures = VALIDATOR.validate_runtime(codex_home, skills_root)
+
+        self.assertTrue(any("runtime preferences invalid" in failure for failure in failures))
 
     def test_runtime_validation_reports_missing_components(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

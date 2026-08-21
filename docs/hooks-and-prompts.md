@@ -2,7 +2,7 @@
 
 ## Optional hooks
 
-`orchestration_route.py` adds a short main-agent reminder on `UserPromptSubmit`: continue non-overlapping work while agents run, keep timed-out waits pending, and consolidate only after every requested result reaches a terminal state. `subagent_scope.py` tells derived agents whether they are read-only or a lease-gated worker.
+`orchestration_route.py` adds a short main-agent reminder on `UserPromptSubmit`: wait before decisions, writes, or final answers that pending agents could change; otherwise continue only independent, non-overlapping work. It also keeps timed-out waits pending and delays consolidation until every requested result reaches a terminal state. `subagent_scope.py` tells derived agents whether they are read-only or a lease-gated worker.
 
 `subagent_guard.py` is a narrow tool guard. Its `PreToolUse` registration denies `send_input` with an interrupting value unless the message begins with `USER_REQUESTED_INTERRUPT:`, which the Skill reserves for an explicit user stop or replacement request. It also denies `close_agent` until its `PostToolUse` registration has observed a terminal result for that target from `wait_agent`. Terminal markers are small session-scoped files under the host temporary directory; an empty or timed-out wait records nothing, and a new `send_input` clears the target's old terminal marker. Codex flattens namespaced local function names by concatenation, so the matcher and guard normalize the stable function-name suffix. The guard does not decide whether delegation was appropriate or whether a result is correct.
 

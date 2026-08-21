@@ -1,0 +1,4 @@
+schema_version = 1
+
+# Replace LANGUAGE with en or zh-CN.
+task_package_language = "LANGUAGE"

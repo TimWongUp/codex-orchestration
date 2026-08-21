@@ -18,7 +18,7 @@ Open the repository in Codex and paste this prompt:
 Install Codex Orchestration from https://github.com/TimWongUp/codex-orchestration for my local Codex environment. Read INSTALL.md completely, show me the full plan before making changes, and preserve unrelated or unapproved configuration.
 ```
 
-The Agent validates the checkout, discovers the Codex home and active Skill root instead of guessing paths, classifies every destination, and shows all proposed writes before applying them. Required Skills and Agent profiles are copied for portability. Hooks and model routing remain separate, optional decisions. Existing unrelated configuration and unapproved drift are preserved.
+The Agent validates the checkout, discovers the Codex home and active Skill root instead of guessing paths, classifies every destination, and shows all proposed writes before applying them. Required Skills and Agent profiles are copied for portability. Task-package language is chosen during initial setup; Hooks and model routing remain separate, optional decisions. Existing unrelated configuration and unapproved drift are preserved.
 
 The authoritative procedure is [INSTALL.md](INSTALL.md), including conflict handling and runtime verification.
 
@@ -27,8 +27,10 @@ The repository is the only source of truth for its portable Skill, Agent, and th
 ## What makes it different
 
 - **Delegation has a threshold.** Subagents are used only when parallel evidence, specialization, or a bounded worker can materially improve the result.
-- **Handoffs are explicit but lightweight.** Read-only task packages start with goal, scope, and return needs; references, hard constraints, and stopping conditions appear only when they materially change the work.
+- **Handoffs preserve useful compression.** The main agent reads project architecture, design, ADR, and handoff documents that set cross-cutting constraints; delegated work returns traceable evidence, and negative claims state the searched boundary so verification does not repeat the whole search.
+- **Task language is local.** Setup can persist English or Simplified Chinese prose while canonical package fields and control literals stay stable.
 - **Parallel reading, serialized writing.** Explorers, researchers, designers, and reviewers may run concurrently; only the main agent or one leased worker writes at a time.
+- **Waiting follows dependency.** The main agent waits before decisions, writes, or final answers that pending results could change; only independent, non-overlapping work continues.
 - **Collaboration has named modes.** `coverage` divides evidence, `panel` compares independent model judgments, and `hybrid` combines both without treating majority vote as truth.
 - **Review scales with risk.** The R0–R3 gate ranges from main-agent validation to focused reviewers, remediation, and adversarial verification.
 - **Models stay local and replaceable.** Agent profiles are model-neutral; optional role routes and task-specific overrides live outside the repository and can match the models available on each machine.

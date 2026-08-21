@@ -8,7 +8,8 @@ import json
 CONTEXT = (
     "Main agent: load codex-orchestration when delegation has a clear payoff; "
     "apply its review gate before code delivery. Keep simple work local. "
-    "While agents run, continue non-overlapping main work. If a wait times out, "
+    "Wait before decisions, writes, or final answers that pending agents could change; "
+    "otherwise continue only independent, non-overlapping work. If a wait times out, "
     "keep waiting later and summarize only after all requested results arrive. "
     "Queue follow-ups with interrupt=false. Use USER_REQUESTED_INTERRUPT: only after "
     "an explicit user stop or replacement request, and close an agent only after "
