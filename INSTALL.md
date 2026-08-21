@@ -3,9 +3,10 @@
 Use this contract when the user asks to install, update, repair, or verify this checkout for
 their local Codex environment. Read it completely before changing user configuration.
 
-This checkout is the source of truth for portable Skill, Agent, and Hook behavior. Installed
-copies are runtime artifacts and are never edited as an alternate source. Model routes, Hook
-registrations, executable paths, and unrelated user configuration remain local.
+This checkout is the source of truth for portable Skill, Agent, and the three orchestration Hooks
+named in section 3. Shared context, memory-routing, and closeout Hooks remain owned by their source
+runtime. Installed copies are runtime artifacts and are never edited as an alternate source. Model
+routes, Hook registrations, executable paths, and unrelated user configuration remain local.
 
 ## 1. Preflight
 
@@ -63,7 +64,7 @@ Ask whether the user wants the orchestration Hooks. If approved:
    `hooks/subagent_guard.py` to `<codex-home>/hooks/` under the same drift rules as required files.
 2. Read `<codex-home>/hooks.json`, or start from an empty object when it is absent.
 3. Merge the managed command Hooks while preserving unrelated top-level keys, event groups,
-   matchers, commands, and ordering where practical. Register `orchestration_route.py` for
+   matchers, commands, shared-runtime Hooks, and ordering where practical. Register `orchestration_route.py` for
    `UserPromptSubmit`, `subagent_scope.py` for `SubagentStart`, and `subagent_guard.py` for both
    `PreToolUse` with matcher `send_input$|close_agent$` and `PostToolUse` with matcher
    `wait_agent$`. Codex flattens namespaced local functions by concatenating the namespace and
@@ -76,7 +77,8 @@ Ask whether the user wants the orchestration Hooks. If approved:
 5. Parse the final JSON and show the exact added or changed Hook groups before writing it.
 
 Hook installation is complete only when all three scripts match the checkout and each event has
-one effective managed registration with the exact managed matcher.
+one effective managed registration with the exact managed matcher. Shared context, memory-routing,
+and closeout registrations remain owned by their source runtime and are outside this contract.
 
 ## 4. Optional model routing
 

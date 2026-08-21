@@ -22,7 +22,7 @@ Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根�
 
 完整且唯一权威的安装流程位于 [INSTALL.md](INSTALL.md)，其中也定义了冲突处理与运行时验证标准。
 
-公开仓库是可移植 Skill、Agent 与 Hook 行为的唯一源码。安装文件只是可替换的运行产物；模型路由、可执行路径和 Hook 注册保留在本机。
+本仓库是可移植 Skill、Agent 与三个编排 Hook（`orchestration_route.py`、`subagent_scope.py`、`subagent_guard.py`）的唯一源码。安装文件只是可替换的运行产物；模型路由、可执行路径和 Hook 注册保留在本机。共享 context、memory-routing 与 closeout Hook 继续由其 Runtime 仓库拥有。
 
 ## 鲜明特点
 
