@@ -36,6 +36,10 @@ The main agent owns the goal, decomposition, model selection, write lease, Git o
 
 For feature, product, architecture, or technology choices, create `web-researcher` only when public evidence can change the decision and local or official sources do not already answer the question. Use `coverage` when multiple evidence classes are independently necessary.
 
+## Reading and verification boundary
+
+The main agent directly reads project-owned architecture, design, ADR, and handoff documents when they define cross-cutting constraints or the current decision frame; subagents may locate relevant sections but do not replace that reading. The active writer reads the exact code it will change. For other delegated reading, preserve its compression value by checking decision-critical or suspicious claims through returned paths, symbols, line references, quotations, or targeted samples instead of repeating the whole search. Any claim that something is absent or was not found names the searched boundary and search terms.
+
 ## Read-only collaboration modes
 
 Choose a mode before creating two or more read-only agents:
@@ -61,6 +65,10 @@ Read [references/model-routing.md](references/model-routing.md) before spawning 
 One root task has one active writer: either the main agent or one worker with an explicit lease.
 
 Before creating a writable worker, read [references/worker-writing.md](references/worker-writing.md). While the lease is active, the main agent and every other agent remain read-only. The worker never performs Git operations or external writes.
+
+## Task-package language
+
+Follow an explicit user language request. Otherwise read `$CODEX_HOME/codex-orchestration/preferences.toml` when it exists and use its supported `task_package_language` value (`en` or `zh-CN`); without a saved preference, match the current user's language. Keep field names, role names, paths, and fixed lease or control literals unchanged; write task-package prose in the selected language and request the return in that language.
 
 ## Read-only task package
 
@@ -135,7 +143,7 @@ For staged work, perform one full review after all accepted stages are merged in
 
 ## Waiting and stopping
 
-Continue non-overlapping main-agent work while agents run. A wait timeout means only that the current wait window ended before completion; keep the running agent and wait again later.
+Wait before any decision, write, or final answer that a pending agent result could change. Otherwise continue only independent work that does not overlap the delegated scope or become invalid; if uncertain, wait. A wait timeout means only that the current wait window ended before completion; keep the running agent and wait again later.
 
 Keep every requested agent in the pending set until `wait_agent` reports a terminal status, and consolidate only after the pending set is empty. Queue follow-up input with `interrupt=false`. When the user explicitly requests a stop or replacement, prefix the interrupting message with `USER_REQUESTED_INTERRUPT:`; otherwise keep the agent running. Call `close_agent` only after `wait_agent` has reported `completed`, `errored`, `interrupted`, `shutdown`, or `not_found` for that target.
 

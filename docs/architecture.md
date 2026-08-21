@@ -6,12 +6,12 @@ Codex Orchestration separates five concerns:
 2. `agents/*.toml` defines narrow custom-agent behavior and sandbox defaults.
 3. `hooks/` optionally reinforces main-agent routing and derived-agent identity, and guards the
    two tool actions that can prematurely terminate running subagents.
-4. A local model-routing file selects models without placing machine-specific IDs in the repository.
+4. Local preference files select task-package language and models without placing user choices in the repository.
 5. `INSTALL.md` defines the reviewed, cross-platform installation contract executed by the user's Agent.
 
 The repository is the single source of truth for portable runtime behavior. Installed Skill,
-Agent, and Hook files are replaceable deployment artifacts, while model IDs, executable paths,
-Hook registrations, and other host choices remain local configuration. This prevents an installed
+Agent, and Hook files are replaceable deployment artifacts, while task-package language, model IDs,
+executable paths, Hook registrations, and other host choices remain local configuration. This prevents an installed
 runtime from becoming a second implementation that drifts independently.
 
 The installed runtime is a projection, not a copy of the repository root: the main Skill receives

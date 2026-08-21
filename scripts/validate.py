@@ -37,6 +37,7 @@ READERS = {
     "expert",
 }
 FORBIDDEN_KEYS = {"model", "model_reasoning_effort", "service_tier"}
+TASK_PACKAGE_LANGUAGES = {"en", "zh-CN"}
 WORKER_PACKAGE_FIELDS = (
     "GOAL",
     "SCOPE",
@@ -168,6 +169,55 @@ def routing_example_failures(source: str) -> list[str]:
     return failures
 
 
+def preferences_failures(source: str, *, allow_placeholder: bool = False) -> list[str]:
+    """Validate the canonical TOML subset used by local task-package preferences."""
+    failures: list[str] = []
+    values: dict[str, object] = {}
+
+    for line_number, raw_line in enumerate(source.splitlines(), 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        assignment = re.fullmatch(r"([A-Za-z0-9_-]+)\s*=\s*(.+)", line)
+        if not assignment:
+            failures.append(f"preferences line {line_number} is not supported TOML")
+            continue
+        key, raw_value = assignment.groups()
+        if key in values:
+            failures.append(f"preferences line {line_number} repeats {key}")
+            continue
+        if raw_value == "1":
+            values[key] = 1
+            continue
+        string_value = re.fullmatch(r'(["\'])([A-Za-z-]+)\1', raw_value)
+        if string_value:
+            values[key] = string_value.group(2)
+        else:
+            failures.append(f"preferences line {line_number} has an invalid value")
+
+    require(
+        values.keys() == {"schema_version", "task_package_language"},
+        "preferences fields are invalid",
+        failures,
+    )
+    schema_version = values.get("schema_version")
+    require(
+        type(schema_version) is int and schema_version == 1,
+        "preferences schema_version is invalid",
+        failures,
+    )
+    languages = set(TASK_PACKAGE_LANGUAGES)
+    if allow_placeholder:
+        languages.add("LANGUAGE")
+    language = values.get("task_package_language")
+    require(
+        isinstance(language, str) and language in languages,
+        "preferences task_package_language is invalid",
+        failures,
+    )
+    return failures
+
+
 def top_level_values(source: str) -> dict[str, str]:
     values: dict[str, str] = {}
     for line in source.splitlines():
@@ -252,6 +302,7 @@ def validate_source() -> list[str]:
         "version: 0.5.0",
         "references/model-routing.md",
         "references/worker-writing.md",
+        "task_package_language",
         "coverage",
         "panel",
         "hybrid",
@@ -442,6 +493,9 @@ def validate_source() -> list[str]:
         "Preserve unrelated Skills, Agents, configuration, and files",
         "Do not register the checkout root itself as one Skill",
         "One-time migration from another source",
+        "Task-package language",
+        "examples/preferences.toml",
+        "<codex-home>/codex-orchestration/preferences.toml",
         "--skills-root",
     ):
         require(phrase in install_contract, f"missing install contract: {phrase}", failures)
@@ -458,6 +512,8 @@ def validate_source() -> list[str]:
     )
     routing_example = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
     failures.extend(routing_example_failures(routing_example))
+    preferences_example = (ROOT / "examples" / "preferences.toml").read_text(encoding="utf-8")
+    failures.extend(preferences_failures(preferences_example, allow_placeholder=True))
     routing_contract = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
     for phrase in ("effective route", "first candidate, not a hard pin"):
         require(phrase in routing_contract, f"routing contract missing: {phrase}", failures)
@@ -513,6 +569,21 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
                 f"runtime agent differs: {target}",
                 failures,
             )
+
+    preferences_path = codex_home / "codex-orchestration" / "preferences.toml"
+    if preferences_path.exists() or preferences_path.is_symlink():
+        if has_symlink_component(preferences_path, codex_home) or not preferences_path.is_file():
+            failures.append(f"runtime preferences missing, linked, or conflicting: {preferences_path}")
+        else:
+            try:
+                source = preferences_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as error:
+                failures.append(f"runtime preferences unreadable: {preferences_path}: {error}")
+            else:
+                failures.extend(
+                    f"runtime preferences invalid: {preferences_path}: {failure}"
+                    for failure in preferences_failures(source)
+                )
     return failures
 
 

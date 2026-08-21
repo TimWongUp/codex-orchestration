@@ -5,7 +5,7 @@
 - `README.md` and `README.zh-CN.md` are human-facing. Read them only when changing public usage or installation behavior.
 - Runtime behavior is defined by `SKILL.md`, `skills/`, `agents/`, `hooks/`, `references/`, and `scripts/`.
 - This repository is the source of truth for portable runtime behavior. Installed Skills, Agents,
-  and Hooks are deployment artifacts; machine-specific routing and registration stay outside the repository.
+  and Hooks are deployment artifacts; task-package language, machine-specific routing, and registration stay outside the repository.
 - The target local platforms are macOS and native Windows. Claim support only after both CI
   runners pass for the release candidate.
 - When asked to install, update, repair, or verify this project, read `INSTALL.md` completely
@@ -21,6 +21,7 @@
 ## Constraints
 
 - Keep agent profiles model-neutral. User model routes live outside the repository.
+- Keep task-package prose language local while canonical field names and control literals remain portable.
 - Preserve unrelated files and hook registrations during Agent-driven installation.
 - Keep `orchestration_route.py`, `subagent_scope.py`, and `subagent_guard.py` with this repository's orchestration contract; shared context, memory-routing, and closeout Hooks remain external runtimes, and machine-specific composition remains private configuration.
 - Preserve author, source, revision, license metadata, and `THIRD_PARTY_NOTICES.md` when updating bundled third-party Skills.
