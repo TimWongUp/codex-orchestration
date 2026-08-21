@@ -22,6 +22,7 @@
 
 - Keep agent profiles model-neutral. User model routes live outside the repository.
 - Preserve unrelated files and hook registrations during Agent-driven installation.
+- Keep `orchestration_route.py`, `subagent_scope.py`, and `subagent_guard.py` with this repository's orchestration contract; shared context, memory-routing, and closeout Hooks remain external runtimes, and machine-specific composition remains private configuration.
 - Preserve author, source, revision, license metadata, and `THIRD_PARTY_NOTICES.md` when updating bundled third-party Skills.
 - The main agent owns orchestration and Git; writable workers require the canonical lease in `references/worker-writing.md`.
 - Public files must not contain personal paths, private endpoints, credentials, or machine-specific model IDs.
@@ -33,6 +34,7 @@
 - Architecture: `docs/architecture.md`
 - Configuration: `docs/configuration.md`
 - Hooks and prompt integration: `docs/hooks-and-prompts.md`
+- Hook ownership decision: `docs/adr/0002-keep-orchestration-hooks-with-contract.md`
 - Decisions: create `docs/adr/` only when a hard-to-reverse choice needs a durable record.
 
 ## Update gate

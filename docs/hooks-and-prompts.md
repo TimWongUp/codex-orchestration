@@ -8,6 +8,8 @@
 
 Hooks are optional during the Agent-driven procedure in `INSTALL.md`. The Agent copies all three scripts, shows the exact `hooks.json` merge, writes the platform-appropriate command fields, and preserves unrelated hook groups. Runtime validation checks them only when explicitly invoked with `--hooks`. Hook text and terminal markers never grant a write lease.
 
+These three scripts are owned and released with `codex-orchestration`; they are not shared Hook Runtime source. A machine may register shared context, memory-routing, or closeout Hooks from another repository alongside them. Private composition records that coexistence, while installation and updates continue to merge registrations without replacing unrelated sources.
+
 ## Long-lived main-agent prompt
 
 If a repository or global `AGENTS.md` needs an explicit pointer, use this compact block:

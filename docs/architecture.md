@@ -26,4 +26,6 @@ The main agent is the sole orchestrator. Read-only agents may run concurrently. 
 
 Hooks are behavioral guardrails, not a complete authorization or access-control layer. The tool guard blocks unmarked interrupts and closes without an observed terminal status, while the main agent still owns delegation, result acceptance, and user-directed stopping. Acceptance depends on the main agent reviewing the real diff and validation evidence.
 
+The three orchestration Hooks stay in this repository because they reinforce the Skill's routing, derived-agent identity, and terminal-state contracts and share its tests and validator. Cross-host context injection, memory routing, and closeout behavior belong to their shared runtime instead. A private composition layer may enable both sources on one machine, but it records only paths, deployment mode, and registrations; it does not absorb or redefine either implementation.
+
 Installation is Agent-driven on macOS and native Windows. The repository declares source-to-target intent, conflict policy, one-time source migration, optional choices, and completion criteria instead of reproducing filesystem and configuration logic in a platform-specific installer. `scripts/validate.py` remains read-only and verifies both the public source contract and an installed runtime supplied by path.

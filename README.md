@@ -22,7 +22,7 @@ The Agent validates the checkout, discovers the Codex home and active Skill root
 
 The authoritative procedure is [INSTALL.md](INSTALL.md), including conflict handling and runtime verification.
 
-The repository is the only source of truth for portable Skill, Agent, and Hook behavior. Installed files are replaceable runtime artifacts; model routes, executable paths, and Hook registrations stay local.
+The repository is the only source of truth for its portable Skill, Agent, and three orchestration Hooks: `orchestration_route.py`, `subagent_scope.py`, and `subagent_guard.py`. Installed files are replaceable runtime artifacts; model routes, executable paths, and Hook registrations stay local. Shared context, memory-routing, and closeout Hooks remain owned by their runtime repository.
 
 ## What makes it different
 
