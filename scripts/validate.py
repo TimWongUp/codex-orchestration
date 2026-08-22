@@ -573,7 +573,9 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
     preferences_path = codex_home / "codex-orchestration" / "preferences.toml"
     if preferences_path.exists() or preferences_path.is_symlink():
         if has_symlink_component(preferences_path, codex_home) or not preferences_path.is_file():
-            failures.append(f"runtime preferences missing, linked, or conflicting: {preferences_path}")
+            failures.append(
+                f"runtime preferences missing, linked, or conflicting: {preferences_path}"
+            )
         else:
             try:
                 source = preferences_path.read_text(encoding="utf-8")
