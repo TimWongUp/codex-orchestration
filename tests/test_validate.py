@@ -507,29 +507,31 @@ class SourceValidationTest(unittest.TestCase):
             self.assertEqual(VALIDATOR.validate_runtime(codex_home, skills_root), [])
 
     def test_hook_validation_accepts_one_registration_per_event(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home = Path(temporary) / "codex-home"
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            hooks: dict[str, list[dict[str, object]]] = {}
-            command_field = "commandWindows" if VALIDATOR.os.name == "nt" else "command"
-            for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                shutil.copy2(ROOT / "hooks" / script, hooks_root / script)
-                group: dict[str, object] = {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            command_field: VALIDATOR.expected_hook_command(hooks_root / script),
-                        }
-                    ]
-                }
-                if matcher is not None:
-                    group["matcher"] = matcher
-                hooks[event] = [group]
-            hooks["SessionStart"] = [{"hooks": [{"type": "command", "command": "foreign"}]}]
-            (codex_home / "hooks.json").write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
+        for windows in (False, True):
+            with (
+                self.subTest(windows=windows),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                codex_home = Path(temporary) / "codex-home"
+                hooks_root = codex_home / "hooks"
+                hooks_root.mkdir(parents=True)
+                hooks: dict[str, list[dict[str, object]]] = {}
+                for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
+                    shutil.copy2(ROOT / "hooks" / script, hooks_root / script)
+                    command = VALIDATOR.expected_hook_command(hooks_root / script, windows=windows)
+                    hook: dict[str, object] = {"type": "command", "command": command}
+                    if windows:
+                        hook["commandWindows"] = command
+                    group: dict[str, object] = {"hooks": [hook]}
+                    if matcher is not None:
+                        group["matcher"] = matcher
+                    hooks[event] = [group]
+                hooks["SessionStart"] = [{"hooks": [{"type": "command", "command": "foreign"}]}]
+                (codex_home / "hooks.json").write_text(
+                    json.dumps({"hooks": hooks}), encoding="utf-8"
+                )
 
-            self.assertEqual(VALIDATOR.validate_hooks(codex_home), [])
+                self.assertEqual(VALIDATOR.validate_hooks(codex_home, windows=windows), [])
 
     def test_runtime_cli_validates_selected_hooks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -537,18 +539,15 @@ class SourceValidationTest(unittest.TestCase):
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir()
             hooks: dict[str, list[dict[str, object]]] = {}
-            command_field = "commandWindows" if VALIDATOR.os.name == "nt" else "command"
+            windows = VALIDATOR.os.name == "nt"
             for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
                 target = hooks_root / script
                 shutil.copy2(ROOT / "hooks" / script, target)
-                group: dict[str, object] = {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            command_field: VALIDATOR.expected_hook_command(target),
-                        }
-                    ]
-                }
+                command = VALIDATOR.expected_hook_command(target, windows=windows)
+                hook: dict[str, object] = {"type": "command", "command": command}
+                if windows:
+                    hook["commandWindows"] = command
+                group: dict[str, object] = {"hooks": [hook]}
                 if matcher is not None:
                     group["matcher"] = matcher
                 hooks[event] = [group]
@@ -583,24 +582,24 @@ class SourceValidationTest(unittest.TestCase):
                 hooks_root = codex_home / "hooks"
                 hooks_root.mkdir(parents=True)
                 hooks: dict[str, list[dict[str, object]]] = {}
-                command_field = "commandWindows" if VALIDATOR.os.name == "nt" else "command"
+                windows = VALIDATOR.os.name == "nt"
                 for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
                     target = hooks_root / script
                     shutil.copy2(ROOT / "hooks" / script, target)
                     if command_kind == "path-substring":
                         command = f'echo "{target}"'
                     elif command_kind == "path-suffix":
-                        command = VALIDATOR.expected_hook_command(Path(f"{target}.disabled"))
+                        command = VALIDATOR.expected_hook_command(
+                            Path(f"{target}.disabled"), windows=windows
+                        )
                     else:
-                        command = f"{VALIDATOR.expected_hook_command(target)} extra"
-                    group: dict[str, object] = {
-                        "hooks": [
-                            {
-                                "type": "command",
-                                command_field: command,
-                            }
-                        ]
-                    }
+                        command = (
+                            f"{VALIDATOR.expected_hook_command(target, windows=windows)} extra"
+                        )
+                    hook: dict[str, object] = {"type": "command", "command": command}
+                    if windows:
+                        hook["commandWindows"] = command
+                    group: dict[str, object] = {"hooks": [hook]}
                     if matcher is not None:
                         group["matcher"] = matcher
                     hooks[event] = [group]
@@ -612,24 +611,74 @@ class SourceValidationTest(unittest.TestCase):
 
             self.assertTrue(any("registration count is 0" in failure for failure in failures))
 
+    def test_expected_hook_command_uses_windows_quoting(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "hook scripts" / "guard.py"
+            windows_command = VALIDATOR.expected_hook_command(target, windows=True)
+            posix_command = VALIDATOR.expected_hook_command(target, windows=False)
+
+        self.assertNotEqual(windows_command, posix_command)
+        self.assertIn(f'"{target.absolute()}"', windows_command)
+        self.assertIn(f"'{target.absolute()}'", posix_command)
+
+    def test_hook_validation_rejects_missing_or_invalid_windows_fields(self) -> None:
+        for invalid_field in (
+            "missing-command",
+            "invalid-command",
+            "missing-commandWindows",
+            "invalid-commandWindows",
+        ):
+            with (
+                self.subTest(invalid_field=invalid_field),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                codex_home = Path(temporary) / "codex-home"
+                hooks_root = codex_home / "hooks"
+                hooks_root.mkdir(parents=True)
+                hooks: dict[str, list[dict[str, object]]] = {}
+                for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
+                    target = hooks_root / script
+                    shutil.copy2(ROOT / "hooks" / script, target)
+                    hook: dict[str, object] = {
+                        "type": "command",
+                        "command": VALIDATOR.expected_hook_command(target, windows=True),
+                        "commandWindows": VALIDATOR.expected_hook_command(target, windows=True),
+                    }
+                    if invalid_field == "missing-command":
+                        del hook["command"]
+                    elif invalid_field == "invalid-command":
+                        hook["command"] = "invalid"
+                    elif invalid_field == "missing-commandWindows":
+                        del hook["commandWindows"]
+                    else:
+                        hook["commandWindows"] = "invalid"
+                    group: dict[str, object] = {"hooks": [hook]}
+                    if matcher is not None:
+                        group["matcher"] = matcher
+                    hooks[event] = [group]
+                (codex_home / "hooks.json").write_text(
+                    json.dumps({"hooks": hooks}), encoding="utf-8"
+                )
+
+                failures = VALIDATOR.validate_hooks(codex_home, windows=True)
+
+            self.assertTrue(any("registration count is 0" in failure for failure in failures))
+
     def test_hook_validation_rejects_guard_matcher_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home = Path(temporary) / "codex-home"
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir(parents=True)
             hooks: dict[str, list[dict[str, object]]] = {}
-            command_field = "commandWindows" if VALIDATOR.os.name == "nt" else "command"
+            windows = VALIDATOR.os.name == "nt"
             for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
                 target = hooks_root / script
                 shutil.copy2(ROOT / "hooks" / script, target)
-                group: dict[str, object] = {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            command_field: VALIDATOR.expected_hook_command(target),
-                        }
-                    ]
-                }
+                command = VALIDATOR.expected_hook_command(target, windows=windows)
+                hook: dict[str, object] = {"type": "command", "command": command}
+                if windows:
+                    hook["commandWindows"] = command
+                group: dict[str, object] = {"hooks": [hook]}
                 if matcher is not None:
                     group["matcher"] = "Agent" if event == "PreToolUse" else matcher
                 hooks[event] = [group]

@@ -18,8 +18,10 @@ configuration remain local.
    `<codex-home>/skills` and current official user or repository Skill locations when relevant.
    Do not infer the active root from a generic default. Record the exact selected paths in the
    plan.
-3. Inspect every source and destination named below before writing. Classify each target as
-   `current`, `missing`, `external`, `drift`, or `conflict`.
+3. Inspect every source and destination named below before writing. Classify each managed target as
+   `current`, `missing`, `drift`, or `conflict`. External ownership is recorded separately and is
+   not a managed target classification; report the owning runtime or deployment registry and leave
+   its files or registrations outside this contract untouched.
 4. Show one complete installation plan. Required components may be applied after the user
    approves that plan. On first install or when no valid preference exists, ask whether task-package
    prose should use English or Simplified Chinese. Ask separately about Hooks and model routing
@@ -89,9 +91,10 @@ Ask whether the user wants the orchestration Hooks. If approved:
    function name, so the suffix matcher covers both flattened and unnamespaced forms.
 4. Resolve the current Python executable to an absolute path. The effective command contains
    exactly two arguments: that executable and the managed script's absolute path. On macOS write
-   the correctly quoted POSIX `command`. On Windows write a valid `command` plus the canonical
-   Windows `commandWindows` override, with JSON-escaped paths. Do not add shell wrappers, extra
-   arguments, suffixes, or duplicate commands.
+   the correctly quoted POSIX `command`. On Windows write both `command` and `commandWindows` as
+   the same canonical Windows-quoted command string with JSON-escaped paths. After JSON parsing,
+   the two fields must be byte-for-byte identical and contain the same exact two arguments. Do not
+   add shell wrappers, extra arguments, suffixes, or duplicate commands.
 5. Parse the final JSON and show the exact added or changed Hook groups before writing it.
 
 Hook installation is complete only when all three scripts match the checkout and each event has

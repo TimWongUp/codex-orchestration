@@ -261,18 +261,20 @@ def first_symlink_component(path: Path) -> Path | None:
     return path if path.is_symlink() else None
 
 
-def expected_hook_command(target: Path) -> str:
+def expected_hook_command(target: Path, *, windows: bool | None = None) -> str:
     arguments = [str(Path(sys.executable).absolute()), str(target.absolute())]
-    if os.name == "nt":
+    use_windows = windows if windows is not None else os.name == "nt"
+    if use_windows:
         return subprocess.list2cmdline(arguments)
     return shlex.join(arguments)
 
 
-def hook_command_matches(command: object, target: Path) -> bool:
+def hook_command_matches(command: object, target: Path, *, windows: bool | None = None) -> bool:
     if not isinstance(command, str):
         return False
-    if os.name == "nt":
-        return command == expected_hook_command(target)
+    use_windows = windows if windows is not None else os.name == "nt"
+    if use_windows:
+        return command == expected_hook_command(target, windows=True)
     try:
         arguments = shlex.split(command, posix=True)
     except ValueError:
@@ -489,7 +491,9 @@ def validate_source() -> list[str]:
         "Agent installation contract",
         "Existing links are conflicts",
         "Show one complete installation plan",
+        "not a managed target classification",
         "commandWindows",
+        "byte-for-byte identical",
         "Preserve unrelated Skills, Agents, configuration, and files",
         "Do not register the checkout root itself as one Skill",
         "One-time migration from another source",
@@ -589,8 +593,9 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
     return failures
 
 
-def validate_hooks(codex_home: Path) -> list[str]:
+def validate_hooks(codex_home: Path, *, windows: bool | None = None) -> list[str]:
     failures: list[str] = []
+    use_windows = windows if windows is not None else os.name == "nt"
     linked = first_symlink_component(codex_home)
     if linked is not None:
         return [f"runtime Codex home has linked path component: {linked}"]
@@ -624,7 +629,6 @@ def validate_hooks(codex_home: Path) -> list[str]:
         failures.append(f"runtime hooks config has invalid root: {hooks_path}")
         return failures
 
-    command_field = "commandWindows" if os.name == "nt" else "command"
     for event, target, expected_matcher in targets:
         groups = data["hooks"].get(event, [])
         count = 0
@@ -638,9 +642,14 @@ def validate_hooks(codex_home: Path) -> list[str]:
                 for hook in hooks:
                     if not isinstance(hook, dict) or hook.get("type") != "command":
                         continue
-                    command = hook.get(command_field)
-                    if hook_command_matches(command, target):
-                        count += 1
+                    command = hook.get("commandWindows" if use_windows else "command")
+                    if not hook_command_matches(command, target, windows=use_windows):
+                        continue
+                    if use_windows and not hook_command_matches(
+                        hook.get("command"), target, windows=True
+                    ):
+                        continue
+                    count += 1
         require(
             count == 1,
             f"runtime Hook registration count is {count}, expected 1: {event}: {target}",

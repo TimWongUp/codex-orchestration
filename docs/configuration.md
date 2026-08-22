@@ -23,6 +23,10 @@ The user's Agent resolves the active paths before installation by inspecting the
 
 `INSTALL.md` is the authority for path discovery, planning, conflict handling, optional choices, and verification. Installation creates copies rather than links so the same contract works on macOS and native Windows. Existing symlinks and non-directory parents are conflicts: the Agent does not traverse, unlink, replace, or write through them. Unrelated files and Hook registrations are preserved.
 
+Externally owned registrations and deployment metadata are reported with their owning runtime or
+registry and left untouched. They are outside the `current`, `missing`, `drift`, and `conflict`
+states used for managed installation targets.
+
 ## Existing Skill preflight
 
 All three Skill targets are checked before any installation write:
