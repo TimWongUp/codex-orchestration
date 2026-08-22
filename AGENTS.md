@@ -10,7 +10,8 @@
   runners pass for the release candidate.
 - When asked to install, update, repair, or verify this project, read `INSTALL.md` completely
   before changing user configuration. The installation contract, not a write installer, is the
-  authority for target discovery, conflict handling, optional components, and verification.
+  authority for target discovery, managed versus external ownership, conflict handling,
+  platform-specific Hook commands, optional components, and verification.
 
 ## Commands
 
