@@ -18,7 +18,7 @@ Open the repository in Codex and paste this prompt:
 Install Codex Orchestration from https://github.com/TimWongUp/codex-orchestration for my local Codex environment. Read INSTALL.md completely, show me the full plan before making changes, and preserve unrelated or unapproved configuration.
 ```
 
-The Agent validates the checkout, discovers the Codex home and active Skill root instead of guessing paths, classifies every destination, and shows all proposed writes before applying them. Required Skills and Agent profiles are copied for portability. Task-package language is chosen during initial setup; Hooks and model routing remain separate, optional decisions. Existing unrelated configuration and unapproved drift are preserved.
+The Agent validates the checkout, discovers the Codex home and active Skill root instead of guessing paths, classifies every managed destination, and shows all proposed writes before applying them. Required Skills and Agent profiles are copied for portability. Task-package language is chosen during initial setup; Hooks and model routing remain separate, optional decisions. Existing unrelated configuration and unapproved drift are preserved, while externally owned runtime entries are reported separately and left untouched.
 
 The authoritative procedure is [INSTALL.md](INSTALL.md), including conflict handling and runtime verification.
 

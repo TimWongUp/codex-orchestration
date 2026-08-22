@@ -18,7 +18,7 @@ Codex Orchestration 刻意不追求“Agent 越多越好”。简单任务仍由
 从 https://github.com/TimWongUp/codex-orchestration 为我的本地 Codex 环境安装 Codex Orchestration。完整阅读 INSTALL.md，修改前先展示全部计划，并保留无关或未经我批准的配置。
 ```
 
-Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根目录，而不是猜测路径；随后分类每个安装目标，并在写入前展示全部变更。必需的 Skill 和 Agent 配置使用复制安装以保证可移植性；首次配置时选择任务包语言，Hooks 与模型路由分别作为可选决定。无关配置和未经批准的漂移会被保留。
+Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根目录，而不是猜测路径；随后分类每个受管安装目标，并在写入前展示全部变更。必需的 Skill 和 Agent 配置使用复制安装以保证可移植性；首次配置时选择任务包语言，Hooks 与模型路由分别作为可选决定。无关配置和未经批准的漂移会被保留，外部 Runtime 拥有的条目则单独报告并保持不动。
 
 完整且唯一权威的安装流程位于 [INSTALL.md](INSTALL.md)，其中也定义了冲突处理与运行时验证标准。
 
