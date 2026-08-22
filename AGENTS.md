@@ -14,9 +14,13 @@
 
 ## Commands
 
-- Source validation: `python scripts/validate.py`
-- Tests: `python -m unittest discover -s tests -v`
-- Runtime validation: `python scripts/validate.py --runtime --codex-home <path> --skills-root <path>`
+- Use the Python interpreter command available on the host (`python3`, `py -3`, or `python`) for `<python>` below.
+- Source validation: `<python> scripts/validate.py`
+- Tests: `<python> -m unittest discover -s tests -v`
+- Lint: `ruff check .`
+- Format check: `ruff format --check .`
+- Type check: `pyright`
+- Runtime validation: `<python> scripts/validate.py --runtime --codex-home <path> --skills-root <path>`
 
 ## Constraints
 
