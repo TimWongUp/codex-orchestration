@@ -71,6 +71,7 @@ The write lease is an orchestration contract, not an operating-system ACL. The m
 - [Hooks and long-lived prompts](docs/hooks-and-prompts.md)
 - [Agent installation contract](INSTALL.md)
 - [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 
 The bundled method Skills were originally authored by Matt Pocock and are distributed under the MIT License. See [third-party notices](THIRD_PARTY_NOTICES.md).
 

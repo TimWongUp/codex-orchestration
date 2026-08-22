@@ -71,6 +71,7 @@ Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根�
 - [Hooks 与长期规则提示词](docs/hooks-and-prompts.md)
 - [Agent 安装契约](INSTALL.md)
 - [贡献指南](CONTRIBUTING.md)
+- [安全策略](SECURITY.md)
 
 随包方法 Skill 的原作者为 Matt Pocock，以 MIT License 分发，详见[第三方声明](THIRD_PARTY_NOTICES.md)。
 

@@ -1,6 +1,6 @@
 # Contributing
 
-Contributions are welcome. Bug reports and feature requests belong in GitHub Issues. Do not include credentials, private data, or unredacted logs in Issues or pull requests.
+Contributions are welcome. Bug reports and feature requests belong in GitHub Issues. Report suspected vulnerabilities privately according to the [security policy](SECURITY.md), not through a public Issue. Do not include credentials, private data, or unredacted logs in Issues or pull requests.
 
 The target local runtimes are Codex on macOS and native Windows. Development requires Git and Python 3.9 or newer. Install and run the complete check set for your platform before opening a pull request.
 
