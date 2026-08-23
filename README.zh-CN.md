@@ -22,7 +22,7 @@ Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根�
 
 完整且唯一权威的安装流程位于 [INSTALL.md](INSTALL.md)，其中也定义了冲突处理与运行时验证标准。
 
-本仓库是可移植 Skill、Agent 与三个编排 Hook（`orchestration_route.py`、`subagent_scope.py`、`subagent_guard.py`）的唯一源码。安装文件只是可替换的运行产物；模型路由、可执行路径和 Hook 注册保留在本机。共享 context、memory-routing 与 closeout Hook 继续由其 Runtime 仓库拥有。
+本仓库是可移植 Skill、Agent 与两个编排 Hook（`orchestration_route.py`、`subagent_scope.py`）的唯一源码。安装文件只是可替换的运行产物；模型路由、可执行路径和 Hook 注册保留在本机。共享 context、memory-routing 与 closeout Hook 继续由其 Runtime 仓库拥有。
 
 ## 鲜明特点
 
@@ -31,6 +31,7 @@ Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根�
 - **任务语言保留在本机。** 初始化可持久化选择英文或简体中文，任务包协议字段与控制字面量保持稳定。
 - **读取可并行，写入必须串行。** Explorer、研究、设计和 Review Agent 可以并发；同一时刻只能由主代理或一个获得租约的 Worker 写入。
 - **等待取决于结果依赖。** 待返回结果可能改变决定、写入或最终回答时，主代理先等待；只有独立且不重叠的工作可以继续。
+- **v2 工具各有明确职责。** 普通 `spawn_agent` 明确使用 `fork_turns="none"` 获取新上下文；`send_message` 只排队补充上下文、不启动新轮次；`followup_task` 可向运行中的目标投递后续或纠偏工作，并为空闲目标启动新轮次；`wait_agent` 等待调用者邮箱；`interrupt_agent` 保留上下文并中断活动轮次；`list_agents` 与最终通知共同收敛状态。
 - **协作方式有明确语义。** `coverage` 拆分证据范围，`panel` 比较不同模型的独立判断，`hybrid` 组合两者，但不会把多数票当作真相。
 - **Review 强度随风险升级。** R0–R3 从主代理自行验收到专项 Reviewer、修复闭环和对抗式复核逐级增强。
 - **模型路由留在本机。** Agent 配置不绑定模型；可选的角色顺位与任务级覆盖根据每台机器实际可用的模型独立配置。
@@ -58,7 +59,7 @@ Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根�
 - `diagnosing-bugs-worker` 与 `prototype-worker` 使用的完整方法 Skill。
 - 只读代码探索、官方资料研究、Web 研究、前端设计、专家和专项 Review Agent。
 - 受全局单 Writer 租约约束的实现、Bug 诊断和原型 Worker。
-- 可选 Hooks：强化主代理路由与派生代理职责边界，要求每条子代理输入明确声明为“立即影响当前任务的引导”或“当前任务完成后再处理的排队消息”，并可能为宿主直接暴露的非终态等待结果添加无状态提示。关闭顺序仍是由主代理负责的 Skill 规则；Hook 不宣称可以可靠阻止过早关闭。
+- 可选 Hooks：强化主代理路由与派生代理职责边界；生命周期语义由 Skill 与模型可见的 v2 工具负责。
 - 可选的本地模型路由文件；仓库不固定任何模型 ID。
 - 面向 macOS 与原生 Windows、保留无关 Codex 配置的 Agent 安装契约。
 

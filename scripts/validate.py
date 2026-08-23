@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import os
 import re
@@ -61,16 +62,30 @@ FORBIDDEN_PUBLIC_PATTERNS = {
 HOOK_REGISTRATIONS = (
     ("UserPromptSubmit", "orchestration_route.py", None),
     ("SubagentStart", "subagent_scope.py", None),
-    (
-        "PreToolUse",
-        "subagent_guard.py",
-        r"send_input$",
+)
+RETIRED_HOOK_SCRIPTS = ("subagent_guard.py",)
+RETIRED_HOOK_SHA256 = {
+    "subagent_guard.py": frozenset(
+        {
+            "c9f1b1cc9ee7a1bfb7db5320a1e76e9378948c5e6cba414b8408dcbaa84527fb",
+            "d375ee6b67a85891765bf0c839d6616b828278e35394fc2a69cba250ea3180b1",
+        }
     ),
-    (
-        "PostToolUse",
-        "subagent_guard.py",
-        r"wait_agent$",
-    ),
+}
+LEGACY_V1_ROUTE_SHA256 = frozenset(
+    {
+        "67f95392bb8e96460a5b30b4295e31a2e81643ed75c5ef5c216390e6ef557dcf",
+        "bdbacc28beb7c081db9d85e82d85ddadde259058a16ea2084f02ee361575c561",
+    }
+)
+LEGACY_HOOK_GROUPS = frozenset(
+    {
+        ("PreToolUse", r"send_input$"),
+        ("PreToolUse", r"close_agent$"),
+        ("PreToolUse", r"send_input$|close_agent$"),
+        ("PostToolUse", r"wait_agent$"),
+        ("PostToolUse", r"(?:functions[._]?exec|wait_agent)$"),
+    }
 )
 
 
@@ -120,7 +135,7 @@ def routing_example_failures(source: str) -> list[str]:
     allowed_roles = WRITERS | READERS | {"ROLE_NAME"}
     override_keys = {"task_kind", "roles", "model", "reasoning_effort"}
     route_keys = {"model", "reasoning_effort"}
-    optional_keys = {"service_tier", "note"}
+    optional_keys = {"note"}
 
     require(bool(overrides), "routing example has no task override", failures)
     for index, entry in enumerate(overrides, 1):
@@ -286,6 +301,186 @@ def hook_command_matches(command: object, target: Path, *, windows: bool | None 
     return arguments == [str(Path(sys.executable).absolute()), str(target.absolute())]
 
 
+def hook_command_arguments(command: object, *, windows: bool) -> list[str] | None:
+    if not isinstance(command, str):
+        return None
+    try:
+        arguments = shlex.split(command, posix=not windows)
+    except ValueError:
+        return None
+    if windows:
+        arguments = [
+            argument[1:-1]
+            if len(argument) >= 2 and argument[0] == argument[-1] == '"'
+            else argument
+            for argument in arguments
+        ]
+    return arguments
+
+
+def command_invokes_retired_hook(command: object, *, windows: bool) -> bool:
+    """Recognize the former exact two-argument Python Hook command shape."""
+    script_path = python_hook_script(command, windows=windows)
+    if script_path is None:
+        return False
+    script = script_path.replace("\\", "/").rsplit("/", 1)[-1]
+    if windows:
+        script = script.casefold()
+        retired = {name.casefold() for name in RETIRED_HOOK_SCRIPTS}
+    else:
+        retired = set(RETIRED_HOOK_SCRIPTS)
+    return script in retired
+
+
+def python_hook_script(command: object, *, windows: bool) -> str | None:
+    """Return the script argument from an exact two-argument Python Hook command."""
+    arguments = hook_command_arguments(command, windows=windows)
+    if arguments is None or len(arguments) != 2:
+        return None
+    executable = arguments[0].replace("\\", "/").rsplit("/", 1)[-1]
+    if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?(?:\.exe)?", executable, re.IGNORECASE) is None:
+        return None
+    return arguments[1]
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def files_equal(left: Path, right: Path) -> bool:
+    try:
+        return left.read_bytes() == right.read_bytes()
+    except OSError:
+        return False
+
+
+def hook_path_key(path: str | Path, *, windows: bool) -> str:
+    key = str(path).replace("\\", "/")
+    return key.casefold() if windows else key
+
+
+def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> list[str]:
+    """Find v1-shaped assets without claiming unrelated Hook ownership."""
+    failures: list[str] = []
+    use_windows = windows if windows is not None else os.name == "nt"
+    hooks_root = codex_home / "hooks"
+    route_target = hooks_root / "orchestration_route.py"
+    if hooks_root.is_symlink() or (hooks_root.exists() and not hooks_root.is_dir()):
+        failures.append(f"runtime Hook directory linked or conflicting: {hooks_root}")
+    elif hooks_root.is_dir():
+        for script in RETIRED_HOOK_SCRIPTS:
+            target = hooks_root / script
+            if target.is_symlink() or (target.exists() and not target.is_file()):
+                failures.append(f"retired Hook path conflicts: {target}")
+            elif target.is_file():
+                try:
+                    digest = file_sha256(target)
+                except OSError as error:
+                    failures.append(f"retired Hook path unreadable: {target}: {error}")
+                    continue
+                if digest in RETIRED_HOOK_SHA256[script]:
+                    failures.append(f"retired managed hook remains: {target}")
+                else:
+                    failures.append(f"retired Hook path ownership conflicts: {target}")
+
+        if route_target.is_symlink() or (route_target.exists() and not route_target.is_file()):
+            failures.append(f"legacy route path conflicts: {route_target}")
+        elif route_target.is_file():
+            try:
+                route_digest = file_sha256(route_target)
+            except OSError as error:
+                failures.append(f"orchestration route unreadable: {route_target}: {error}")
+            else:
+                if route_digest in LEGACY_V1_ROUTE_SHA256:
+                    failures.append(f"legacy managed v1 route remains: {route_target}")
+                elif route_digest != file_sha256(ROOT / "hooks" / "orchestration_route.py"):
+                    failures.append(f"legacy route path ownership conflicts: {route_target}")
+
+    hooks_path = codex_home / "hooks.json"
+    if not hooks_path.exists() and not hooks_path.is_symlink():
+        return failures
+    if hooks_path.is_symlink() or not hooks_path.is_file():
+        failures.append(f"runtime hooks config linked or conflicting: {hooks_path}")
+        return failures
+    try:
+        data = json.loads(hooks_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError) as error:
+        failures.append(f"runtime hooks config invalid: {hooks_path}: {error}")
+        return failures
+    if not isinstance(data, dict) or not isinstance(data.get("hooks"), dict):
+        failures.append(f"runtime hooks config has invalid root: {hooks_path}")
+        return failures
+
+    for event, groups in data["hooks"].items():
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+                continue
+
+            if event == "UserPromptSubmit":
+                seen_route_paths: set[str] = set()
+                for hook in group["hooks"]:
+                    if not isinstance(hook, dict) or hook.get("type") != "command":
+                        continue
+                    command_fields = ((hook.get("command"), use_windows),)
+                    if hook.get("commandWindows") is not None:
+                        command_fields += ((hook.get("commandWindows"), True),)
+                    for command, command_windows in command_fields:
+                        script = python_hook_script(command, windows=command_windows)
+                        if script is None:
+                            continue
+                        script_name = script.replace("\\", "/").rsplit("/", 1)[-1]
+                        if (script_name.casefold() if command_windows else script_name) != (
+                            "orchestration_route.py"
+                        ):
+                            continue
+                        script_key = hook_path_key(script, windows=command_windows)
+                        if script_key in seen_route_paths:
+                            continue
+                        seen_route_paths.add(script_key)
+                        script_path = Path(script)
+                        managed_key = hook_path_key(route_target, windows=command_windows)
+                        if script_path.is_symlink() or not script_path.is_file():
+                            failures.append(
+                                f"legacy route registration ownership conflicts: {event}: "
+                                f"{hooks_path}: {script}"
+                            )
+                            continue
+                        try:
+                            script_digest = file_sha256(script_path)
+                        except OSError as error:
+                            failures.append(
+                                f"legacy route registration unreadable: {event}: {hooks_path}: "
+                                f"{script}: {error}"
+                            )
+                            continue
+                        if script_digest in LEGACY_V1_ROUTE_SHA256:
+                            failures.append(
+                                f"legacy v1 route registration remains: {event}: {hooks_path}: "
+                                f"{script}"
+                            )
+                        elif script_key != managed_key:
+                            failures.append(
+                                f"legacy route registration ownership conflicts: {event}: "
+                                f"{hooks_path}: {script}"
+                            )
+
+            matcher = group.get("matcher")
+            if not isinstance(matcher, str) or (event, matcher) not in LEGACY_HOOK_GROUPS:
+                continue
+            for hook in group["hooks"]:
+                if not isinstance(hook, dict) or hook.get("type") != "command":
+                    continue
+                if command_invokes_retired_hook(
+                    hook.get("command"), windows=use_windows
+                ) or command_invokes_retired_hook(hook.get("commandWindows"), windows=True):
+                    failures.append(
+                        f"retired v1-shaped hook registration remains: {event}: {hooks_path}"
+                    )
+    return failures
+
+
 def public_text_files() -> list[Path]:
     suffixes = {".md", ".toml", ".py", ".yml", ".yaml", ".json"}
     return [
@@ -319,13 +514,13 @@ def validate_source() -> list[str]:
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
 
     require(
-        top_level_values(project).get("version") == "0.5.2",
-        "project version must be 0.5.2",
+        top_level_values(project).get("version") == "0.6.0",
+        "project version must be 0.6.0",
         failures,
     )
 
     for phrase in (
-        "version: 0.5.2",
+        "version: 0.6.0",
         "references/model-routing.md",
         "references/worker-writing.md",
         "task_package_language",
@@ -336,25 +531,26 @@ def validate_source() -> list[str]:
         "Add only the extensions that materially change the work",
         "FOCUS",
         "DELTA",
-        "Reusing a thread does not extend or recreate a write lease",
+        "no prior lease is extended",
         "Single writer",
         "Do not create a worktree unless the user explicitly requests one",
-        "timed_out=true",
+        'fork_turns="none"',
+        "positive `fork_turns`",
+        "full-history fork inherits the parent model and reasoning effort",
+        "send_message",
+        "followup_task",
+        "wait_agent",
+        "interrupt_agent",
+        "list_agents",
+        "caller's mailbox",
+        "final notifications",
+        "new agent",
         "exactly one lifecycle call per program",
-        "Do not send guidance, interrupt, close, replace, or switch the model",
+        "Do not send guidance, interrupt, replace, or switch the model",
         "matching local task override",
         "unisolated prompt injection",
         "same effective route",
         "Do not load or execute this Skill",
-        "ORCHESTRATOR_GUIDANCE:",
-        "AFTER_CURRENT_TASK:",
-        "delivery envelopes",
-        "exactly one prefix",
-        "sole text carrier",
-        "interrupt=true",
-        "interrupt=false",
-        "non-empty visible input",
-        "never reuse terminal evidence",
         "runtime/UI metadata",
         "resolved model",
         "unknown`/unconfirmed",
@@ -511,49 +707,6 @@ def validate_source() -> list[str]:
             compile(hook.read_text(encoding="utf-8"), str(hook), "exec")
         except SyntaxError as error:
             failures.append(f"hook syntax error: {hook.name}: {error}")
-    guard_source = (ROOT / "hooks" / "subagent_guard.py").read_text(encoding="utf-8")
-    for phrase in (
-        "USER_REQUESTED_INTERRUPT:",
-        "ORCHESTRATOR_GUIDANCE:",
-        "AFTER_CURRENT_TASK:",
-        "ORCHESTRATOR_CORRECTION:",
-        "permissionDecision",
-        "appear exactly once",
-        "sole text carrier",
-        "require interrupt=true",
-        "requires explicit interrupt=false",
-        "VISIBLE_INPUT_CATEGORY_PREFIXES",
-        "structuredContent",
-        "WAIT RESULT CHECK",
-    ):
-        require(phrase in guard_source, f"subagent guard missing contract: {phrase}", failures)
-    require(
-        "terminal-marker" not in guard_source and "terminal marker" not in guard_source,
-        "subagent guard must not enforce terminal markers",
-        failures,
-    )
-    require(
-        "_marker" not in guard_source,
-        "subagent guard must not enforce close ordering",
-        failures,
-    )
-    for event, _script, matcher in HOOK_REGISTRATIONS:
-        if matcher is None:
-            continue
-        pattern = re.compile(matcher)
-        tools = ("send_input",) if event == "PreToolUse" else ("wait_agent",)
-        for tool in tools:
-            for candidate in (
-                tool,
-                f"multi_agent_v1{tool}",
-                f"multi_agent_v1__{tool}",
-                f"multi_agent_v1.{tool}",
-            ):
-                require(
-                    pattern.search(candidate) is not None,
-                    f"{event} matcher misses supported tool name: {candidate}",
-                    failures,
-                )
     require(
         (ROOT / "skills" / "diagnosing-bugs" / "scripts" / "hitl-loop.template.ps1").is_file(),
         "Windows HITL template missing",
@@ -574,27 +727,28 @@ def validate_source() -> list[str]:
         "examples/preferences.toml",
         "<codex-home>/codex-orchestration/preferences.toml",
         "--skills-root",
-        "send_input$",
-        "wait_agent$",
-        "does not enforce close ordering",
-        "no registration invokes this",
+        "orchestration_route.py",
+        "subagent_scope.py",
+        "does not register a tool guard",
+        "Retired v1 lifecycle assets",
+        "mixed v1/v2",
         "does not confirm the resolved model",
     ):
         require(phrase in install_contract, f"missing install contract: {phrase}", failures)
 
     for phrase in (
-        "may add advisory context for a",
-        "current-task guidance",
-        "after-current-task input",
-        "closed-reason correction form",
-        "does not persist terminal state",
-        "`close_agent`",
-        "responsible for choosing the correct delivery timing",
+        "send_message",
+        "followup_task",
+        "wait_agent",
+        "interrupt_agent",
+        "list_agents",
+        "caller mailbox",
+        'fork_turns="none"',
         "does not confirm the resolved model",
     ):
         require(
             phrase in configuration,
-            f"configuration missing current guard contract: {phrase}",
+            f"configuration missing current v2 lifecycle contract: {phrase}",
             failures,
         )
     for pattern in (
@@ -613,10 +767,16 @@ def validate_source() -> list[str]:
         failures.extend(public_pattern_failures(str(path.relative_to(ROOT)), text))
 
     require(
-        (ROOT / "docs" / "adr" / "0006-use-a-stateless-subagent-interrupt-guard.md").is_file(),
-        "stateless interrupt guard ADR missing",
+        (ROOT / "docs" / "adr" / "0007-pure-v2-collaboration-lifecycle.md").is_file(),
+        "pure v2 collaboration ADR missing",
         failures,
     )
+    for script in RETIRED_HOOK_SCRIPTS:
+        require(
+            not (ROOT / "hooks" / script).exists(),
+            f"retired lifecycle Hook remains in source: {script}",
+            failures,
+        )
 
     require(
         not (ROOT / "scripts" / "install.py").exists(),
@@ -642,6 +802,8 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
     if failures:
         return failures
 
+    failures.extend(retired_hook_failures(codex_home))
+
     for name, source_root in BUNDLED_SKILLS.items():
         target_root = skills_root / name
         if target_root.is_symlink() or not target_root.is_dir():
@@ -664,7 +826,7 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
             require(
                 not has_symlink_component(target, target_root)
                 and target.is_file()
-                and target.read_bytes() == source.read_bytes(),
+                and files_equal(target, source),
                 f"runtime Skill file differs: {target}",
                 failures,
             )
@@ -676,9 +838,7 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
         for source in sorted((ROOT / "agents").glob("*.toml")):
             target = agents_root / source.name
             require(
-                not target.is_symlink()
-                and target.is_file()
-                and target.read_bytes() == source.read_bytes(),
+                not target.is_symlink() and target.is_file() and files_equal(target, source),
                 f"runtime agent differs: {target}",
                 failures,
             )
@@ -711,15 +871,14 @@ def validate_hooks(codex_home: Path, *, windows: bool | None = None) -> list[str
     hooks_root = codex_home / "hooks"
     if hooks_root.is_symlink() or not hooks_root.is_dir():
         return [f"runtime Hook directory missing, linked, or conflicting: {hooks_root}"]
+    failures.extend(retired_hook_failures(codex_home, windows=use_windows))
 
     targets: list[tuple[str, Path, str | None]] = []
     for event, script, matcher in HOOK_REGISTRATIONS:
         source = ROOT / "hooks" / script
         target = hooks_root / script
         require(
-            not target.is_symlink()
-            and target.is_file()
-            and target.read_bytes() == source.read_bytes(),
+            not target.is_symlink() and target.is_file() and files_equal(target, source),
             f"runtime hook differs: {target}",
             failures,
         )
@@ -737,35 +896,6 @@ def validate_hooks(codex_home: Path, *, windows: bool | None = None) -> list[str
     if not isinstance(data, dict) or not isinstance(data.get("hooks"), dict):
         failures.append(f"runtime hooks config has invalid root: {hooks_path}")
         return failures
-
-    guard_target = hooks_root / "subagent_guard.py"
-    for event, groups in data["hooks"].items():
-        if not isinstance(groups, list):
-            continue
-        for group in groups:
-            if not isinstance(group, dict):
-                continue
-            matcher = group.get("matcher")
-            hooks = group.get("hooks", [])
-            if not isinstance(hooks, list):
-                continue
-            for hook in hooks:
-                if not isinstance(hook, dict) or hook.get("type") != "command":
-                    continue
-                fields = ("command", "commandWindows") if use_windows else ("command",)
-                invokes_guard = any(
-                    hook_command_matches(hook.get(field), guard_target, windows=use_windows)
-                    for field in fields
-                )
-                allowed_guard_registration = (event, matcher) in {
-                    ("PreToolUse", r"send_input$"),
-                    ("PostToolUse", r"wait_agent$"),
-                }
-                if invokes_guard and not allowed_guard_registration:
-                    failures.append(
-                        "runtime stale managed guard registration: "
-                        f"{event}: matcher={matcher!r}: {guard_target}"
-                    )
 
     for event, target, expected_matcher in targets:
         groups = data["hooks"].get(event, [])

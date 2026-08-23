@@ -1,6 +1,9 @@
 # Model routing
 
-Model choices are local configuration, not repository policy.
+Model choices are local configuration, not repository policy. Ordinary `spawn_agent` calls use
+`fork_turns="none"` for fresh context. A positive value carries bounded partial history and may
+combine model or reasoning-effort overrides. Omitting `fork_turns` or using `"all"` carries full
+history, inherits the parent model and reasoning effort, and rejects those overrides.
 
 ## Selection order
 
@@ -8,7 +11,8 @@ Model choices are local configuration, not repository policy.
 2. Otherwise read `$CODEX_HOME/codex-orchestration/model-routing.toml` when it exists.
 3. Prepend the first matching `task_overrides` entry for the current role and clearly matching task kind to the ordered role entries, removing duplicate models. This is the effective route.
 4. Otherwise use the ordered role entries as the effective route.
-5. If neither exists, omit model selection to request inheritance of the current Codex model, reasoning effort, and service tier. Inheritance is a request, not evidence of which model actually resolved.
+5. If neither exists, omit model selection to request inheritance of the current Codex model and
+   reasoning effort. Inheritance is a request, not evidence of which model actually resolved.
 
 After spawning, report the resolved model only when runtime metadata or the visible UI exposes it. If the tool returns only an agent id or nickname, the resolved model is `unknown`/unconfirmed; never infer it from the route, an omitted model field, or the current default.
 
@@ -20,7 +24,11 @@ For a single agent or `coverage`, choose the first available route entry. Move t
 
 For `panel` and the panel portion of `hybrid`, deliberately select different available models from each agent's effective route. A matching override may be used by one panel member; later members continue to distinct ordinary-route models. Different reasoning levels of the same model do not count as model diversity.
 
-Worker rounds one and two keep the same model and thread. Round three closes the prior thread and selects the next available model after the round-one model in the same effective route. When round one used an override that is absent from the ordinary role entries, round three therefore starts with the first available ordinary role entry.
+Worker round two keeps the same model and thread through a follow-up task after the target is idle.
+Round three creates a new agent and selects the next available model after the round-one model in
+the same effective route. When round one used an override that is absent from the ordinary role
+entries, round three therefore starts with the first available ordinary role entry. The new agent
+receives a fresh complete task package; no previous thread is closed or reused for the lease.
 
 ## Local file
 
