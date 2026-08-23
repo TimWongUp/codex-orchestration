@@ -86,9 +86,12 @@ Ask whether the user wants the orchestration Hooks. If approved:
 3. Merge the managed command Hooks while preserving unrelated top-level keys, event groups,
    matchers, commands, shared-runtime Hooks, and ordering where practical. Register `orchestration_route.py` for
    `UserPromptSubmit`, `subagent_scope.py` for `SubagentStart`, and `subagent_guard.py` for
-   `PreToolUse` with matcher `send_input$`. Do not register this guard for `wait_agent`
-   PostToolUse or `close_agent`; upgrades must remove those old managed registrations while
-   preserving unrelated registrations. The guard does not enforce close ordering. Codex flattens namespaced local function names by concatenating the namespace and
+   `PreToolUse` with matcher `send_input$` plus `PostToolUse` with matcher `wait_agent$`. The
+   PostToolUse registration adds a stateless advisory when the host surfaces a direct non-terminal
+   wait result. It does not inspect outer `functions.exec` results. Do not register this guard for
+   `close_agent`; upgrades must remove old close or combined managed registrations while
+   preserving unrelated registrations.
+   The guard does not enforce close ordering. Codex flattens namespaced local function names by concatenating the namespace and
    function name, so the suffix matcher covers both flattened and unnamespaced forms.
 4. Resolve the current Python executable to an absolute path. The effective command contains
    exactly two arguments: that executable and the managed script's absolute path. On macOS write
@@ -100,7 +103,7 @@ Ask whether the user wants the orchestration Hooks. If approved:
 
 Hook installation is complete only when all three scripts match the checkout, each event has one
 effective managed registration with the exact managed matcher, and no registration invokes this
-suite's guard for `wait_agent`, `close_agent`, or an old combined matcher. Shared context,
+suite's guard for `close_agent`, outer `functions.exec`, or an old combined matcher. Shared context,
 memory-routing, and closeout registrations remain owned by their source runtime and are outside
 this contract.
 

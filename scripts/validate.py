@@ -66,6 +66,11 @@ HOOK_REGISTRATIONS = (
         "subagent_guard.py",
         r"send_input$",
     ),
+    (
+        "PostToolUse",
+        "subagent_guard.py",
+        r"wait_agent$",
+    ),
 )
 
 
@@ -314,13 +319,13 @@ def validate_source() -> list[str]:
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
 
     require(
-        top_level_values(project).get("version") == "0.5.1",
-        "project version must be 0.5.1",
+        top_level_values(project).get("version") == "0.5.2",
+        "project version must be 0.5.2",
         failures,
     )
 
     for phrase in (
-        "version: 0.5.1",
+        "version: 0.5.2",
         "references/model-routing.md",
         "references/worker-writing.md",
         "task_package_language",
@@ -334,17 +339,23 @@ def validate_source() -> list[str]:
         "Reusing a thread does not extend or recreate a write lease",
         "Single writer",
         "Do not create a worktree unless the user explicitly requests one",
-        "A wait timeout means only",
-        "Do not interrupt, close, replace, or switch the model",
+        "timed_out=true",
+        "exactly one lifecycle call per program",
+        "Do not send guidance, interrupt, close, replace, or switch the model",
         "matching local task override",
         "unisolated prompt injection",
         "same effective route",
         "Do not load or execute this Skill",
-        "ORCHESTRATOR_CORRECTION:",
-        "<reason_code>",
-        "wrong_model",
-        "may terminate",
-        "runtime/UI resolved-model metadata",
+        "ORCHESTRATOR_GUIDANCE:",
+        "AFTER_CURRENT_TASK:",
+        "delivery envelopes",
+        "exactly one prefix",
+        "sole text carrier",
+        "interrupt=true",
+        "interrupt=false",
+        "non-empty visible input",
+        "never reuse terminal evidence",
+        "runtime/UI metadata",
         "resolved model",
         "unknown`/unconfirmed",
     ):
@@ -503,8 +514,17 @@ def validate_source() -> list[str]:
     guard_source = (ROOT / "hooks" / "subagent_guard.py").read_text(encoding="utf-8")
     for phrase in (
         "USER_REQUESTED_INTERRUPT:",
+        "ORCHESTRATOR_GUIDANCE:",
+        "AFTER_CURRENT_TASK:",
         "ORCHESTRATOR_CORRECTION:",
         "permissionDecision",
+        "appear exactly once",
+        "sole text carrier",
+        "require interrupt=true",
+        "requires explicit interrupt=false",
+        "VISIBLE_INPUT_CATEGORY_PREFIXES",
+        "structuredContent",
+        "WAIT RESULT CHECK",
     ):
         require(phrase in guard_source, f"subagent guard missing contract: {phrase}", failures)
     require(
@@ -513,7 +533,7 @@ def validate_source() -> list[str]:
         failures,
     )
     require(
-        "close_agent" not in guard_source and "wait_agent" not in guard_source,
+        "_marker" not in guard_source,
         "subagent guard must not enforce close ordering",
         failures,
     )
@@ -521,7 +541,7 @@ def validate_source() -> list[str]:
         if matcher is None:
             continue
         pattern = re.compile(matcher)
-        tools = ("send_input",)
+        tools = ("send_input",) if event == "PreToolUse" else ("wait_agent",)
         for tool in tools:
             for candidate in (
                 tool,
@@ -555,6 +575,7 @@ def validate_source() -> list[str]:
         "<codex-home>/codex-orchestration/preferences.toml",
         "--skills-root",
         "send_input$",
+        "wait_agent$",
         "does not enforce close ordering",
         "no registration invokes this",
         "does not confirm the resolved model",
@@ -562,11 +583,13 @@ def validate_source() -> list[str]:
         require(phrase in install_contract, f"missing install contract: {phrase}", failures)
 
     for phrase in (
-        "guard handles only interrupting `send_input` calls",
-        "four closed reason codes",
+        "may add advisory context for a",
+        "current-task guidance",
+        "after-current-task input",
+        "closed-reason correction form",
         "does not persist terminal state",
         "`close_agent`",
-        "responsible for evidence, bounded correction use",
+        "responsible for choosing the correct delivery timing",
         "does not confirm the resolved model",
     ):
         require(
@@ -734,7 +757,11 @@ def validate_hooks(codex_home: Path, *, windows: bool | None = None) -> list[str
                     hook_command_matches(hook.get(field), guard_target, windows=use_windows)
                     for field in fields
                 )
-                if invokes_guard and not (event == "PreToolUse" and matcher == r"send_input$"):
+                allowed_guard_registration = (event, matcher) in {
+                    ("PreToolUse", r"send_input$"),
+                    ("PostToolUse", r"wait_agent$"),
+                }
+                if invokes_guard and not allowed_guard_registration:
                     failures.append(
                         "runtime stale managed guard registration: "
                         f"{event}: matcher={matcher!r}: {guard_target}"

@@ -139,9 +139,19 @@ class SourceValidationTest(unittest.TestCase):
         self.assertEqual(route["hookEventName"], "UserPromptSubmit")
         self.assertIn("Wait before decisions, writes, or final answers", route["additionalContext"])
         self.assertIn("independent, non-overlapping work", route["additionalContext"])
-        self.assertIn("If a wait times out", route["additionalContext"])
+        self.assertIn("exactly one lifecycle call per program", route["additionalContext"])
+        self.assertIn("timed_out=true", route["additionalContext"])
         self.assertIn("USER_REQUESTED_INTERRUPT:", route["additionalContext"])
-        self.assertIn("ORCHESTRATOR_CORRECTION:", route["additionalContext"])
+        self.assertIn("ORCHESTRATOR_GUIDANCE:", route["additionalContext"])
+        self.assertIn("affect the current work", route["additionalContext"])
+        self.assertIn("after the current task", route["additionalContext"])
+        self.assertIn("interrupt=true", route["additionalContext"])
+        self.assertIn("interrupt=false", route["additionalContext"])
+        self.assertIn("exactly once", route["additionalContext"])
+        self.assertIn("sole text carrier", route["additionalContext"])
+        self.assertIn(
+            "After any accepted send_input, keep the target pending", route["additionalContext"]
+        )
         self.assertIn("terminal status", route["additionalContext"])
 
         for payload, expected, forbidden in (
@@ -168,7 +178,7 @@ class SourceValidationTest(unittest.TestCase):
                     for field in VALIDATOR.WORKER_PACKAGE_FIELDS:
                         self.assertIn(field, scope["additionalContext"])
 
-    def test_subagent_guard_controls_interrupt_only(self) -> None:
+    def test_subagent_guard_controls_interrupt_and_wait_timeout(self) -> None:
         def run_guard(payload: dict[str, object]) -> dict[str, object]:
             result = subprocess.run(
                 [sys.executable, str(ROOT / "hooks" / "subagent_guard.py")],
@@ -192,25 +202,122 @@ class SourceValidationTest(unittest.TestCase):
             "deny",
         )
 
-        self.assertEqual(
-            run_guard(
-                {
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "send_input",
-                    "tool_input": {
-                        "target": "agent-a",
-                        "interrupt": False,
-                        "message": "continue when ready",
-                    },
-                }
-            ),
-            {},
+        unclassified_inputs: tuple[dict[str, object], ...] = (
+            {
+                "target": "agent-a",
+                "interrupt": False,
+                "message": "FOCUS: inspect the failing lifecycle test first.",
+            },
+            {"target": "agent-a", "message": "FOCUS: continue."},
+            {
+                "target": "agent-a",
+                "interrupt": False,
+                "items": [{"type": "text", "text": "DELTA: new evidence."}],
+            },
         )
+        for tool_input in unclassified_inputs:
+            with self.subTest(unclassified=tool_input):
+                unclassified_queue = run_guard(
+                    {
+                        "hook_event_name": "PreToolUse",
+                        "tool_name": "send_input",
+                        "tool_input": tool_input,
+                    }
+                )
+                unclassified_output = cast(
+                    dict[str, object], unclassified_queue["hookSpecificOutput"]
+                )
+                self.assertEqual(unclassified_output["permissionDecision"], "deny")
+                self.assertIn(
+                    "Classify send_input delivery explicitly",
+                    cast(str, unclassified_output["permissionDecisionReason"]),
+                )
+
+        for carrier in ("message", "items"):
+            with self.subTest(queued_carrier=carrier):
+                tool_input: dict[str, object] = {
+                    "target": "agent-a",
+                    "interrupt": False,
+                }
+                queued_text = "AFTER_CURRENT_TASK:\nSummarize an optional follow-up."
+                if carrier == "message":
+                    tool_input["message"] = queued_text
+                else:
+                    tool_input["items"] = [{"type": "text", "text": queued_text}]
+                self.assertEqual(
+                    run_guard(
+                        {
+                            "hook_event_name": "PreToolUse",
+                            "tool_name": "send_input",
+                            "tool_input": tool_input,
+                        }
+                    ),
+                    {},
+                )
+
+        guidance = "ORCHESTRATOR_GUIDANCE:\nFocus on the failing lifecycle test first."
+        allowed_guidance = run_guard(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "send_input",
+                "tool_input": {
+                    "target": "agent-a",
+                    "interrupt": True,
+                    "message": guidance,
+                },
+            }
+        )
+        self.assertEqual(allowed_guidance, {})
+
+        queued_guidance = run_guard(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "send_input",
+                "tool_input": {
+                    "target": "agent-a",
+                    "interrupt": False,
+                    "message": guidance,
+                },
+            }
+        )
+        queued_output = cast(dict[str, object], queued_guidance["hookSpecificOutput"])
+        self.assertEqual(queued_output["permissionDecision"], "deny")
+        self.assertIn("interrupt=true", cast(str, queued_output["permissionDecisionReason"]))
+
+        for carrier, text in (
+            ("message", "USER_REQUESTED_INTERRUPT: stop"),
+            ("items", "ORCHESTRATOR_GUIDANCE:\nStop delegating and finish your own task."),
+            ("message", "ORCHESTRATOR_CORRECTION: wrong_role\nReturn to the assigned role."),
+        ):
+            for queued_mode in ("false", "omitted"):
+                with self.subTest(carrier=carrier, queued_mode=queued_mode):
+                    tool_input: dict[str, object] = {"target": "agent-a"}
+                    if queued_mode == "false":
+                        tool_input["interrupt"] = False
+                    if carrier == "message":
+                        tool_input["message"] = text
+                    else:
+                        tool_input["items"] = [{"type": "text", "text": text}]
+                    result = run_guard(
+                        {
+                            "hook_event_name": "PreToolUse",
+                            "tool_name": "multi_agent_v1send_input",
+                            "tool_input": tool_input,
+                        }
+                    )
+                    hook_output = cast(dict[str, object], result["hookSpecificOutput"])
+                    self.assertEqual(hook_output["permissionDecision"], "deny")
+                    self.assertIn(
+                        "interrupt=true", cast(str, hook_output["permissionDecisionReason"])
+                    )
+
         for carrier, text in (
             ("message", "USER_REQUESTED_INTERRUPT: stop"),
             ("items", "USER_REQUESTED_INTERRUPT: stop"),
-            ("message", "ORCHESTRATOR_CORRECTION: wrong_role\nReturn to the assigned role."),
-            ("items", "ORCHESTRATOR_CORRECTION: scope_drift\nReturn to scope."),
+            ("message", "ORCHESTRATOR_GUIDANCE:\nReturn to the assigned role."),
+            ("message", "\n  ORCHESTRATOR_GUIDANCE:\nUse the latest evidence."),
+            ("items", "ORCHESTRATOR_GUIDANCE:\nReturn to scope."),
+            ("message", "ORCHESTRATOR_CORRECTION: scope_drift\nReturn to scope."),
         ):
             with self.subTest(carrier=carrier, text=text):
                 tool_input: dict[str, object] = {"target": "agent-a", "interrupt": True}
@@ -229,35 +336,94 @@ class SourceValidationTest(unittest.TestCase):
                     {},
                 )
 
-        for reason in (
-            "wrong_model",
-            "wrong_role",
-            "descendant_orchestration",
-            "scope_drift",
-        ):
-            with self.subTest(reason=reason):
-                self.assertEqual(
-                    run_guard(
-                        {
-                            "hook_event_name": "PreToolUse",
-                            "tool_name": "send_input",
-                            "tool_input": {
-                                "target": "agent-a",
-                                "interrupt": True,
-                                "message": f"ORCHESTRATOR_CORRECTION: {reason}\nCorrect now.",
+        self.assertEqual(
+            run_guard(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "send_input",
+                    "tool_input": {
+                        "target": "agent-a",
+                        "interrupt": True,
+                        "items": [
+                            {
+                                "type": "text",
+                                "text": "ORCHESTRATOR_GUIDANCE:\nInspect the image.",
                             },
-                        }
-                    ),
-                    {},
-                )
+                            {"type": "image", "image_url": "https://example.com/evidence.png"},
+                        ],
+                    },
+                }
+            ),
+            {},
+        )
 
         invalid_inputs: tuple[dict[str, object], ...] = (
             {"interrupt": True, "items": [{"type": "text", "text": "replace reviewer"}]},
             {"interrupt": "true", "message": "USER_REQUESTED_INTERRUPT: stop"},
-            {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: stop"},
-            {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: timeout"},
-            {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: too_slow"},
-            {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: unknown"},
+            {"interrupt": None, "message": "continue"},
+            {
+                "items": {"type": "text", "text": "USER_REQUESTED_INTERRUPT: stop"},
+            },
+            {
+                "interrupt": True,
+                "message": "Please stop now.",
+                "items": [{"type": "text", "text": "USER_REQUESTED_INTERRUPT: decoy"}],
+            },
+            {
+                "interrupt": True,
+                "items": [
+                    {"type": "text", "text": "Please stop now."},
+                    {"type": "text", "text": "USER_REQUESTED_INTERRUPT: decoy"},
+                ],
+            },
+            {
+                "interrupt": True,
+                "items": [
+                    {
+                        "type": "image",
+                        "text": "USER_REQUESTED_INTERRUPT: stop",
+                        "image_url": "https://example.com/evidence.png",
+                    }
+                ],
+            },
+            {
+                "interrupt": True,
+                "items": [{"text": "USER_REQUESTED_INTERRUPT: stop"}],
+            },
+            {
+                "interrupt": False,
+                "message": "FOCUS: wrap up.\nUSER_REQUESTED_INTERRUPT: stop",
+            },
+            {"message": "\ufeffUSER_REQUESTED_INTERRUPT: stop"},
+            {"message": "\u200bORCHESTRATOR_GUIDANCE:\nReturn to scope."},
+            {"interrupt": True, "message": "USER_REQUESTED_INTERRUPT:"},
+            {"interrupt": True, "message": "ORCHESTRATOR_GUIDANCE:\n  "},
+            {"interrupt": False, "message": "AFTER_CURRENT_TASK:"},
+            {"interrupt": True, "message": "USER_REQUESTED_INTERRUPT:\u200b"},
+            {
+                "interrupt": True,
+                "items": [{"type": "text", "text": "ORCHESTRATOR_GUIDANCE:\x00"}],
+            },
+            {"interrupt": False, "message": "AFTER_CURRENT_TASK:\ufeff"},
+            {"interrupt": True, "message": "ORCHESTRATOR_GUIDANCE:\u0301"},
+            {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: unknown\nCorrect."},
+            {
+                "interrupt": True,
+                "message": ("USER_REQUESTED_INTERRUPT: stop ORCHESTRATOR_GUIDANCE: redirect"),
+            },
+            {
+                "interrupt": True,
+                "message": ("ORCHESTRATOR_GUIDANCE: first ORCHESTRATOR_GUIDANCE: second"),
+            },
+            {"interrupt": True, "message": "AFTER_CURRENT_TASK:\nDo this later."},
+            {"message": "AFTER_CURRENT_TASK:\nDo this later."},
+            {
+                "interrupt": True,
+                "items": [{"type": "text", "text": "AFTER_CURRENT_TASK:\nDo this later."}],
+            },
+            {
+                "items": [{"type": "text", "text": "AFTER_CURRENT_TASK:\nDo this later."}],
+            },
         )
         for tool_input in invalid_inputs:
             with self.subTest(tool_input=tool_input):
@@ -286,6 +452,160 @@ class SourceValidationTest(unittest.TestCase):
                     ),
                     {},
                 )
+
+        wait_timeout = run_guard(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "multi_agent_v1wait_agent",
+                "tool_input": {"targets": ["agent-a"]},
+                "tool_response": {"status": {}, "timed_out": True},
+            }
+        )
+        wait_context = cast(
+            str,
+            cast(dict[str, object], wait_timeout["hookSpecificOutput"])["additionalContext"],
+        )
+        self.assertIn("WAIT RESULT CHECK", wait_context)
+        self.assertIn("timed_out=true", wait_context)
+        self.assertIn("pending", wait_context)
+
+        for terminal_status in (
+            {"completed": "done"},
+            {"errored": "failed"},
+            "interrupted",
+            "shutdown",
+            "not_found",
+        ):
+            with self.subTest(terminal_status=terminal_status):
+                self.assertEqual(
+                    run_guard(
+                        {
+                            "hook_event_name": "PostToolUse",
+                            "tool_name": "wait_agent",
+                            "tool_input": {"targets": ["agent-a"]},
+                            "tool_response": {
+                                "status": {"agent-a": terminal_status},
+                                "timed_out": False,
+                            },
+                        }
+                    ),
+                    {},
+                )
+
+        partial_wait = run_guard(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "wait_agent",
+                "tool_input": {"targets": ["agent-a", "agent-b"]},
+                "tool_response": {
+                    "status": {"agent-a": {"completed": "done"}},
+                    "timed_out": False,
+                },
+            }
+        )
+        self.assertIn("hookSpecificOutput", partial_wait)
+
+        authoritative_wait = run_guard(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "wait_agent",
+                "tool_input": {"targets": ["agent-a", "agent-b"]},
+                "tool_response": {
+                    "status": {
+                        "agent-a": "completed",
+                        "agent-b": "completed",
+                    },
+                    "timed_out": False,
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(
+                                {
+                                    "status": {
+                                        "agent-a": "completed",
+                                        "agent-b": "completed",
+                                    },
+                                    "timed_out": False,
+                                }
+                            ),
+                        }
+                    ],
+                    "structuredContent": {
+                        "status": {"agent-a": {"completed": "real result"}},
+                        "timed_out": True,
+                    },
+                },
+            }
+        )
+        self.assertIn("hookSpecificOutput", authoritative_wait)
+
+        structured_terminal = run_guard(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "wait_agent",
+                "tool_input": {"targets": ["agent-a"]},
+                "tool_response": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": '{"status":{},"timed_out":true}',
+                        }
+                    ],
+                    "structuredContent": {
+                        "status": {"agent-a": {"completed": "real result"}},
+                        "timed_out": False,
+                    },
+                },
+            }
+        )
+        self.assertEqual(structured_terminal, {})
+
+        malformed_structured_wait = run_guard(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "wait_agent",
+                "tool_input": {"targets": ["agent-a"]},
+                "tool_response": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": '{"status":{"agent-a":"completed"},"timed_out":false}',
+                        }
+                    ],
+                    "structuredContent": {"unexpected": "shape"},
+                },
+            }
+        )
+        self.assertIn("hookSpecificOutput", malformed_structured_wait)
+
+        unrecognized_structured_field = run_guard(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "wait_agent",
+                "tool_input": {"targets": ["agent-a"]},
+                "tool_response": {
+                    "status": {"agent-a": "running"},
+                    "timed_out": False,
+                    "structured_content": {
+                        "status": {"agent-a": "completed"},
+                        "timed_out": False,
+                    },
+                },
+            }
+        )
+        self.assertIn("hookSpecificOutput", unrecognized_structured_field)
+
+        self.assertEqual(
+            run_guard(
+                {
+                    "hook_event_name": "PostToolUse",
+                    "tool_name": "functions.exec",
+                    "tool_input": "tools.multi_agent_v1__wait_agent(...) ",
+                    "tool_response": {"status": {}, "timed_out": True},
+                }
+            ),
+            {},
+        )
 
     def test_runtime_validation_accepts_copied_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -427,7 +747,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_hook_validation_rejects_stale_managed_guard_registrations(self) -> None:
         for event, matcher in (
-            ("PostToolUse", r"wait_agent$"),
+            ("PostToolUse", r"(?:functions[._]?exec|wait_agent)$"),
             ("PreToolUse", r"close_agent$"),
             ("PreToolUse", r"send_input$|close_agent$"),
         ):
@@ -471,13 +791,14 @@ class SourceValidationTest(unittest.TestCase):
                 any("stale managed guard registration" in failure for failure in failures)
             )
 
-    def test_guard_registration_only_covers_send_input(self) -> None:
+    def test_guard_registration_covers_send_input_and_wait_results(self) -> None:
         self.assertEqual(
             VALIDATOR.HOOK_REGISTRATIONS,
             (
                 ("UserPromptSubmit", "orchestration_route.py", None),
                 ("SubagentStart", "subagent_scope.py", None),
                 ("PreToolUse", "subagent_guard.py", r"send_input$"),
+                ("PostToolUse", "subagent_guard.py", r"wait_agent$"),
             ),
         )
 

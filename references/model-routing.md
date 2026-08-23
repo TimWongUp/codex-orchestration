@@ -12,7 +12,7 @@ Model choices are local configuration, not repository policy.
 
 After spawning, report the resolved model only when runtime metadata or the visible UI exposes it. If the tool returns only an agent id or nickname, the resolved model is `unknown`/unconfirmed; never infer it from the route, an omitted model field, or the current default.
 
-A wrong-model correction requires runtime/UI resolved-model metadata or an explicit spawn rejection or mismatch error. A route entry, inheritance request, agent id, nickname, default, or main-agent expectation is not evidence that the wrong model resolved.
+Treat a resolved model as wrong only when runtime/UI metadata or an explicit spawn rejection or mismatch error shows it. A route entry, inheritance request, agent id, nickname, default, or main-agent expectation is not evidence that the wrong model resolved.
 
 Task overrides are optional and local. Each entry names one `task_kind`, the roles it applies to, and one model configuration. Apply an override only when the task clearly matches its declared kind; otherwise continue with the ordinary role route. An override is the first candidate, not a hard pin. If it is unavailable, continue from the first ordinary role entry.
 
