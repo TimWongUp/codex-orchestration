@@ -2,14 +2,15 @@
 name: codex-orchestration
 description: Orchestrate Codex custom subagents for explicit delegation, parallel investigation, writable worker leases, model-diverse panels, and risk-based review. Use when the user asks for subagents or parallel work, or when a coding task has a clear delegation payoff. Keep simple tasks and ordinary documentation with the main agent. Derived subagents must not invoke this Skill.
 metadata:
-  version: 0.5.0
+  version: 0.5.1
 ---
 
 # Codex subagent orchestration
 
 ## Authority
 
-This Skill belongs to the main agent. Derived agents do not create, coordinate, wait for, or summarize other agents.
+This Skill belongs to the main agent. Derived agents do not create, coordinate, wait for, or summarize other agents. Do not load or execute this Skill from a derived agent.
+A `panel` or `hybrid` evaluation mode marks a derived agent only as a panel member; it never authorizes that agent to become the main orchestrator or manage descendants.
 
 The main agent owns the goal, decomposition, model selection, write lease, Git operations, acceptance, review, and final delivery. Delegate only when the result is likely to change the decision or materially improve execution.
 
@@ -54,11 +55,11 @@ Add this line to every multi-agent read-only task package:
 EVALUATION MODE: coverage | panel | hybrid
 ```
 
-Panel members receive identical core fields, any added extensions, evaluation mode, and source material. Change only the model. Synthesize consensus, material disagreement, and evidence quality; do not use a majority vote as the decision rule.
+The main agent gives panel members identical core fields, any added extensions, evaluation mode, and source material, changing only the model. A derived panel member answers independently; panel membership is not orchestration authority, and members do not load or execute this Skill, synthesize the panel, or create/manage descendants. After all members return, the main agent synthesizes consensus, material disagreement, and evidence quality without using majority vote as the decision rule.
 
 ## Model routing
 
-Read [references/model-routing.md](references/model-routing.md) before spawning an agent. Follow an explicit user model request first; otherwise prepend a matching local task override to the ordinary role route and use that effective route. If neither exists, inherit the current Codex defaults. Agent TOML files never pin models.
+Read [references/model-routing.md](references/model-routing.md) before spawning an agent. Follow an explicit user model request first and, when the spawn tool supports it, pass that model as an explicit override. Otherwise prepend a matching local task override to the ordinary role route and use that effective route. If neither exists, omit the model only to request inheritance from the current Codex defaults; omission is not evidence of the resolved model. Agent TOML files never pin models. After spawning, report the actual resolved model only when runtime metadata or UI exposes it; an agent id or nickname alone is insufficient, so report `unknown`/unconfirmed rather than guessing from the route or inherited default. A wrong-model correction requires runtime/UI resolved-model metadata or an explicit spawn rejection/mismatch error; routes, defaults, ids, nicknames, and expected inheritance are not evidence.
 
 ## Single writer
 
@@ -145,9 +146,9 @@ For staged work, perform one full review after all accepted stages are merged in
 
 Wait before any decision, write, or final answer that a pending agent result could change. Otherwise continue only independent work that does not overlap the delegated scope or become invalid; if uncertain, wait. A wait timeout means only that the current wait window ended before completion; keep the running agent and wait again later.
 
-Keep every requested agent in the pending set until `wait_agent` reports a terminal status, and consolidate only after the pending set is empty. Queue follow-up input with `interrupt=false`. When the user explicitly requests a stop or replacement, prefix the interrupting message with `USER_REQUESTED_INTERRUPT:`; otherwise keep the agent running. Call `close_agent` only after `wait_agent` has reported `completed`, `errored`, `interrupted`, `shutdown`, or `not_found` for that target.
+Keep every requested agent in the pending set until `wait_agent` reports a terminal status, and consolidate only after the pending set is empty. Queue ordinary follow-up input with `interrupt=false`. When the user explicitly requests a stop or replacement, prefix the interrupting message with `USER_REQUESTED_INTERRUPT:`; otherwise keep the agent running. If direct evidence shows a wrong model, wrong role, forbidden descendant orchestration, or clear scope drift, the main agent may issue one bounded immediate correction as `ORCHESTRATOR_CORRECTION: <reason_code>` followed by the corrective instruction. The closed reason codes are `wrong_model`, `wrong_role`, `descendant_orchestration`, and `scope_drift`. A correction interrupt may terminate the agent, so use it only when immediate redirection is necessary; it is not general stop or replacement authorization. Call `close_agent` only after `wait_agent` has reported `completed`, `errored`, `interrupted`, `shutdown`, or `not_found` for that target; the optional guard Hook does not enforce this ordering.
 
-Do not interrupt, close, replace, or switch the model of a running agent solely because progress is slow, output is sparse, or a wait timed out. An explicit agent error, an obsolete task, or observable drift should first receive a non-interrupting correction unless the user has requested an immediate stop.
+Do not interrupt, close, replace, or switch the model of a running agent solely because progress is slow, output is sparse, or a wait timed out. An explicit agent error, an obsolete task, or observable drift should first receive a non-interrupting correction unless the user has requested an immediate stop or direct evidence meets the bounded `ORCHESTRATOR_CORRECTION:` cases above.
 
 When the user asks to stop, create no new agents and safely collect or close existing work.
 

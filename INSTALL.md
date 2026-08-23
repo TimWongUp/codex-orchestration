@@ -85,9 +85,10 @@ Ask whether the user wants the orchestration Hooks. If approved:
 2. Read `<codex-home>/hooks.json`, or start from an empty object when it is absent.
 3. Merge the managed command Hooks while preserving unrelated top-level keys, event groups,
    matchers, commands, shared-runtime Hooks, and ordering where practical. Register `orchestration_route.py` for
-   `UserPromptSubmit`, `subagent_scope.py` for `SubagentStart`, and `subagent_guard.py` for both
-   `PreToolUse` with matcher `send_input$|close_agent$` and `PostToolUse` with matcher
-   `wait_agent$`. Codex flattens namespaced local functions by concatenating the namespace and
+   `UserPromptSubmit`, `subagent_scope.py` for `SubagentStart`, and `subagent_guard.py` for
+   `PreToolUse` with matcher `send_input$`. Do not register this guard for `wait_agent`
+   PostToolUse or `close_agent`; upgrades must remove those old managed registrations while
+   preserving unrelated registrations. The guard does not enforce close ordering. Codex flattens namespaced local function names by concatenating the namespace and
    function name, so the suffix matcher covers both flattened and unnamespaced forms.
 4. Resolve the current Python executable to an absolute path. The effective command contains
    exactly two arguments: that executable and the managed script's absolute path. On macOS write
@@ -97,14 +98,16 @@ Ask whether the user wants the orchestration Hooks. If approved:
    add shell wrappers, extra arguments, suffixes, or duplicate commands.
 5. Parse the final JSON and show the exact added or changed Hook groups before writing it.
 
-Hook installation is complete only when all three scripts match the checkout and each event has
-one effective managed registration with the exact managed matcher. Shared context, memory-routing,
-and closeout registrations remain owned by their source runtime and are outside this contract.
+Hook installation is complete only when all three scripts match the checkout, each event has one
+effective managed registration with the exact managed matcher, and no registration invokes this
+suite's guard for `wait_agent`, `close_agent`, or an old combined matcher. Shared context,
+memory-routing, and closeout registrations remain owned by their source runtime and are outside
+this contract.
 
 ## 5. Optional model routing
 
-Ask separately whether the user wants local model routing. Without it, the orchestration Skill
-inherits the current Codex model settings.
+Ask separately whether the user wants local model routing. Without it, omitting model selection
+only requests inheritance from the current Codex settings; it does not confirm the resolved model.
 
 If approved, start from `examples/model-routing.toml`, replace every placeholder only with
 models and reasoning levels available on the current host, remove unused example entries, show

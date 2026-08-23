@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -62,6 +61,22 @@ class SourceValidationTest(unittest.TestCase):
             any(
                 "invalid value" in failure
                 for failure in VALIDATOR.routing_example_failures(invalid_value)
+            )
+        )
+
+        concrete_model = source.replace('model = "MODEL_ID_OVERRIDE"', 'model = "gpt-example"')
+        self.assertIn(
+            "routing example contains a non-placeholder model",
+            VALIDATOR.routing_example_failures(concrete_model),
+        )
+
+    def test_source_helpers_reject_model_pins_and_public_model_routes(self) -> None:
+        profile = 'name = "reviewer"\nmodel = "provider/model"\n'
+        self.assertEqual(VALIDATOR.pinned_model_keys(profile), {"model"})
+        self.assertTrue(
+            any(
+                "machine-specific model route" in failure
+                for failure in VALIDATOR.public_pattern_failures("sample.md", "xai/" + "grok")
             )
         )
 
@@ -126,91 +141,60 @@ class SourceValidationTest(unittest.TestCase):
         self.assertIn("independent, non-overlapping work", route["additionalContext"])
         self.assertIn("If a wait times out", route["additionalContext"])
         self.assertIn("USER_REQUESTED_INTERRUPT:", route["additionalContext"])
+        self.assertIn("ORCHESTRATOR_CORRECTION:", route["additionalContext"])
         self.assertIn("terminal status", route["additionalContext"])
 
-        for payload, expected in (
-            ('{"agent_type":"worker"}', "complete canonical"),
-            ('{"agentType":"explorer"}', "read-only"),
-            ('{"agent_type":"unknown"}', "read-only"),
-            ("[]", "read-only"),
+        for payload, expected, forbidden in (
+            ('{"agent_type":"worker"}', "complete canonical", "You are read-only"),
+            ('{"agent_type":"explorer"}', "read-only", "You are a writable worker"),
+            ('{"agentType":"explorer"}', "read-only", "You are a writable worker"),
+            ('{"agent_type":"unknown"}', "read-only", "You are a writable worker"),
+            ("[]", "read-only", "You are a writable worker"),
         ):
             with self.subTest(payload=payload):
                 scope = run_hook("subagent_scope.py", payload)
                 self.assertEqual(scope["hookEventName"], "SubagentStart")
                 self.assertIn(expected, scope["additionalContext"])
+                self.assertIn("HIGH PRIORITY DERIVED-AGENT IDENTITY", scope["additionalContext"])
+                self.assertIn(
+                    "Do not load or execute the codex-orchestration Skill",
+                    scope["additionalContext"],
+                )
+                self.assertIn("panel member", scope["additionalContext"])
+                self.assertNotIn(forbidden, scope["additionalContext"])
+                if "worker" not in payload:
+                    self.assertNotIn("WRITE LEASE: granted", scope["additionalContext"])
                 if "worker" in payload:
                     for field in VALIDATOR.WORKER_PACKAGE_FIELDS:
                         self.assertIn(field, scope["additionalContext"])
 
-    def test_subagent_guard_blocks_interrupt_and_running_close(self) -> None:
-        def run_guard(payload: dict[str, object], state_root: Path) -> dict[str, object]:
-            environment = dict(os.environ)
-            environment["CODEX_ORCHESTRATION_STATE_DIR"] = str(state_root)
+    def test_subagent_guard_controls_interrupt_only(self) -> None:
+        def run_guard(payload: dict[str, object]) -> dict[str, object]:
             result = subprocess.run(
                 [sys.executable, str(ROOT / "hooks" / "subagent_guard.py")],
                 input=json.dumps(payload),
                 text=True,
                 capture_output=True,
                 check=False,
-                env=environment,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             return cast(dict[str, object], json.loads(result.stdout))
 
-        with tempfile.TemporaryDirectory() as temporary:
-            state_root = Path(temporary)
-            interrupt = run_guard(
-                {
-                    "session_id": "session-a",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "multi_agent_v1send_input",
-                    "tool_input": {"target": "agent-a", "interrupt": True, "message": "stop"},
-                },
-                state_root,
-            )
-            self.assertEqual(
-                cast(dict[str, object], interrupt["hookSpecificOutput"])["permissionDecision"],
-                "deny",
-            )
+        denied = run_guard(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "multi_agent_v1send_input",
+                "tool_input": {"target": "agent-a", "interrupt": True, "message": "stop"},
+            }
+        )
+        self.assertEqual(
+            cast(dict[str, object], denied["hookSpecificOutput"])["permissionDecision"],
+            "deny",
+        )
 
-            malformed_interrupt = run_guard(
+        self.assertEqual(
+            run_guard(
                 {
-                    "session_id": "session-a",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "multi_agent_v1__send_input",
-                    "tool_input": {
-                        "target": "agent-a",
-                        "interrupt": "true",
-                        "message": "stop",
-                    },
-                },
-                state_root,
-            )
-            self.assertEqual(
-                cast(dict[str, object], malformed_interrupt["hookSpecificOutput"])[
-                    "permissionDecision"
-                ],
-                "deny",
-            )
-
-            authorized = run_guard(
-                {
-                    "session_id": "session-a",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "send_input",
-                    "tool_input": {
-                        "target": "agent-a",
-                        "interrupt": True,
-                        "message": "USER_REQUESTED_INTERRUPT: stop",
-                    },
-                },
-                state_root,
-            )
-            self.assertEqual(authorized, {})
-
-            queued = run_guard(
-                {
-                    "session_id": "session-a",
                     "hook_event_name": "PreToolUse",
                     "tool_name": "send_input",
                     "tool_input": {
@@ -218,188 +202,90 @@ class SourceValidationTest(unittest.TestCase):
                         "interrupt": False,
                         "message": "continue when ready",
                     },
-                },
-                state_root,
-            )
-            self.assertEqual(queued, {})
-
-            authorized_items = run_guard(
-                {
-                    "session_id": "session-a",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "send_input",
-                    "tool_input": {
-                        "target": "agent-a",
-                        "interrupt": True,
-                        "items": [
-                            {
-                                "type": "text",
-                                "text": "USER_REQUESTED_INTERRUPT: replace reviewer",
-                            }
-                        ],
-                    },
-                },
-                state_root,
-            )
-            self.assertEqual(authorized_items, {})
-
-            unmarked_items = run_guard(
-                {
-                    "session_id": "session-a",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "send_input",
-                    "tool_input": {
-                        "target": "agent-a",
-                        "interrupt": True,
-                        "items": [{"type": "text", "text": "replace reviewer"}],
-                    },
-                },
-                state_root,
-            )
-            self.assertEqual(
-                cast(dict[str, object], unmarked_items["hookSpecificOutput"])["permissionDecision"],
-                "deny",
-            )
-
-            close_running = run_guard(
-                {
-                    "session_id": "session-a",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "close_agent",
-                    "tool_input": {"target": "agent-a"},
-                },
-                state_root,
-            )
-            self.assertEqual(
-                cast(dict[str, object], close_running["hookSpecificOutput"])["permissionDecision"],
-                "deny",
-            )
-
-            run_guard(
-                {
-                    "session_id": "session-a",
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "wait_agent",
-                    "tool_response": {
-                        "status": {"agent-a": "running"},
-                        "timed_out": True,
-                    },
-                },
-                state_root,
-            )
-            self.assertEqual(
-                cast(
-                    dict[str, object],
+                }
+            ),
+            {},
+        )
+        for carrier, text in (
+            ("message", "USER_REQUESTED_INTERRUPT: stop"),
+            ("items", "USER_REQUESTED_INTERRUPT: stop"),
+            ("message", "ORCHESTRATOR_CORRECTION: wrong_role\nReturn to the assigned role."),
+            ("items", "ORCHESTRATOR_CORRECTION: scope_drift\nReturn to scope."),
+        ):
+            with self.subTest(carrier=carrier, text=text):
+                tool_input: dict[str, object] = {"target": "agent-a", "interrupt": True}
+                if carrier == "message":
+                    tool_input["message"] = text
+                else:
+                    tool_input["items"] = [{"type": "text", "text": text}]
+                self.assertEqual(
                     run_guard(
                         {
-                            "session_id": "session-a",
                             "hook_event_name": "PreToolUse",
-                            "tool_name": "close_agent",
-                            "tool_input": {"target": "agent-a"},
-                        },
-                        state_root,
-                    )["hookSpecificOutput"],
-                )["permissionDecision"],
-                "deny",
-            )
-
-            run_guard(
-                {
-                    "session_id": "session-a",
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "multi_agent_v1wait_agent",
-                    "tool_response": [
-                        {
-                            "type": "input_text",
-                            "text": json.dumps(
-                                {
-                                    "status": {"agent-a": {"completed": "review complete"}},
-                                    "timed_out": False,
-                                }
-                            ),
+                            "tool_name": "send_input",
+                            "tool_input": tool_input,
                         }
-                    ],
-                },
-                state_root,
-            )
-            close_completed = run_guard(
-                {
-                    "session_id": "session-a",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "multi_agent_v1close_agent",
-                    "tool_input": {"target": "agent-a"},
-                },
-                state_root,
-            )
-            self.assertEqual(close_completed, {})
+                    ),
+                    {},
+                )
 
-            self.assertEqual(
-                run_guard(
+        for reason in (
+            "wrong_model",
+            "wrong_role",
+            "descendant_orchestration",
+            "scope_drift",
+        ):
+            with self.subTest(reason=reason):
+                self.assertEqual(
+                    run_guard(
+                        {
+                            "hook_event_name": "PreToolUse",
+                            "tool_name": "send_input",
+                            "tool_input": {
+                                "target": "agent-a",
+                                "interrupt": True,
+                                "message": f"ORCHESTRATOR_CORRECTION: {reason}\nCorrect now.",
+                            },
+                        }
+                    ),
+                    {},
+                )
+
+        invalid_inputs: tuple[dict[str, object], ...] = (
+            {"interrupt": True, "items": [{"type": "text", "text": "replace reviewer"}]},
+            {"interrupt": "true", "message": "USER_REQUESTED_INTERRUPT: stop"},
+            {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: stop"},
+            {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: timeout"},
+            {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: too_slow"},
+            {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: unknown"},
+        )
+        for tool_input in invalid_inputs:
+            with self.subTest(tool_input=tool_input):
+                denied_input = {"target": "agent-a", **tool_input}
+                result = run_guard(
                     {
-                        "session_id": "session-a",
                         "hook_event_name": "PreToolUse",
                         "tool_name": "send_input",
-                        "tool_input": {
-                            "target": "agent-a",
-                            "interrupt": False,
-                            "message": "start another review",
-                        },
-                    },
-                    state_root,
-                ),
-                {},
-            )
-            restarted_close = run_guard(
-                {
-                    "session_id": "session-a",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "close_agent",
-                    "tool_input": {"target": "agent-a"},
-                },
-                state_root,
-            )
-            self.assertEqual(
-                cast(dict[str, object], restarted_close["hookSpecificOutput"])[
-                    "permissionDecision"
-                ],
-                "deny",
-            )
-
-            for index, terminal_status in enumerate(
-                (
-                    {"completed": None},
-                    {"errored": "review failed"},
-                    "interrupted",
-                    "shutdown",
-                    "not_found",
+                        "tool_input": denied_input,
+                    }
                 )
-            ):
-                agent_id = f"terminal-agent-{index}"
-                with self.subTest(terminal_status=terminal_status):
+                self.assertEqual(
+                    cast(dict[str, object], result["hookSpecificOutput"])["permissionDecision"],
+                    "deny",
+                )
+
+        for tool_name in ("close_agent", "wait_agent"):
+            with self.subTest(tool_name=tool_name):
+                self.assertEqual(
                     run_guard(
                         {
-                            "session_id": "session-a",
-                            "hook_event_name": "PostToolUse",
-                            "tool_name": "wait_agent",
-                            "tool_response": {
-                                "status": {agent_id: terminal_status},
-                                "timed_out": False,
-                            },
-                        },
-                        state_root,
-                    )
-                    self.assertEqual(
-                        run_guard(
-                            {
-                                "session_id": "session-a",
-                                "hook_event_name": "PreToolUse",
-                                "tool_name": "close_agent",
-                                "tool_input": {"target": agent_id},
-                            },
-                            state_root,
-                        ),
-                        {},
-                    )
+                            "hook_event_name": "PreToolUse",
+                            "tool_name": tool_name,
+                            "tool_input": {"target": "agent-a"},
+                        }
+                    ),
+                    {},
+                )
 
     def test_runtime_validation_accepts_copied_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -527,11 +413,73 @@ class SourceValidationTest(unittest.TestCase):
                         group["matcher"] = matcher
                     hooks[event] = [group]
                 hooks["SessionStart"] = [{"hooks": [{"type": "command", "command": "foreign"}]}]
+                hooks["PreToolUse"].append(
+                    {
+                        "matcher": "bash$",
+                        "hooks": [{"type": "command", "command": "foreign"}],
+                    }
+                )
                 (codex_home / "hooks.json").write_text(
                     json.dumps({"hooks": hooks}), encoding="utf-8"
                 )
 
                 self.assertEqual(VALIDATOR.validate_hooks(codex_home, windows=windows), [])
+
+    def test_hook_validation_rejects_stale_managed_guard_registrations(self) -> None:
+        for event, matcher in (
+            ("PostToolUse", r"wait_agent$"),
+            ("PreToolUse", r"close_agent$"),
+            ("PreToolUse", r"send_input$|close_agent$"),
+        ):
+            with (
+                self.subTest(event=event, matcher=matcher),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                codex_home = Path(temporary) / "codex-home"
+                hooks_root = codex_home / "hooks"
+                hooks_root.mkdir(parents=True)
+                hooks: dict[str, list[dict[str, object]]] = {}
+                windows = VALIDATOR.os.name == "nt"
+                for managed_event, script, managed_matcher in VALIDATOR.HOOK_REGISTRATIONS:
+                    target = hooks_root / script
+                    shutil.copy2(ROOT / "hooks" / script, target)
+                    command = VALIDATOR.expected_hook_command(target, windows=windows)
+                    hook: dict[str, object] = {"type": "command", "command": command}
+                    if windows:
+                        hook["commandWindows"] = command
+                    group: dict[str, object] = {"hooks": [hook]}
+                    if managed_matcher is not None:
+                        group["matcher"] = managed_matcher
+                    hooks[managed_event] = [group]
+
+                guard_target = hooks_root / "subagent_guard.py"
+                stale_command = VALIDATOR.expected_hook_command(guard_target, windows=windows)
+                stale_hook: dict[str, object] = {
+                    "type": "command",
+                    "command": stale_command,
+                }
+                if windows:
+                    stale_hook["commandWindows"] = stale_command
+                hooks.setdefault(event, []).append({"matcher": matcher, "hooks": [stale_hook]})
+                (codex_home / "hooks.json").write_text(
+                    json.dumps({"hooks": hooks}), encoding="utf-8"
+                )
+
+                failures = VALIDATOR.validate_hooks(codex_home, windows=windows)
+
+            self.assertTrue(
+                any("stale managed guard registration" in failure for failure in failures)
+            )
+
+    def test_guard_registration_only_covers_send_input(self) -> None:
+        self.assertEqual(
+            VALIDATOR.HOOK_REGISTRATIONS,
+            (
+                ("UserPromptSubmit", "orchestration_route.py", None),
+                ("SubagentStart", "subagent_scope.py", None),
+                ("PreToolUse", "subagent_guard.py", r"send_input$"),
+            ),
+        )
 
     def test_runtime_cli_validates_selected_hooks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
