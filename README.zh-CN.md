@@ -58,7 +58,7 @@ Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根�
 - `diagnosing-bugs-worker` 与 `prototype-worker` 使用的完整方法 Skill。
 - 只读代码探索、官方资料研究、Web 研究、前端设计、专家和专项 Review Agent。
 - 受全局单 Writer 租约约束的实现、Bug 诊断和原型 Worker。
-- 可选 Hooks：强化主代理路由与派生代理职责边界，并阻止未标记的运行中断。关闭顺序仍是由主代理负责的 Skill 规则；Hook 不再宣称可以可靠阻止过早关闭。
+- 可选 Hooks：强化主代理路由与派生代理职责边界，阻止未标记的运行中断，并可能为宿主直接暴露的非终态等待结果添加无状态提示。关闭顺序仍是由主代理负责的 Skill 规则；Hook 不宣称可以可靠阻止过早关闭。
 - 可选的本地模型路由文件；仓库不固定任何模型 ID。
 - 面向 macOS 与原生 Windows、保留无关 Codex 配置的 Agent 安装契约。
 

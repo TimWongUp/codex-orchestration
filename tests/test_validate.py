@@ -139,7 +139,8 @@ class SourceValidationTest(unittest.TestCase):
         self.assertEqual(route["hookEventName"], "UserPromptSubmit")
         self.assertIn("Wait before decisions, writes, or final answers", route["additionalContext"])
         self.assertIn("independent, non-overlapping work", route["additionalContext"])
-        self.assertIn("If a wait times out", route["additionalContext"])
+        self.assertIn("exactly one lifecycle call per program", route["additionalContext"])
+        self.assertIn("timed_out=true", route["additionalContext"])
         self.assertIn("USER_REQUESTED_INTERRUPT:", route["additionalContext"])
         self.assertIn("ORCHESTRATOR_CORRECTION:", route["additionalContext"])
         self.assertIn("terminal status", route["additionalContext"])
@@ -168,7 +169,7 @@ class SourceValidationTest(unittest.TestCase):
                     for field in VALIDATOR.WORKER_PACKAGE_FIELDS:
                         self.assertIn(field, scope["additionalContext"])
 
-    def test_subagent_guard_controls_interrupt_only(self) -> None:
+    def test_subagent_guard_controls_interrupt_and_wait_timeout(self) -> None:
         def run_guard(payload: dict[str, object]) -> dict[str, object]:
             result = subprocess.run(
                 [sys.executable, str(ROOT / "hooks" / "subagent_guard.py")],
@@ -286,6 +287,70 @@ class SourceValidationTest(unittest.TestCase):
                     ),
                     {},
                 )
+
+        wait_timeout = run_guard(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "multi_agent_v1wait_agent",
+                "tool_input": {"targets": ["agent-a"]},
+                "tool_response": {"status": {}, "timed_out": True},
+            }
+        )
+        wait_context = cast(
+            str,
+            cast(dict[str, object], wait_timeout["hookSpecificOutput"])["additionalContext"],
+        )
+        self.assertIn("WAIT RESULT CHECK", wait_context)
+        self.assertIn("timed_out=true", wait_context)
+        self.assertIn("pending", wait_context)
+
+        for terminal_status in (
+            {"completed": "done"},
+            {"errored": "failed"},
+            "interrupted",
+            "shutdown",
+            "not_found",
+        ):
+            with self.subTest(terminal_status=terminal_status):
+                self.assertEqual(
+                    run_guard(
+                        {
+                            "hook_event_name": "PostToolUse",
+                            "tool_name": "wait_agent",
+                            "tool_input": {"targets": ["agent-a"]},
+                            "tool_response": {
+                                "status": {"agent-a": terminal_status},
+                                "timed_out": False,
+                            },
+                        }
+                    ),
+                    {},
+                )
+
+        partial_wait = run_guard(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "wait_agent",
+                "tool_input": {"targets": ["agent-a", "agent-b"]},
+                "tool_response": {
+                    "status": {"agent-a": {"completed": "done"}},
+                    "timed_out": False,
+                },
+            }
+        )
+        self.assertIn("hookSpecificOutput", partial_wait)
+
+        self.assertEqual(
+            run_guard(
+                {
+                    "hook_event_name": "PostToolUse",
+                    "tool_name": "functions.exec",
+                    "tool_input": "tools.multi_agent_v1__wait_agent(...) ",
+                    "tool_response": {"status": {}, "timed_out": True},
+                }
+            ),
+            {},
+        )
 
     def test_runtime_validation_accepts_copied_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -427,7 +492,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_hook_validation_rejects_stale_managed_guard_registrations(self) -> None:
         for event, matcher in (
-            ("PostToolUse", r"wait_agent$"),
+            ("PostToolUse", r"(?:functions[._]?exec|wait_agent)$"),
             ("PreToolUse", r"close_agent$"),
             ("PreToolUse", r"send_input$|close_agent$"),
         ):
@@ -471,13 +536,14 @@ class SourceValidationTest(unittest.TestCase):
                 any("stale managed guard registration" in failure for failure in failures)
             )
 
-    def test_guard_registration_only_covers_send_input(self) -> None:
+    def test_guard_registration_covers_send_input_and_wait_results(self) -> None:
         self.assertEqual(
             VALIDATOR.HOOK_REGISTRATIONS,
             (
                 ("UserPromptSubmit", "orchestration_route.py", None),
                 ("SubagentStart", "subagent_scope.py", None),
                 ("PreToolUse", "subagent_guard.py", r"send_input$"),
+                ("PostToolUse", "subagent_guard.py", r"wait_agent$"),
             ),
         )
 
