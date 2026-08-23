@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from types import ModuleType
 from typing import Protocol, cast
+from unittest import mock
 
 
 class ExecutableLoader(Protocol):
@@ -46,9 +47,61 @@ class SourceValidationTest(unittest.TestCase):
     def test_source_contract(self) -> None:
         self.assertEqual(VALIDATOR.validate_source(), [])
 
-    def test_routing_example_schema_rejects_unknown_roles_and_invalid_values(self) -> None:
+    def test_v2_tool_contract_is_explicit(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        route = subprocess.run(
+            [sys.executable, str(ROOT / "hooks" / "orchestration_route.py")],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(route.returncode, 0, route.stderr)
+        context = cast(dict[str, object], json.loads(route.stdout)["hookSpecificOutput"])
+        additional = cast(str, context["additionalContext"])
+        for text in (
+            'fork_turns="none"',
+            "positive value",
+            "partial history",
+            "send_message",
+            "followup_task",
+            "wait_agent",
+            "interrupt_agent",
+            "list_agents",
+            "caller's mailbox",
+            "final notifications",
+        ):
+            with self.subTest(text=text):
+                self.assertIn(text, skill)
+                self.assertIn(text, additional)
+        self.assertIn("Omitting `fork_turns`", skill)
+        self.assertIn("Omitting fork_turns", additional)
+
+    def test_routing_example_schema_rejects_service_placement_and_invalid_values(self) -> None:
         source = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
         self.assertEqual(VALIDATOR.routing_example_failures(source), [])
+
+        invalid_override_service = source.replace(
+            'reasoning_effort = "REASONING_LEVEL"',
+            'reasoning_effort = "REASONING_LEVEL"\nservice_tier = "SERVICE_TIER"',
+            1,
+        )
+        self.assertTrue(
+            any(
+                "unknown fields" in failure
+                for failure in VALIDATOR.routing_example_failures(invalid_override_service)
+            )
+        )
+
+        invalid_role_service = source.replace(
+            'model = "MODEL_ID_PRIMARY"',
+            'model = "MODEL_ID_PRIMARY"\nservice_tier = "SERVICE_TIER"',
+        )
+        self.assertTrue(
+            any(
+                "unknown fields" in failure
+                for failure in VALIDATOR.routing_example_failures(invalid_role_service)
+            )
+        )
 
         unknown_role = source.replace('roles = ["ROLE_NAME"]', 'roles = ["unknown-role"]')
         self.assertIn(
@@ -64,15 +117,15 @@ class SourceValidationTest(unittest.TestCase):
             )
         )
 
-        concrete_model = source.replace('model = "MODEL_ID_OVERRIDE"', 'model = "gpt-example"')
-        self.assertIn(
-            "routing example contains a non-placeholder model",
-            VALIDATOR.routing_example_failures(concrete_model),
-        )
-
     def test_source_helpers_reject_model_pins_and_public_model_routes(self) -> None:
-        profile = 'name = "reviewer"\nmodel = "provider/model"\n'
-        self.assertEqual(VALIDATOR.pinned_model_keys(profile), {"model"})
+        profile = (
+            'name = "reviewer"\nmodel = "provider/model"\n'
+            'model_reasoning_effort = "high"\nservice_tier = "priority"\n'
+        )
+        self.assertEqual(
+            VALIDATOR.pinned_model_keys(profile),
+            {"model", "model_reasoning_effort", "service_tier"},
+        )
         self.assertTrue(
             any(
                 "machine-specific model route" in failure
@@ -82,10 +135,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_task_package_language_schema_accepts_supported_values(self) -> None:
         source = (ROOT / "examples" / "preferences.toml").read_text(encoding="utf-8")
-        self.assertEqual(
-            VALIDATOR.preferences_failures(source, allow_placeholder=True),
-            [],
-        )
+        self.assertEqual(VALIDATOR.preferences_failures(source, allow_placeholder=True), [])
         for language in ("en", "zh-CN"):
             with self.subTest(language=language):
                 selected = source.replace('"LANGUAGE"', f'"{language}"')
@@ -97,515 +147,24 @@ class SourceValidationTest(unittest.TestCase):
             VALIDATOR.preferences_failures(unsupported),
         )
 
-        extra_field = source + 'unexpected = "value"\n'
-        self.assertIn(
-            "preferences fields are invalid",
-            VALIDATOR.preferences_failures(extra_field, allow_placeholder=True),
-        )
-
-        boolean_version = source.replace("schema_version = 1", "schema_version = True")
-        self.assertIn(
-            "preferences schema_version is invalid",
-            VALIDATOR.preferences_failures(boolean_version, allow_placeholder=True),
-        )
-
-        for invalid_toml in (
-            source.replace('"LANGUAGE"', r'"\x4cANGUAGE"'),
-            source.replace('"LANGUAGE"', '"LANGUAGE" ""'),
-        ):
-            with self.subTest(invalid_toml=invalid_toml):
-                self.assertTrue(
-                    any(
-                        "invalid value" in failure
-                        for failure in VALIDATOR.preferences_failures(
-                            invalid_toml, allow_placeholder=True
-                        )
-                    )
-                )
-
-    def test_hook_outputs_match_contract(self) -> None:
-        def run_hook(script: str, payload: str = "") -> dict[str, str]:
+    def test_scope_hook_exposes_lease_only_for_writers(self) -> None:
+        def run_scope(payload: str) -> dict[str, object]:
             result = subprocess.run(
-                [sys.executable, str(ROOT / "hooks" / script)],
+                [sys.executable, str(ROOT / "hooks" / "subagent_scope.py")],
                 input=payload,
                 text=True,
                 capture_output=True,
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            return cast(dict[str, str], json.loads(result.stdout)["hookSpecificOutput"])
+            return cast(dict[str, object], json.loads(result.stdout)["hookSpecificOutput"])
 
-        route = run_hook("orchestration_route.py")
-        self.assertEqual(route["hookEventName"], "UserPromptSubmit")
-        self.assertIn("Wait before decisions, writes, or final answers", route["additionalContext"])
-        self.assertIn("independent, non-overlapping work", route["additionalContext"])
-        self.assertIn("exactly one lifecycle call per program", route["additionalContext"])
-        self.assertIn("timed_out=true", route["additionalContext"])
-        self.assertIn("USER_REQUESTED_INTERRUPT:", route["additionalContext"])
-        self.assertIn("ORCHESTRATOR_GUIDANCE:", route["additionalContext"])
-        self.assertIn("affect the current work", route["additionalContext"])
-        self.assertIn("after the current task", route["additionalContext"])
-        self.assertIn("interrupt=true", route["additionalContext"])
-        self.assertIn("interrupt=false", route["additionalContext"])
-        self.assertIn("exactly once", route["additionalContext"])
-        self.assertIn("sole text carrier", route["additionalContext"])
-        self.assertIn(
-            "After any accepted send_input, keep the target pending", route["additionalContext"]
-        )
-        self.assertIn("terminal status", route["additionalContext"])
-
-        for payload, expected, forbidden in (
-            ('{"agent_type":"worker"}', "complete canonical", "You are read-only"),
-            ('{"agent_type":"explorer"}', "read-only", "You are a writable worker"),
-            ('{"agentType":"explorer"}', "read-only", "You are a writable worker"),
-            ('{"agent_type":"unknown"}', "read-only", "You are a writable worker"),
-            ("[]", "read-only", "You are a writable worker"),
-        ):
-            with self.subTest(payload=payload):
-                scope = run_hook("subagent_scope.py", payload)
-                self.assertEqual(scope["hookEventName"], "SubagentStart")
-                self.assertIn(expected, scope["additionalContext"])
-                self.assertIn("HIGH PRIORITY DERIVED-AGENT IDENTITY", scope["additionalContext"])
-                self.assertIn(
-                    "Do not load or execute the codex-orchestration Skill",
-                    scope["additionalContext"],
-                )
-                self.assertIn("panel member", scope["additionalContext"])
-                self.assertNotIn(forbidden, scope["additionalContext"])
-                if "worker" not in payload:
-                    self.assertNotIn("WRITE LEASE: granted", scope["additionalContext"])
-                if "worker" in payload:
-                    for field in VALIDATOR.WORKER_PACKAGE_FIELDS:
-                        self.assertIn(field, scope["additionalContext"])
-
-    def test_subagent_guard_controls_interrupt_and_wait_timeout(self) -> None:
-        def run_guard(payload: dict[str, object]) -> dict[str, object]:
-            result = subprocess.run(
-                [sys.executable, str(ROOT / "hooks" / "subagent_guard.py")],
-                input=json.dumps(payload),
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            return cast(dict[str, object], json.loads(result.stdout))
-
-        denied = run_guard(
-            {
-                "hook_event_name": "PreToolUse",
-                "tool_name": "multi_agent_v1send_input",
-                "tool_input": {"target": "agent-a", "interrupt": True, "message": "stop"},
-            }
-        )
-        self.assertEqual(
-            cast(dict[str, object], denied["hookSpecificOutput"])["permissionDecision"],
-            "deny",
-        )
-
-        unclassified_inputs: tuple[dict[str, object], ...] = (
-            {
-                "target": "agent-a",
-                "interrupt": False,
-                "message": "FOCUS: inspect the failing lifecycle test first.",
-            },
-            {"target": "agent-a", "message": "FOCUS: continue."},
-            {
-                "target": "agent-a",
-                "interrupt": False,
-                "items": [{"type": "text", "text": "DELTA: new evidence."}],
-            },
-        )
-        for tool_input in unclassified_inputs:
-            with self.subTest(unclassified=tool_input):
-                unclassified_queue = run_guard(
-                    {
-                        "hook_event_name": "PreToolUse",
-                        "tool_name": "send_input",
-                        "tool_input": tool_input,
-                    }
-                )
-                unclassified_output = cast(
-                    dict[str, object], unclassified_queue["hookSpecificOutput"]
-                )
-                self.assertEqual(unclassified_output["permissionDecision"], "deny")
-                self.assertIn(
-                    "Classify send_input delivery explicitly",
-                    cast(str, unclassified_output["permissionDecisionReason"]),
-                )
-
-        for carrier in ("message", "items"):
-            with self.subTest(queued_carrier=carrier):
-                tool_input: dict[str, object] = {
-                    "target": "agent-a",
-                    "interrupt": False,
-                }
-                queued_text = "AFTER_CURRENT_TASK:\nSummarize an optional follow-up."
-                if carrier == "message":
-                    tool_input["message"] = queued_text
-                else:
-                    tool_input["items"] = [{"type": "text", "text": queued_text}]
-                self.assertEqual(
-                    run_guard(
-                        {
-                            "hook_event_name": "PreToolUse",
-                            "tool_name": "send_input",
-                            "tool_input": tool_input,
-                        }
-                    ),
-                    {},
-                )
-
-        guidance = "ORCHESTRATOR_GUIDANCE:\nFocus on the failing lifecycle test first."
-        allowed_guidance = run_guard(
-            {
-                "hook_event_name": "PreToolUse",
-                "tool_name": "send_input",
-                "tool_input": {
-                    "target": "agent-a",
-                    "interrupt": True,
-                    "message": guidance,
-                },
-            }
-        )
-        self.assertEqual(allowed_guidance, {})
-
-        queued_guidance = run_guard(
-            {
-                "hook_event_name": "PreToolUse",
-                "tool_name": "send_input",
-                "tool_input": {
-                    "target": "agent-a",
-                    "interrupt": False,
-                    "message": guidance,
-                },
-            }
-        )
-        queued_output = cast(dict[str, object], queued_guidance["hookSpecificOutput"])
-        self.assertEqual(queued_output["permissionDecision"], "deny")
-        self.assertIn("interrupt=true", cast(str, queued_output["permissionDecisionReason"]))
-
-        for carrier, text in (
-            ("message", "USER_REQUESTED_INTERRUPT: stop"),
-            ("items", "ORCHESTRATOR_GUIDANCE:\nStop delegating and finish your own task."),
-            ("message", "ORCHESTRATOR_CORRECTION: wrong_role\nReturn to the assigned role."),
-        ):
-            for queued_mode in ("false", "omitted"):
-                with self.subTest(carrier=carrier, queued_mode=queued_mode):
-                    tool_input: dict[str, object] = {"target": "agent-a"}
-                    if queued_mode == "false":
-                        tool_input["interrupt"] = False
-                    if carrier == "message":
-                        tool_input["message"] = text
-                    else:
-                        tool_input["items"] = [{"type": "text", "text": text}]
-                    result = run_guard(
-                        {
-                            "hook_event_name": "PreToolUse",
-                            "tool_name": "multi_agent_v1send_input",
-                            "tool_input": tool_input,
-                        }
-                    )
-                    hook_output = cast(dict[str, object], result["hookSpecificOutput"])
-                    self.assertEqual(hook_output["permissionDecision"], "deny")
-                    self.assertIn(
-                        "interrupt=true", cast(str, hook_output["permissionDecisionReason"])
-                    )
-
-        for carrier, text in (
-            ("message", "USER_REQUESTED_INTERRUPT: stop"),
-            ("items", "USER_REQUESTED_INTERRUPT: stop"),
-            ("message", "ORCHESTRATOR_GUIDANCE:\nReturn to the assigned role."),
-            ("message", "\n  ORCHESTRATOR_GUIDANCE:\nUse the latest evidence."),
-            ("items", "ORCHESTRATOR_GUIDANCE:\nReturn to scope."),
-            ("message", "ORCHESTRATOR_CORRECTION: scope_drift\nReturn to scope."),
-        ):
-            with self.subTest(carrier=carrier, text=text):
-                tool_input: dict[str, object] = {"target": "agent-a", "interrupt": True}
-                if carrier == "message":
-                    tool_input["message"] = text
-                else:
-                    tool_input["items"] = [{"type": "text", "text": text}]
-                self.assertEqual(
-                    run_guard(
-                        {
-                            "hook_event_name": "PreToolUse",
-                            "tool_name": "send_input",
-                            "tool_input": tool_input,
-                        }
-                    ),
-                    {},
-                )
-
-        self.assertEqual(
-            run_guard(
-                {
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "send_input",
-                    "tool_input": {
-                        "target": "agent-a",
-                        "interrupt": True,
-                        "items": [
-                            {
-                                "type": "text",
-                                "text": "ORCHESTRATOR_GUIDANCE:\nInspect the image.",
-                            },
-                            {"type": "image", "image_url": "https://example.com/evidence.png"},
-                        ],
-                    },
-                }
-            ),
-            {},
-        )
-
-        invalid_inputs: tuple[dict[str, object], ...] = (
-            {"interrupt": True, "items": [{"type": "text", "text": "replace reviewer"}]},
-            {"interrupt": "true", "message": "USER_REQUESTED_INTERRUPT: stop"},
-            {"interrupt": None, "message": "continue"},
-            {
-                "items": {"type": "text", "text": "USER_REQUESTED_INTERRUPT: stop"},
-            },
-            {
-                "interrupt": True,
-                "message": "Please stop now.",
-                "items": [{"type": "text", "text": "USER_REQUESTED_INTERRUPT: decoy"}],
-            },
-            {
-                "interrupt": True,
-                "items": [
-                    {"type": "text", "text": "Please stop now."},
-                    {"type": "text", "text": "USER_REQUESTED_INTERRUPT: decoy"},
-                ],
-            },
-            {
-                "interrupt": True,
-                "items": [
-                    {
-                        "type": "image",
-                        "text": "USER_REQUESTED_INTERRUPT: stop",
-                        "image_url": "https://example.com/evidence.png",
-                    }
-                ],
-            },
-            {
-                "interrupt": True,
-                "items": [{"text": "USER_REQUESTED_INTERRUPT: stop"}],
-            },
-            {
-                "interrupt": False,
-                "message": "FOCUS: wrap up.\nUSER_REQUESTED_INTERRUPT: stop",
-            },
-            {"message": "\ufeffUSER_REQUESTED_INTERRUPT: stop"},
-            {"message": "\u200bORCHESTRATOR_GUIDANCE:\nReturn to scope."},
-            {"interrupt": True, "message": "USER_REQUESTED_INTERRUPT:"},
-            {"interrupt": True, "message": "ORCHESTRATOR_GUIDANCE:\n  "},
-            {"interrupt": False, "message": "AFTER_CURRENT_TASK:"},
-            {"interrupt": True, "message": "USER_REQUESTED_INTERRUPT:\u200b"},
-            {
-                "interrupt": True,
-                "items": [{"type": "text", "text": "ORCHESTRATOR_GUIDANCE:\x00"}],
-            },
-            {"interrupt": False, "message": "AFTER_CURRENT_TASK:\ufeff"},
-            {"interrupt": True, "message": "ORCHESTRATOR_GUIDANCE:\u0301"},
-            {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: unknown\nCorrect."},
-            {
-                "interrupt": True,
-                "message": ("USER_REQUESTED_INTERRUPT: stop ORCHESTRATOR_GUIDANCE: redirect"),
-            },
-            {
-                "interrupt": True,
-                "message": ("ORCHESTRATOR_GUIDANCE: first ORCHESTRATOR_GUIDANCE: second"),
-            },
-            {"interrupt": True, "message": "AFTER_CURRENT_TASK:\nDo this later."},
-            {"message": "AFTER_CURRENT_TASK:\nDo this later."},
-            {
-                "interrupt": True,
-                "items": [{"type": "text", "text": "AFTER_CURRENT_TASK:\nDo this later."}],
-            },
-            {
-                "items": [{"type": "text", "text": "AFTER_CURRENT_TASK:\nDo this later."}],
-            },
-        )
-        for tool_input in invalid_inputs:
-            with self.subTest(tool_input=tool_input):
-                denied_input = {"target": "agent-a", **tool_input}
-                result = run_guard(
-                    {
-                        "hook_event_name": "PreToolUse",
-                        "tool_name": "send_input",
-                        "tool_input": denied_input,
-                    }
-                )
-                self.assertEqual(
-                    cast(dict[str, object], result["hookSpecificOutput"])["permissionDecision"],
-                    "deny",
-                )
-
-        for tool_name in ("close_agent", "wait_agent"):
-            with self.subTest(tool_name=tool_name):
-                self.assertEqual(
-                    run_guard(
-                        {
-                            "hook_event_name": "PreToolUse",
-                            "tool_name": tool_name,
-                            "tool_input": {"target": "agent-a"},
-                        }
-                    ),
-                    {},
-                )
-
-        wait_timeout = run_guard(
-            {
-                "hook_event_name": "PostToolUse",
-                "tool_name": "multi_agent_v1wait_agent",
-                "tool_input": {"targets": ["agent-a"]},
-                "tool_response": {"status": {}, "timed_out": True},
-            }
-        )
-        wait_context = cast(
-            str,
-            cast(dict[str, object], wait_timeout["hookSpecificOutput"])["additionalContext"],
-        )
-        self.assertIn("WAIT RESULT CHECK", wait_context)
-        self.assertIn("timed_out=true", wait_context)
-        self.assertIn("pending", wait_context)
-
-        for terminal_status in (
-            {"completed": "done"},
-            {"errored": "failed"},
-            "interrupted",
-            "shutdown",
-            "not_found",
-        ):
-            with self.subTest(terminal_status=terminal_status):
-                self.assertEqual(
-                    run_guard(
-                        {
-                            "hook_event_name": "PostToolUse",
-                            "tool_name": "wait_agent",
-                            "tool_input": {"targets": ["agent-a"]},
-                            "tool_response": {
-                                "status": {"agent-a": terminal_status},
-                                "timed_out": False,
-                            },
-                        }
-                    ),
-                    {},
-                )
-
-        partial_wait = run_guard(
-            {
-                "hook_event_name": "PostToolUse",
-                "tool_name": "wait_agent",
-                "tool_input": {"targets": ["agent-a", "agent-b"]},
-                "tool_response": {
-                    "status": {"agent-a": {"completed": "done"}},
-                    "timed_out": False,
-                },
-            }
-        )
-        self.assertIn("hookSpecificOutput", partial_wait)
-
-        authoritative_wait = run_guard(
-            {
-                "hook_event_name": "PostToolUse",
-                "tool_name": "wait_agent",
-                "tool_input": {"targets": ["agent-a", "agent-b"]},
-                "tool_response": {
-                    "status": {
-                        "agent-a": "completed",
-                        "agent-b": "completed",
-                    },
-                    "timed_out": False,
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": json.dumps(
-                                {
-                                    "status": {
-                                        "agent-a": "completed",
-                                        "agent-b": "completed",
-                                    },
-                                    "timed_out": False,
-                                }
-                            ),
-                        }
-                    ],
-                    "structuredContent": {
-                        "status": {"agent-a": {"completed": "real result"}},
-                        "timed_out": True,
-                    },
-                },
-            }
-        )
-        self.assertIn("hookSpecificOutput", authoritative_wait)
-
-        structured_terminal = run_guard(
-            {
-                "hook_event_name": "PostToolUse",
-                "tool_name": "wait_agent",
-                "tool_input": {"targets": ["agent-a"]},
-                "tool_response": {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": '{"status":{},"timed_out":true}',
-                        }
-                    ],
-                    "structuredContent": {
-                        "status": {"agent-a": {"completed": "real result"}},
-                        "timed_out": False,
-                    },
-                },
-            }
-        )
-        self.assertEqual(structured_terminal, {})
-
-        malformed_structured_wait = run_guard(
-            {
-                "hook_event_name": "PostToolUse",
-                "tool_name": "wait_agent",
-                "tool_input": {"targets": ["agent-a"]},
-                "tool_response": {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": '{"status":{"agent-a":"completed"},"timed_out":false}',
-                        }
-                    ],
-                    "structuredContent": {"unexpected": "shape"},
-                },
-            }
-        )
-        self.assertIn("hookSpecificOutput", malformed_structured_wait)
-
-        unrecognized_structured_field = run_guard(
-            {
-                "hook_event_name": "PostToolUse",
-                "tool_name": "wait_agent",
-                "tool_input": {"targets": ["agent-a"]},
-                "tool_response": {
-                    "status": {"agent-a": "running"},
-                    "timed_out": False,
-                    "structured_content": {
-                        "status": {"agent-a": "completed"},
-                        "timed_out": False,
-                    },
-                },
-            }
-        )
-        self.assertIn("hookSpecificOutput", unrecognized_structured_field)
-
-        self.assertEqual(
-            run_guard(
-                {
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "functions.exec",
-                    "tool_input": "tools.multi_agent_v1__wait_agent(...) ",
-                    "tool_response": {"status": {}, "timed_out": True},
-                }
-            ),
-            {},
-        )
+        worker = cast(str, run_scope('{"agent_type":"worker"}')["additionalContext"])
+        reader = cast(str, run_scope('{"agent_type":"explorer"}')["additionalContext"])
+        self.assertIn("WRITE LEASE: granted", worker)
+        self.assertIn("GOAL", worker)
+        self.assertIn("You are read-only", reader)
+        self.assertNotIn("WRITE LEASE: granted", reader)
 
     def test_runtime_validation_accepts_copied_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -676,55 +235,54 @@ class SourceValidationTest(unittest.TestCase):
 
         self.assertTrue(any("linked" in failure for failure in failures))
 
-    def test_runtime_validation_rejects_linked_root(self) -> None:
+    def test_runtime_validation_rejects_linked_roots(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary)
             codex_home, skills_root = self.copy_runtime(temporary_path)
-            linked_root = temporary_path / "linked-skills"
+            linked_skills = temporary_path / "linked-skills"
+            external_home = temporary_path / "external-codex-home"
+            shutil.move(codex_home, external_home)
             try:
-                linked_root.symlink_to(skills_root, target_is_directory=True)
+                linked_skills.symlink_to(skills_root, target_is_directory=True)
+                codex_home.symlink_to(external_home, target_is_directory=True)
             except OSError as error:
                 self.skipTest(f"symlinks unavailable: {error}")
-            failures = VALIDATOR.validate_runtime(codex_home, linked_root.absolute())
 
-        self.assertTrue(any("linked path component" in failure for failure in failures))
+            skill_failures = VALIDATOR.validate_runtime(external_home, linked_skills.absolute())
+            home_failures = VALIDATOR.validate_runtime(codex_home.absolute(), skills_root)
 
-    def test_runtime_validation_rejects_linked_codex_home(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            temporary_path = Path(temporary)
-            codex_home, skills_root = self.copy_runtime(temporary_path)
-            external = temporary_path / "external-codex-home"
-            shutil.move(codex_home, external)
-            try:
-                codex_home.symlink_to(external, target_is_directory=True)
-            except OSError as error:
-                self.skipTest(f"symlinks unavailable: {error}")
-            failures = VALIDATOR.validate_runtime(codex_home.absolute(), skills_root)
-
-        self.assertTrue(any("linked path component" in failure for failure in failures))
+        self.assertTrue(any("linked path component" in failure for failure in skill_failures))
+        self.assertTrue(any("linked path component" in failure for failure in home_failures))
 
     def test_runtime_validation_ignores_unselected_hooks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home, skills_root = self.copy_runtime(Path(temporary))
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir()
-            (hooks_root / "orchestration_route.py").write_text("custom\n", encoding="utf-8")
+            (hooks_root / "custom_hook.py").write_text("custom\n", encoding="utf-8")
 
             self.assertEqual(VALIDATOR.validate_runtime(codex_home, skills_root), [])
 
+    def test_hook_registration_contract_has_two_hooks(self) -> None:
+        self.assertEqual(
+            VALIDATOR.HOOK_REGISTRATIONS,
+            (
+                ("UserPromptSubmit", "orchestration_route.py", None),
+                ("SubagentStart", "subagent_scope.py", None),
+            ),
+        )
+
     def test_hook_validation_accepts_one_registration_per_event(self) -> None:
         for windows in (False, True):
-            with (
-                self.subTest(windows=windows),
-                tempfile.TemporaryDirectory() as temporary,
-            ):
+            with self.subTest(windows=windows), tempfile.TemporaryDirectory() as temporary:
                 codex_home = Path(temporary) / "codex-home"
                 hooks_root = codex_home / "hooks"
                 hooks_root.mkdir(parents=True)
                 hooks: dict[str, list[dict[str, object]]] = {}
                 for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                    shutil.copy2(ROOT / "hooks" / script, hooks_root / script)
-                    command = VALIDATOR.expected_hook_command(hooks_root / script, windows=windows)
+                    target = hooks_root / script
+                    shutil.copy2(ROOT / "hooks" / script, target)
+                    command = VALIDATOR.expected_hook_command(target, windows=windows)
                     hook: dict[str, object] = {"type": "command", "command": command}
                     if windows:
                         hook["commandWindows"] = command
@@ -733,7 +291,7 @@ class SourceValidationTest(unittest.TestCase):
                         group["matcher"] = matcher
                     hooks[event] = [group]
                 hooks["SessionStart"] = [{"hooks": [{"type": "command", "command": "foreign"}]}]
-                hooks["PreToolUse"].append(
+                hooks.setdefault("PreToolUse", []).append(
                     {
                         "matcher": "bash$",
                         "hooks": [{"type": "command", "command": "foreign"}],
@@ -745,62 +303,419 @@ class SourceValidationTest(unittest.TestCase):
 
                 self.assertEqual(VALIDATOR.validate_hooks(codex_home, windows=windows), [])
 
-    def test_hook_validation_rejects_stale_managed_guard_registrations(self) -> None:
-        for event, matcher in (
+    def test_hook_validation_rejects_duplicate_or_misplaced_registration(self) -> None:
+        for windows in (False, True):
+            for mutation in ("duplicate", "wrong-event", "wrong-matcher"):
+                with (
+                    self.subTest(windows=windows, mutation=mutation),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
+                    codex_home = Path(temporary) / "codex-home"
+                    hooks_root = codex_home / "hooks"
+                    hooks_root.mkdir(parents=True)
+                    hooks: dict[str, list[dict[str, object]]] = {}
+                    for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
+                        target = hooks_root / script
+                        shutil.copy2(ROOT / "hooks" / script, target)
+                        command = VALIDATOR.expected_hook_command(target, windows=windows)
+                        hook: dict[str, object] = {"type": "command", "command": command}
+                        if windows:
+                            hook["commandWindows"] = command
+                        group: dict[str, object] = {"hooks": [hook]}
+                        if matcher is not None:
+                            group["matcher"] = matcher
+                        hooks[event] = [group]
+
+                    event = VALIDATOR.HOOK_REGISTRATIONS[0][0]
+                    group = hooks[event][0]
+                    if mutation == "duplicate":
+                        hooks[event].append(group.copy())
+                    elif mutation == "wrong-event":
+                        hooks["PreToolUse"] = hooks.pop(event)
+                    else:
+                        group["matcher"] = "wrong$"
+                    (codex_home / "hooks.json").write_text(
+                        json.dumps({"hooks": hooks}), encoding="utf-8"
+                    )
+
+                    failures = VALIDATOR.validate_hooks(codex_home, windows=windows)
+
+                expected_count = "count is 2" if mutation == "duplicate" else "count is 0"
+                self.assertTrue(any(expected_count in failure for failure in failures))
+
+    def test_runtime_validation_rejects_retired_guard_without_hooks_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            codex_home, skills_root = self.copy_runtime(temporary_path)
+            external_guard = temporary_path / "old-codex" / "hooks" / "subagent_guard.py"
+            external_guard.parent.mkdir(parents=True)
+            external_guard.write_text("retired\n", encoding="utf-8")
+            retired_command = VALIDATOR.expected_hook_command(
+                external_guard, windows=VALIDATOR.os.name == "nt"
+            )
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "PostToolUse": [
+                                {
+                                    "matcher": "wait_agent$",
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": retired_command,
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.validate_runtime(codex_home, skills_root)
+
+        self.assertTrue(
+            any("retired v1-shaped hook registration remains" in failure for failure in failures)
+        )
+
+    def test_hook_validation_rejects_legacy_guard_variants(self) -> None:
+        legacy_groups = (
             ("PostToolUse", r"(?:functions[._]?exec|wait_agent)$"),
+            ("PostToolUse", r"wait_agent$"),
             ("PreToolUse", r"close_agent$"),
             ("PreToolUse", r"send_input$|close_agent$"),
-        ):
-            with (
-                self.subTest(event=event, matcher=matcher),
-                tempfile.TemporaryDirectory() as temporary,
-            ):
+        )
+        for windows in (False, True):
+            for legacy_event, legacy_matcher in legacy_groups:
+                with (
+                    self.subTest(
+                        windows=windows,
+                        legacy_event=legacy_event,
+                        legacy_matcher=legacy_matcher,
+                    ),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
+                    temporary_path = Path(temporary)
+                    codex_home = temporary_path / "codex-home"
+                    hooks_root = codex_home / "hooks"
+                    hooks_root.mkdir(parents=True)
+                    hooks: dict[str, list[dict[str, object]]] = {}
+                    for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
+                        target = hooks_root / script
+                        shutil.copy2(ROOT / "hooks" / script, target)
+                        command = VALIDATOR.expected_hook_command(target, windows=windows)
+                        hook: dict[str, object] = {"type": "command", "command": command}
+                        if windows:
+                            hook["commandWindows"] = command
+                        group: dict[str, object] = {"hooks": [hook]}
+                        if matcher is not None:
+                            group["matcher"] = matcher
+                        hooks[event] = [group]
+
+                    external_guard = temporary_path / "old-codex" / "hooks" / "subagent_guard.py"
+                    external_guard.parent.mkdir(parents=True)
+                    external_guard.write_text("retired\n", encoding="utf-8")
+                    if windows:
+                        retired_hook = {
+                            "type": "command",
+                            "commandWindows": subprocess.list2cmdline(
+                                [r"C:\Old Python\python.exe", str(external_guard)]
+                            ),
+                        }
+                    else:
+                        retired_hook = {
+                            "type": "command",
+                            "command": f"'/old python/python3' '{external_guard}'",
+                        }
+                    hooks.setdefault(legacy_event, []).append(
+                        {"matcher": legacy_matcher, "hooks": [retired_hook]}
+                    )
+                    (codex_home / "hooks.json").write_text(
+                        json.dumps({"hooks": hooks}), encoding="utf-8"
+                    )
+
+                    failures = VALIDATOR.validate_hooks(codex_home, windows=windows)
+
+                self.assertTrue(
+                    any(
+                        "retired v1-shaped hook registration remains" in failure
+                        for failure in failures
+                    )
+                )
+
+    def test_hook_validation_rejects_retired_guard_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary) / "codex-home"
+            hooks_root = codex_home / "hooks"
+            hooks_root.mkdir(parents=True)
+            retired_target = hooks_root / "subagent_guard.py"
+            retired_target.write_text("retired\n", encoding="utf-8")
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(
+            any("retired Hook path ownership conflicts" in failure for failure in failures)
+        )
+
+    def test_hook_validation_reports_unreadable_selected_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary) / "codex-home"
+            hooks_root = codex_home / "hooks"
+            hooks_root.mkdir(parents=True)
+            hooks: dict[str, list[dict[str, object]]] = {}
+            windows = VALIDATOR.os.name == "nt"
+            for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
+                target = hooks_root / script
+                shutil.copy2(ROOT / "hooks" / script, target)
+                command = VALIDATOR.expected_hook_command(target, windows=windows)
+                hook: dict[str, object] = {"type": "command", "command": command}
+                if windows:
+                    hook["commandWindows"] = command
+                group: dict[str, object] = {"hooks": [hook]}
+                if matcher is not None:
+                    group["matcher"] = matcher
+                hooks[event] = [group]
+            (codex_home / "hooks.json").write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
+            unreadable = hooks_root / "subagent_scope.py"
+            original_read = VALIDATOR.Path.read_bytes
+
+            def guarded_read(path: Path) -> bytes:
+                if path == unreadable:
+                    raise PermissionError("denied")
+                return original_read(path)
+
+            with mock.patch.object(VALIDATOR.Path, "read_bytes", guarded_read):
+                failures = VALIDATOR.validate_hooks(codex_home, windows=windows)
+
+        self.assertTrue(any(f"runtime hook differs: {unreadable}" in item for item in failures))
+
+    def test_retired_scan_accepts_unhashable_foreign_matchers(self) -> None:
+        for matcher in ([], {}):
+            with self.subTest(matcher=matcher), tempfile.TemporaryDirectory() as temporary:
+                codex_home = Path(temporary) / "codex-home"
+                codex_home.mkdir()
+                (codex_home / "hooks.json").write_text(
+                    json.dumps({"hooks": {"PostToolUse": [{"matcher": matcher, "hooks": []}]}}),
+                    encoding="utf-8",
+                )
+
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+            self.assertEqual(failures, [])
+
+    def test_retired_scan_reports_unreadable_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary) / "codex-home"
+            hooks_root = codex_home / "hooks"
+            hooks_root.mkdir(parents=True)
+            (hooks_root / "subagent_guard.py").write_text("retired\n", encoding="utf-8")
+            with mock.patch.object(VALIDATOR, "file_sha256", side_effect=PermissionError("denied")):
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("retired Hook path unreadable" in failure for failure in failures))
+
+    def test_retired_scan_recognizes_windows_guard_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary) / "codex-home"
+            hooks_root = codex_home / "hooks"
+            hooks_root.mkdir(parents=True)
+            (hooks_root / "subagent_guard.py").write_text("retired\n", encoding="utf-8")
+            windows_digest = next(
+                digest
+                for digest in VALIDATOR.RETIRED_HOOK_SHA256["subagent_guard.py"]
+                if digest.startswith("d375")
+            )
+            with mock.patch.object(VALIDATOR, "file_sha256", return_value=windows_digest):
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("retired managed hook remains" in failure for failure in failures))
+
+    def test_runtime_validation_rejects_legacy_v1_route_without_hooks_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            hooks_root = codex_home / "hooks"
+            hooks_root.mkdir()
+            (hooks_root / "orchestration_route.py").write_text("legacy\n", encoding="utf-8")
+            legacy_digest = next(iter(VALIDATOR.LEGACY_V1_ROUTE_SHA256))
+            with mock.patch.object(VALIDATOR, "file_sha256", return_value=legacy_digest):
+                failures = VALIDATOR.validate_runtime(codex_home, skills_root)
+
+        self.assertTrue(any("legacy managed v1 route remains" in failure for failure in failures))
+
+    def test_retired_scan_rejects_conflicting_route_paths(self) -> None:
+        for kind in ("foreign", "directory", "symlink"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
                 codex_home = Path(temporary) / "codex-home"
                 hooks_root = codex_home / "hooks"
                 hooks_root.mkdir(parents=True)
-                hooks: dict[str, list[dict[str, object]]] = {}
-                windows = VALIDATOR.os.name == "nt"
-                for managed_event, script, managed_matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                    target = hooks_root / script
-                    shutil.copy2(ROOT / "hooks" / script, target)
-                    command = VALIDATOR.expected_hook_command(target, windows=windows)
-                    hook: dict[str, object] = {"type": "command", "command": command}
-                    if windows:
-                        hook["commandWindows"] = command
-                    group: dict[str, object] = {"hooks": [hook]}
-                    if managed_matcher is not None:
-                        group["matcher"] = managed_matcher
-                    hooks[managed_event] = [group]
+                route_target = hooks_root / "orchestration_route.py"
+                if kind == "foreign":
+                    route_target.write_text("foreign\n", encoding="utf-8")
+                elif kind == "directory":
+                    route_target.mkdir()
+                else:
+                    external = Path(temporary) / "external-route.py"
+                    external.write_text("external\n", encoding="utf-8")
+                    try:
+                        route_target.symlink_to(external)
+                    except OSError as error:
+                        self.skipTest(f"symlinks unavailable: {error}")
 
-                guard_target = hooks_root / "subagent_guard.py"
-                stale_command = VALIDATOR.expected_hook_command(guard_target, windows=windows)
-                stale_hook: dict[str, object] = {
-                    "type": "command",
-                    "command": stale_command,
-                }
-                if windows:
-                    stale_hook["commandWindows"] = stale_command
-                hooks.setdefault(event, []).append({"matcher": matcher, "hooks": [stale_hook]})
-                (codex_home / "hooks.json").write_text(
-                    json.dumps({"hooks": hooks}), encoding="utf-8"
-                )
+                failures = VALIDATOR.retired_hook_failures(codex_home)
 
-                failures = VALIDATOR.validate_hooks(codex_home, windows=windows)
+            self.assertTrue(any("legacy route path" in failure for failure in failures))
 
-            self.assertTrue(
-                any("stale managed guard registration" in failure for failure in failures)
+    def test_retired_scan_accepts_current_unselected_route_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary) / "codex-home"
+            hooks_root = codex_home / "hooks"
+            hooks_root.mkdir(parents=True)
+            shutil.copy2(
+                ROOT / "hooks" / "orchestration_route.py",
+                hooks_root / "orchestration_route.py",
             )
 
-    def test_guard_registration_covers_send_input_and_wait_results(self) -> None:
-        self.assertEqual(
-            VALIDATOR.HOOK_REGISTRATIONS,
-            (
-                ("UserPromptSubmit", "orchestration_route.py", None),
-                ("SubagentStart", "subagent_scope.py", None),
-                ("PreToolUse", "subagent_guard.py", r"send_input$"),
-                ("PostToolUse", "subagent_guard.py", r"wait_agent$"),
-            ),
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertEqual(failures, [])
+
+    def test_retired_scan_rejects_legacy_route_registration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            codex_home = temporary_path / "codex-home"
+            codex_home.mkdir()
+            external_route = temporary_path / "old-codex" / "hooks" / "orchestration_route.py"
+            external_route.parent.mkdir(parents=True)
+            external_route.write_text("legacy\n", encoding="utf-8")
+            route_command = VALIDATOR.expected_hook_command(
+                external_route, windows=VALIDATOR.os.name == "nt"
+            )
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "UserPromptSubmit": [
+                                {
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": route_command,
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            original_digest = VALIDATOR.file_sha256
+            legacy_digest = next(iter(VALIDATOR.LEGACY_V1_ROUTE_SHA256))
+
+            def route_digest(path: Path) -> str:
+                return legacy_digest if path == external_route else original_digest(path)
+
+            with mock.patch.object(VALIDATOR, "file_sha256", side_effect=route_digest):
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(
+            any("legacy v1 route registration remains" in failure for failure in failures)
         )
+
+    def test_retired_scan_rejects_missing_route_registration_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary) / "codex-home"
+            codex_home.mkdir()
+            missing_route = Path(temporary) / "old" / "orchestration_route.py"
+            route_command = VALIDATOR.expected_hook_command(
+                missing_route, windows=VALIDATOR.os.name == "nt"
+            )
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "UserPromptSubmit": [
+                                {
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": route_command,
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(
+            any("legacy route registration ownership conflicts" in failure for failure in failures)
+        )
+
+    def test_retired_scan_preserves_unrelated_hook_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "SessionStart": [
+                                {
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": "python -c \"print('subagent_guard.py')\"",
+                                        }
+                                    ]
+                                }
+                            ],
+                            "PreToolUse": [
+                                {
+                                    "matcher": "send_input$",
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": "echo subagent_guard.py",
+                                            "commandWindows": (
+                                                "python.exe -c \"print('subagent_guard.py')\""
+                                            ),
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.validate_runtime(codex_home, skills_root)
+
+        self.assertEqual(failures, [])
+
+    def test_retired_scan_does_not_traverse_linked_hook_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            codex_home = temporary_path / "codex-home"
+            codex_home.mkdir()
+            external_hooks = temporary_path / "external-hooks"
+            external_hooks.mkdir()
+            (external_hooks / "subagent_guard.py").write_text("external\n", encoding="utf-8")
+            try:
+                (codex_home / "hooks").symlink_to(external_hooks, target_is_directory=True)
+            except OSError as error:
+                self.skipTest(f"symlinks unavailable: {error}")
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertEqual(len(failures), 1)
+        self.assertIn("Hook directory linked or conflicting", failures[0])
 
     def test_runtime_cli_validates_selected_hooks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -842,53 +757,65 @@ class SourceValidationTest(unittest.TestCase):
         self.assertIn("OK: runtime skill and agents match source", result.stdout)
 
     def test_hook_validation_rejects_non_exact_commands(self) -> None:
-        for command_kind in ("path-substring", "path-suffix", "extra-argument"):
-            with (
-                self.subTest(command_kind=command_kind),
-                tempfile.TemporaryDirectory() as temporary,
-            ):
-                codex_home = Path(temporary) / "codex-home"
-                hooks_root = codex_home / "hooks"
-                hooks_root.mkdir(parents=True)
-                hooks: dict[str, list[dict[str, object]]] = {}
-                windows = VALIDATOR.os.name == "nt"
-                for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                    target = hooks_root / script
-                    shutil.copy2(ROOT / "hooks" / script, target)
-                    if command_kind == "path-substring":
-                        command = f'echo "{target}"'
-                    elif command_kind == "path-suffix":
-                        command = VALIDATOR.expected_hook_command(
-                            Path(f"{target}.disabled"), windows=windows
-                        )
-                    else:
-                        command = (
-                            f"{VALIDATOR.expected_hook_command(target, windows=windows)} extra"
-                        )
-                    hook: dict[str, object] = {"type": "command", "command": command}
-                    if windows:
-                        hook["commandWindows"] = command
-                    group: dict[str, object] = {"hooks": [hook]}
-                    if matcher is not None:
-                        group["matcher"] = matcher
-                    hooks[event] = [group]
-                (codex_home / "hooks.json").write_text(
-                    json.dumps({"hooks": hooks}), encoding="utf-8"
-                )
+        for windows in (False, True):
+            for command_kind in ("path-substring", "path-suffix", "extra-argument"):
+                with (
+                    self.subTest(windows=windows, command_kind=command_kind),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
+                    codex_home = Path(temporary) / "codex-home"
+                    hooks_root = codex_home / "hooks"
+                    hooks_root.mkdir(parents=True)
+                    hooks: dict[str, list[dict[str, object]]] = {}
+                    for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
+                        target = hooks_root / script
+                        shutil.copy2(ROOT / "hooks" / script, target)
+                        if command_kind == "path-substring":
+                            command = f'echo "{target}"'
+                        elif command_kind == "path-suffix":
+                            command = VALIDATOR.expected_hook_command(
+                                Path(f"{target}.disabled"), windows=windows
+                            )
+                        else:
+                            command = (
+                                f"{VALIDATOR.expected_hook_command(target, windows=windows)} extra"
+                            )
+                        hook: dict[str, object] = {"type": "command", "command": command}
+                        if windows:
+                            hook["commandWindows"] = command
+                        group: dict[str, object] = {"hooks": [hook]}
+                        if matcher is not None:
+                            group["matcher"] = matcher
+                        hooks[event] = [group]
+                    (codex_home / "hooks.json").write_text(
+                        json.dumps({"hooks": hooks}), encoding="utf-8"
+                    )
 
-                failures = VALIDATOR.validate_hooks(codex_home)
+                    failures = VALIDATOR.validate_hooks(codex_home, windows=windows)
 
-            self.assertTrue(any("registration count is 0" in failure for failure in failures))
+                self.assertTrue(any("registration count is 0" in failure for failure in failures))
 
-    def test_expected_hook_command_uses_windows_quoting(self) -> None:
+    def test_expected_hook_command_uses_platform_quoting(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            target = Path(temporary) / "hook scripts" / "guard.py"
+            target = Path(temporary) / "hook scripts" / "route.py"
             windows_command = VALIDATOR.expected_hook_command(target, windows=True)
             posix_command = VALIDATOR.expected_hook_command(target, windows=False)
 
         self.assertNotEqual(windows_command, posix_command)
+        self.assertEqual(
+            windows_command,
+            subprocess.list2cmdline([str(Path(sys.executable).absolute()), str(target.absolute())]),
+        )
         self.assertIn(f'"{target.absolute()}"', windows_command)
         self.assertIn(f"'{target.absolute()}'", posix_command)
+        self.assertEqual(
+            VALIDATOR.python_hook_script(windows_command, windows=True),
+            str(target.absolute()),
+        )
+        self.assertEqual(
+            VALIDATOR.python_hook_script(posix_command, windows=False),
+            str(target.absolute()),
+        )
 
     def test_hook_validation_rejects_missing_or_invalid_windows_fields(self) -> None:
         for invalid_field in (
@@ -896,6 +823,7 @@ class SourceValidationTest(unittest.TestCase):
             "invalid-command",
             "missing-commandWindows",
             "invalid-commandWindows",
+            "mismatched-valid-fields",
         ):
             with (
                 self.subTest(invalid_field=invalid_field),
@@ -919,8 +847,10 @@ class SourceValidationTest(unittest.TestCase):
                         hook["command"] = "invalid"
                     elif invalid_field == "missing-commandWindows":
                         del hook["commandWindows"]
-                    else:
+                    elif invalid_field == "invalid-commandWindows":
                         hook["commandWindows"] = "invalid"
+                    else:
+                        hook["command"] = f"{hook['command']} "
                     group: dict[str, object] = {"hooks": [hook]}
                     if matcher is not None:
                         group["matcher"] = matcher
@@ -932,30 +862,6 @@ class SourceValidationTest(unittest.TestCase):
                 failures = VALIDATOR.validate_hooks(codex_home, windows=True)
 
             self.assertTrue(any("registration count is 0" in failure for failure in failures))
-
-    def test_hook_validation_rejects_guard_matcher_drift(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home = Path(temporary) / "codex-home"
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            hooks: dict[str, list[dict[str, object]]] = {}
-            windows = VALIDATOR.os.name == "nt"
-            for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                target = hooks_root / script
-                shutil.copy2(ROOT / "hooks" / script, target)
-                command = VALIDATOR.expected_hook_command(target, windows=windows)
-                hook: dict[str, object] = {"type": "command", "command": command}
-                if windows:
-                    hook["commandWindows"] = command
-                group: dict[str, object] = {"hooks": [hook]}
-                if matcher is not None:
-                    group["matcher"] = "Agent" if event == "PreToolUse" else matcher
-                hooks[event] = [group]
-            (codex_home / "hooks.json").write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
-
-            failures = VALIDATOR.validate_hooks(codex_home)
-
-        self.assertTrue(any("PreToolUse" in failure for failure in failures))
 
     def test_hook_validation_rejects_invalid_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

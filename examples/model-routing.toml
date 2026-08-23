@@ -36,6 +36,5 @@ reasoning_effort = "REASONING_LEVEL"
 model = "MODEL_ID_PRIMARY"
 reasoning_effort = "REASONING_LEVEL"
 
-# Optional keys per entry:
-# service_tier = "SERVICE_TIER"
+# Optional key per entry:
 # note = "Human-readable routing rationale"

@@ -28,7 +28,9 @@
 - Keep agent profiles model-neutral. User model routes live outside the repository.
 - Keep task-package prose language local while canonical field names and control literals remain portable.
 - Preserve unrelated files and hook registrations during Agent-driven installation.
-- Keep `orchestration_route.py`, `subagent_scope.py`, and `subagent_guard.py` with this repository's orchestration contract; shared context, memory-routing, and closeout Hooks remain external runtimes, and machine-specific composition remains private configuration.
+- Pure v2 verification rejects the retired Guard, known prior v1 Route projections, and unresolved
+  v1-shaped registrations even when the current optional Hooks are not selected.
+- Keep `orchestration_route.py` and `subagent_scope.py` with this repository's orchestration contract; shared context, memory-routing, and closeout Hooks remain external runtimes, and machine-specific composition remains private configuration.
 - Preserve author, source, revision, license metadata, and `THIRD_PARTY_NOTICES.md` when updating bundled third-party Skills.
 - The main agent owns orchestration and Git; writable workers require the canonical lease in `references/worker-writing.md`.
 - Public files must not contain personal paths, private endpoints, credentials, or machine-specific model IDs.

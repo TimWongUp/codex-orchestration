@@ -22,7 +22,7 @@ The Agent validates the checkout, discovers the Codex home and active Skill root
 
 The authoritative procedure is [INSTALL.md](INSTALL.md), including conflict handling and runtime verification.
 
-The repository is the only source of truth for its portable Skill, Agent, and three orchestration Hooks: `orchestration_route.py`, `subagent_scope.py`, and `subagent_guard.py`. Installed files are replaceable runtime artifacts; model routes, executable paths, and Hook registrations stay local. Shared context, memory-routing, and closeout Hooks remain owned by their runtime repository.
+The repository is the only source of truth for its portable Skill, Agent, and two orchestration Hooks: `orchestration_route.py` and `subagent_scope.py`. Installed files are replaceable runtime artifacts; model routes, executable paths, and Hook registrations stay local. Shared context, memory-routing, and closeout Hooks remain owned by their runtime repository.
 
 ## What makes it different
 
@@ -31,6 +31,7 @@ The repository is the only source of truth for its portable Skill, Agent, and th
 - **Task language is local.** Setup can persist English or Simplified Chinese prose while canonical package fields and control literals stay stable.
 - **Parallel reading, serialized writing.** Explorers, researchers, designers, and reviewers may run concurrently; only the main agent or one leased worker writes at a time.
 - **Waiting follows dependency.** The main agent waits before decisions, writes, or final answers that pending results could change; only independent, non-overlapping work continues.
+- **V2 tools have explicit responsibilities.** Ordinary `spawn_agent` calls use `fork_turns="none"` for fresh context; `send_message` queues supplemental context without starting a turn; `followup_task` delivers later or corrective work to a running target and starts a new turn for an idle target; `wait_agent` waits for the caller mailbox; `interrupt_agent` preserves context while interrupting an active turn; and `list_agents` plus final notifications reconcile status.
 - **Collaboration has named modes.** `coverage` divides evidence, `panel` compares independent model judgments, and `hybrid` combines both without treating majority vote as truth.
 - **Review scales with risk.** The R0–R3 gate ranges from main-agent validation to focused reviewers, remediation, and adversarial verification.
 - **Models stay local and replaceable.** Agent profiles are model-neutral; optional role routes and task-specific overrides live outside the repository and can match the models available on each machine.
@@ -58,7 +59,7 @@ For a broader feature discussion, ask Codex to use `web-researcher` for public i
 - The complete `diagnosing-bugs` and `prototype` method Skills used by their workers.
 - Read-only explorer, official-reference research, web research, frontend-design, expert, and focused-review agents.
 - Writable implementation, debugging, and prototype workers governed by a single-writer lease.
-- Optional hooks that reinforce routing and derived-agent scope, require every subagent input to declare immediate current-task guidance or a deliberate after-current-task queue, and may add stateless advisory context for directly observed non-terminal waits. Close ordering remains a Skill rule owned by the main agent; the Hook does not claim to enforce it.
+- Optional Hooks that reinforce main-agent routing and derived-agent scope. Lifecycle semantics stay in the Skill and the model-visible v2 tools.
 - A local, optional model-routing file. No model IDs are pinned in the repository.
 - An Agent installation contract for macOS and native Windows that preserves unrelated Codex configuration.
 

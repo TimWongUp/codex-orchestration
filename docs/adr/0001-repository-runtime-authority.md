@@ -1,6 +1,11 @@
 # Keep portable runtime behavior in the repository
 
-The public repository is the sole source of truth for its portable Skill, Agent, validation behavior, and the three orchestration Hooks `orchestration_route.py`, `subagent_scope.py`, and `subagent_guard.py`; installed files are replaceable deployment artifacts, while model routes, executable paths, Hook registrations, and other host choices remain local. Shared context, memory-routing, and closeout Hooks remain owned by their runtime repository. We chose this over maintaining a separately editable personal Skill because dual implementations had already drifted and made ordinary requests ambiguous.
+The public repository is the sole source of truth for its portable Skill, Agent, validation behavior,
+and the two orchestration Hooks `orchestration_route.py` and `subagent_scope.py`; installed files
+are replaceable deployment artifacts, while model routes, executable paths, Hook registrations, and
+other host choices remain local. Shared context, memory-routing, and closeout Hooks remain owned by
+their runtime repository. We chose this over maintaining a separately editable personal Skill
+because dual implementations had already drifted and made ordinary requests ambiguous.
 
 **Status:** accepted
 
