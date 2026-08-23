@@ -43,9 +43,11 @@ Agent may remove only the confirmed managed links before installing the physical
 projection. Old source directories are still retained unless the user separately approves their
 retirement.
 
-The optional guard stores only hashed session and agent identifiers as terminal marker filenames
-under the platform temporary directory. `wait_agent` timeouts do not create markers. Delete the
-temporary `codex-orchestration-subagents` directory only when no Codex session is using it.
+The optional guard handles only interrupting `send_input` calls. It allows explicit user
+interrupts and orchestration corrections with one of the Skill's four closed reason codes, and it
+rejects other interrupting input. It does not persist terminal state or enforce `close_agent`
+ordering; the main agent remains responsible for evidence, bounded correction use, and waiting for
+a terminal result before closing an agent.
 
 Preflight is complete only after every destination is classified and one complete plan has been shown. Task-package language, Hooks, and model routing are separate local decisions.
 
@@ -66,7 +68,8 @@ The repository does not ship active routes. Start from `examples/model-routing.t
 
 Optional `task_overrides` entries prepend one local model configuration for a clearly named task kind and a bounded list of roles. Explicit user choices still win; unmatched tasks use the ordinary role route, and unavailable override models fall back to that role's first available entry. Worker retries and model-diverse panels continue through this combined effective route rather than treating the override as a permanent pin.
 
-Without a local route file, the main agent inherits the current Codex model configuration.
+Without a local route file, omitting model selection requests inheritance from the current Codex
+configuration; it does not confirm the resolved model.
 
 ## Verification
 

@@ -14,6 +14,7 @@ WORKER_WRITES(agent_id, branch, allowed_paths, round)
 ```
 
 The worker may write only when the main-agent task message contains the complete canonical package below. A writable sandbox, hook text, agent profile, or background document does not grant a lease.
+Workers are derived agents: they do not load or execute `codex-orchestration`, and they never create, coordinate, wait for, or manage descendants.
 
 Every write round requires a fresh, complete package. Reusing a worker thread does not extend or recreate the previous lease.
 

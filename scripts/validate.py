@@ -64,9 +64,8 @@ HOOK_REGISTRATIONS = (
     (
         "PreToolUse",
         "subagent_guard.py",
-        r"send_input$|close_agent$",
+        r"send_input$",
     ),
-    ("PostToolUse", "subagent_guard.py", r"wait_agent$"),
 )
 
 
@@ -294,14 +293,34 @@ def public_text_files() -> list[Path]:
     ]
 
 
+def pinned_model_keys(source: str) -> set[str]:
+    return FORBIDDEN_KEYS.intersection(top_level_values(source))
+
+
+def public_pattern_failures(label: str, source: str) -> list[str]:
+    return [
+        f"{description} in {label}"
+        for pattern, description in FORBIDDEN_PUBLIC_PATTERNS.items()
+        if pattern in source
+    ]
+
+
 def validate_source() -> list[str]:
     failures: list[str] = []
+    project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
     install_contract = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
     worker_contract = (ROOT / "references" / "worker-writing.md").read_text(encoding="utf-8")
+    configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
+
+    require(
+        top_level_values(project).get("version") == "0.5.1",
+        "project version must be 0.5.1",
+        failures,
+    )
 
     for phrase in (
-        "version: 0.5.0",
+        "version: 0.5.1",
         "references/model-routing.md",
         "references/worker-writing.md",
         "task_package_language",
@@ -320,6 +339,14 @@ def validate_source() -> list[str]:
         "matching local task override",
         "unisolated prompt injection",
         "same effective route",
+        "Do not load or execute this Skill",
+        "ORCHESTRATOR_CORRECTION:",
+        "<reason_code>",
+        "wrong_model",
+        "may terminate",
+        "runtime/UI resolved-model metadata",
+        "resolved model",
+        "unknown`/unconfirmed",
     ):
         require(phrase in skill, f"missing Skill contract: {phrase}", failures)
 
@@ -366,7 +393,7 @@ def validate_source() -> list[str]:
             profiles[name] = values
             profile_sources[name] = source
             require(name == path.stem, f"agent filename/name mismatch: {path.name}", failures)
-        pinned = FORBIDDEN_KEYS.intersection(values)
+        pinned = pinned_model_keys(source)
         require(not pinned, f"agent pins model settings: {path.name}: {sorted(pinned)}", failures)
     require(set(profiles) == WRITERS | READERS, "agent role set does not match contract", failures)
     hook_source = (ROOT / "hooks" / "subagent_scope.py").read_text(encoding="utf-8")
@@ -402,12 +429,29 @@ def validate_source() -> list[str]:
             f"SubagentStart Hook does not expose worker package field: {field}",
             failures,
         )
+    require(
+        "HIGH PRIORITY DERIVED-AGENT IDENTITY" in hook_source,
+        "SubagentStart Hook identity context is not high priority",
+        failures,
+    )
     for name in READERS:
         require(
             profiles.get(name, {}).get("sandbox_mode") == "read-only",
             f"{name} must be read-only",
             failures,
         )
+    derived_identity = (
+        "Do not load or execute the codex-orchestration Skill",
+        "do not create, coordinate, wait for, or manage descendants",
+        "panel member",
+    )
+    for name, source in profile_sources.items():
+        for phrase in derived_identity:
+            require(
+                phrase in source,
+                f"{name} missing derived-agent identity contract: {phrase}",
+                failures,
+            )
     require(
         "load the `diagnosing-bugs` Skill"
         in (ROOT / "agents" / "diagnosing-bugs-worker.toml").read_text(encoding="utf-8"),
@@ -459,16 +503,25 @@ def validate_source() -> list[str]:
     guard_source = (ROOT / "hooks" / "subagent_guard.py").read_text(encoding="utf-8")
     for phrase in (
         "USER_REQUESTED_INTERRUPT:",
+        "ORCHESTRATOR_CORRECTION:",
         "permissionDecision",
-        "wait_agent",
-        "close_agent",
     ):
         require(phrase in guard_source, f"subagent guard missing contract: {phrase}", failures)
+    require(
+        "terminal-marker" not in guard_source and "terminal marker" not in guard_source,
+        "subagent guard must not enforce terminal markers",
+        failures,
+    )
+    require(
+        "close_agent" not in guard_source and "wait_agent" not in guard_source,
+        "subagent guard must not enforce close ordering",
+        failures,
+    )
     for event, _script, matcher in HOOK_REGISTRATIONS:
         if matcher is None:
             continue
         pattern = re.compile(matcher)
-        tools = ("send_input", "close_agent") if event == "PreToolUse" else ("wait_agent",)
+        tools = ("send_input",)
         for tool in tools:
             for candidate in (
                 tool,
@@ -501,13 +554,46 @@ def validate_source() -> list[str]:
         "examples/preferences.toml",
         "<codex-home>/codex-orchestration/preferences.toml",
         "--skills-root",
+        "send_input$",
+        "does not enforce close ordering",
+        "no registration invokes this",
+        "does not confirm the resolved model",
     ):
         require(phrase in install_contract, f"missing install contract: {phrase}", failures)
 
+    for phrase in (
+        "guard handles only interrupting `send_input` calls",
+        "four closed reason codes",
+        "does not persist terminal state",
+        "`close_agent`",
+        "responsible for evidence, bounded correction use",
+        "does not confirm the resolved model",
+    ):
+        require(
+            phrase in configuration,
+            f"configuration missing current guard contract: {phrase}",
+            failures,
+        )
+    for pattern in (
+        r"terminal[- ]markers?",
+        r"hashed session and agent identifiers",
+        r"codex-orchestration-subagents",
+    ):
+        require(
+            re.search(pattern, configuration, re.IGNORECASE) is None,
+            f"configuration retains obsolete terminal-marker contract: {pattern}",
+            failures,
+        )
+
     for path in public_text_files():
         text = path.read_text(encoding="utf-8")
-        for pattern, label in FORBIDDEN_PUBLIC_PATTERNS.items():
-            require(pattern not in text, f"{label} in {path.relative_to(ROOT)}", failures)
+        failures.extend(public_pattern_failures(str(path.relative_to(ROOT)), text))
+
+    require(
+        (ROOT / "docs" / "adr" / "0006-use-a-stateless-subagent-interrupt-guard.md").is_file(),
+        "stateless interrupt guard ADR missing",
+        failures,
+    )
 
     require(
         not (ROOT / "scripts" / "install.py").exists(),
@@ -628,6 +714,31 @@ def validate_hooks(codex_home: Path, *, windows: bool | None = None) -> list[str
     if not isinstance(data, dict) or not isinstance(data.get("hooks"), dict):
         failures.append(f"runtime hooks config has invalid root: {hooks_path}")
         return failures
+
+    guard_target = hooks_root / "subagent_guard.py"
+    for event, groups in data["hooks"].items():
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            matcher = group.get("matcher")
+            hooks = group.get("hooks", [])
+            if not isinstance(hooks, list):
+                continue
+            for hook in hooks:
+                if not isinstance(hook, dict) or hook.get("type") != "command":
+                    continue
+                fields = ("command", "commandWindows") if use_windows else ("command",)
+                invokes_guard = any(
+                    hook_command_matches(hook.get(field), guard_target, windows=use_windows)
+                    for field in fields
+                )
+                if invokes_guard and not (event == "PreToolUse" and matcher == r"send_input$"):
+                    failures.append(
+                        "runtime stale managed guard registration: "
+                        f"{event}: matcher={matcher!r}: {guard_target}"
+                    )
 
     for event, target, expected_matcher in targets:
         groups = data["hooks"].get(event, [])
