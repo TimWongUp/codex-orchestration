@@ -350,6 +350,9 @@ class SourceValidationTest(unittest.TestCase):
             external_guard = temporary_path / "old-codex" / "hooks" / "subagent_guard.py"
             external_guard.parent.mkdir(parents=True)
             external_guard.write_text("retired\n", encoding="utf-8")
+            retired_command = VALIDATOR.expected_hook_command(
+                external_guard, windows=VALIDATOR.os.name == "nt"
+            )
             (codex_home / "hooks.json").write_text(
                 json.dumps(
                     {
@@ -360,7 +363,7 @@ class SourceValidationTest(unittest.TestCase):
                                     "hooks": [
                                         {
                                             "type": "command",
-                                            "command": f"'/old python/python3' '{external_guard}'",
+                                            "command": retired_command,
                                         }
                                     ],
                                 }
@@ -586,6 +589,9 @@ class SourceValidationTest(unittest.TestCase):
             external_route = temporary_path / "old-codex" / "hooks" / "orchestration_route.py"
             external_route.parent.mkdir(parents=True)
             external_route.write_text("legacy\n", encoding="utf-8")
+            route_command = VALIDATOR.expected_hook_command(
+                external_route, windows=VALIDATOR.os.name == "nt"
+            )
             (codex_home / "hooks.json").write_text(
                 json.dumps(
                     {
@@ -595,7 +601,7 @@ class SourceValidationTest(unittest.TestCase):
                                     "hooks": [
                                         {
                                             "type": "command",
-                                            "command": f"python3 '{external_route}'",
+                                            "command": route_command,
                                         }
                                     ]
                                 }
@@ -623,6 +629,9 @@ class SourceValidationTest(unittest.TestCase):
             codex_home = Path(temporary) / "codex-home"
             codex_home.mkdir()
             missing_route = Path(temporary) / "old" / "orchestration_route.py"
+            route_command = VALIDATOR.expected_hook_command(
+                missing_route, windows=VALIDATOR.os.name == "nt"
+            )
             (codex_home / "hooks.json").write_text(
                 json.dumps(
                     {
@@ -632,7 +641,7 @@ class SourceValidationTest(unittest.TestCase):
                                     "hooks": [
                                         {
                                             "type": "command",
-                                            "command": f"python3 '{missing_route}'",
+                                            "command": route_command,
                                         }
                                     ]
                                 }
@@ -799,6 +808,14 @@ class SourceValidationTest(unittest.TestCase):
         )
         self.assertIn(f'"{target.absolute()}"', windows_command)
         self.assertIn(f"'{target.absolute()}'", posix_command)
+        self.assertEqual(
+            VALIDATOR.python_hook_script(windows_command, windows=True),
+            str(target.absolute()),
+        )
+        self.assertEqual(
+            VALIDATOR.python_hook_script(posix_command, windows=False),
+            str(target.absolute()),
+        )
 
     def test_hook_validation_rejects_missing_or_invalid_windows_fields(self) -> None:
         for invalid_field in (
