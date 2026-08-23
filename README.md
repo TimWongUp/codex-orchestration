@@ -58,7 +58,7 @@ For a broader feature discussion, ask Codex to use `web-researcher` for public i
 - The complete `diagnosing-bugs` and `prototype` method Skills used by their workers.
 - Read-only explorer, official-reference research, web research, frontend-design, expert, and focused-review agents.
 - Writable implementation, debugging, and prototype workers governed by a single-writer lease.
-- Optional hooks that reinforce routing and derived-agent scope, require immediate-control messages to interrupt instead of queue, block unmarked interruption of running subagents, and may add stateless advisory context for directly observed non-terminal waits. Close ordering remains a Skill rule owned by the main agent; the Hook does not claim to enforce it.
+- Optional hooks that reinforce routing and derived-agent scope, require every subagent input to declare immediate current-task guidance or a deliberate after-current-task queue, and may add stateless advisory context for directly observed non-terminal waits. Close ordering remains a Skill rule owned by the main agent; the Hook does not claim to enforce it.
 - A local, optional model-routing file. No model IDs are pinned in the repository.
 - An Agent installation contract for macOS and native Windows that preserves unrelated Codex configuration.
 

@@ -5,15 +5,23 @@ from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Iterator
+import unicodedata
 from typing import Any
 
 USER_INTERRUPT_PREFIX = "USER_REQUESTED_INTERRUPT:"
-ORCHESTRATOR_CORRECTION_PREFIX = "ORCHESTRATOR_CORRECTION:"
-CONTROL_PREFIXES = (USER_INTERRUPT_PREFIX, ORCHESTRATOR_CORRECTION_PREFIX)
-CORRECTION_REASONS = frozenset(
+ORCHESTRATOR_GUIDANCE_PREFIX = "ORCHESTRATOR_GUIDANCE:"
+AFTER_CURRENT_TASK_PREFIX = "AFTER_CURRENT_TASK:"
+LEGACY_CORRECTION_PREFIX = "ORCHESTRATOR_CORRECTION:"
+CONTROL_PREFIXES = (
+    USER_INTERRUPT_PREFIX,
+    ORCHESTRATOR_GUIDANCE_PREFIX,
+    AFTER_CURRENT_TASK_PREFIX,
+    LEGACY_CORRECTION_PREFIX,
+)
+LEGACY_CORRECTION_REASONS = frozenset(
     {"wrong_model", "wrong_role", "descendant_orchestration", "scope_drift"}
 )
+VISIBLE_INPUT_CATEGORY_PREFIXES = frozenset({"L", "N", "P", "S"})
 TERMINAL_STATES = frozenset({"completed", "errored", "interrupted", "shutdown", "not_found"})
 WAIT_RESULT_CONTEXT = (
     "WAIT RESULT CHECK: Keep every target without an explicit terminal status "
@@ -41,27 +49,6 @@ def _tool_kind(value: object) -> str:
     return ""
 
 
-def _walk_json(value: object) -> Iterator[object]:
-    yield value
-    if isinstance(value, dict):
-        for child in value.values():
-            yield from _walk_json(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _walk_json(child)
-    elif isinstance(value, str):
-        stripped = value.strip()
-        candidates = [stripped, *(line.strip() for line in stripped.splitlines())]
-        for candidate in candidates:
-            if not candidate.startswith(("{", "[")):
-                continue
-            try:
-                parsed = json.loads(candidate)
-            except json.JSONDecodeError:
-                continue
-            yield from _walk_json(parsed)
-
-
 def _terminal_status(value: object) -> bool:
     if isinstance(value, str):
         return value in TERMINAL_STATES
@@ -82,15 +69,22 @@ def _requested_agent_ids(payload: dict[str, Any]) -> set[str]:
     return {agent_id for agent_id in targets if isinstance(agent_id, str)}
 
 
-def _wait_result(payload: dict[str, Any]) -> tuple[dict[str, object], bool] | None:
-    for value in _walk_json(payload.get("tool_response")):
-        if not isinstance(value, dict):
-            continue
-        statuses = value.get("status")
-        timed_out = value.get("timed_out")
-        if isinstance(statuses, dict) and isinstance(timed_out, bool):
-            return statuses, timed_out
+def _wait_result_candidate(value: object) -> tuple[dict[str, object], bool] | None:
+    if not isinstance(value, dict):
+        return None
+    statuses = value.get("status")
+    timed_out = value.get("timed_out")
+    if isinstance(statuses, dict) and isinstance(timed_out, bool):
+        return statuses, timed_out
     return None
+
+
+def _wait_result(payload: dict[str, Any]) -> tuple[dict[str, object], bool] | None:
+    response = payload.get("tool_response")
+    if isinstance(response, dict):
+        if "structuredContent" in response:
+            return _wait_result_candidate(response["structuredContent"])
+    return _wait_result_candidate(response)
 
 
 def _wait_is_terminal(payload: dict[str, Any]) -> bool:
@@ -127,14 +121,21 @@ def _text_control_kind(value: str) -> str:
     text = value.lstrip()
     control_count = sum(value.count(prefix) for prefix in CONTROL_PREFIXES)
     if control_count == 0:
-        return "ordinary"
+        return "unclassified"
     if control_count != 1 or not text.startswith(CONTROL_PREFIXES):
         return "invalid"
-    if text.startswith(USER_INTERRUPT_PREFIX):
-        return "authorized"
-    remainder = text[len(ORCHESTRATOR_CORRECTION_PREFIX) :].lstrip()
-    reason = remainder.split(maxsplit=1)[0] if remainder else ""
-    return "authorized" if reason in CORRECTION_REASONS else "invalid"
+    prefix = next(prefix for prefix in CONTROL_PREFIXES if text.startswith(prefix))
+    if not any(
+        unicodedata.category(character)[0] in VISIBLE_INPUT_CATEGORY_PREFIXES
+        for character in text[len(prefix) :]
+    ):
+        return "invalid"
+    if prefix == LEGACY_CORRECTION_PREFIX:
+        reason = text[len(prefix) :].lstrip().split(maxsplit=1)[0]
+        return "immediate" if reason in LEGACY_CORRECTION_REASONS else "invalid"
+    if text.startswith(AFTER_CURRENT_TASK_PREFIX):
+        return "queued"
+    return "immediate"
 
 
 def _control_kind(tool_input: dict[str, Any]) -> str:
@@ -151,14 +152,14 @@ def _control_kind(tool_input: dict[str, Any]) -> str:
             and item.get("type") == "text"
             and isinstance(item.get("text"), str)
         )
-    control_kinds = [kind for kind in kinds if kind != "ordinary"]
+    control_kinds = [kind for kind in kinds if kind != "unclassified"]
     if "invalid" in control_kinds or len(control_kinds) > 1:
         return "invalid"
     if control_kinds and len(kinds) > 1:
         return "invalid"
     if control_kinds:
-        return "authorized"
-    return "ordinary"
+        return control_kinds[0]
+    return "unclassified"
 
 
 def _input_shape_error(tool_input: object) -> str | None:
@@ -211,27 +212,32 @@ def _pre_tool_use(payload: dict[str, Any]) -> dict[str, object]:
     arguments = tool_input
     interrupt = arguments.get("interrupt")
     if "interrupt" in arguments and interrupt is not False and interrupt is not True:
-        return _deny("interrupt must be false for queued input or true with an authorized prefix.")
+        return _deny("interrupt must be an explicit boolean matching the delivery envelope.")
     control_kind = _control_kind(arguments)
     if control_kind == "invalid":
         return _deny(
-            "A control prefix must appear exactly once and begin the first non-empty line of "
-            "the sole text carrier. "
-            "ORCHESTRATOR_CORRECTION: also requires one reason code: wrong_model, wrong_role, "
-            "descendant_orchestration, or scope_drift."
+            "A delivery prefix must appear exactly once and begin the first non-empty line of "
+            "the sole text carrier, followed by non-empty visible input. The legacy "
+            "ORCHESTRATOR_CORRECTION: alias also requires one of its four reason codes."
         )
-    if control_kind == "authorized" and interrupt is not True:
+    if control_kind == "immediate" and interrupt is not True:
         return _deny(
-            "A control-prefixed send_input requires interrupt=true for immediate redirection. "
-            "Remove the control prefix and use interrupt=false only for an ordinary queued "
-            "follow-up."
+            "USER_REQUESTED_INTERRUPT:, ORCHESTRATOR_GUIDANCE:, and the legacy "
+            "ORCHESTRATOR_CORRECTION: alias require interrupt=true so the message affects "
+            "the current task immediately."
         )
-    if interrupt is True and control_kind == "ordinary":
+    if control_kind == "queued" and interrupt is not False:
         return _deny(
-            "Keep the running agent. Queue ordinary follow-up input with interrupt=false. "
-            "Use USER_REQUESTED_INTERRUPT: only after an explicit user stop or replacement "
-            "request. ORCHESTRATOR_CORRECTION: requires one reason code: wrong_model, "
-            "wrong_role, descendant_orchestration, or scope_drift."
+            "AFTER_CURRENT_TASK: requires explicit interrupt=false because it deliberately "
+            "queues input until the current task finishes."
+        )
+    if control_kind == "unclassified":
+        return _deny(
+            "Classify send_input delivery explicitly. Use ORCHESTRATOR_GUIDANCE: with "
+            "interrupt=true for guidance that can affect current work, AFTER_CURRENT_TASK: "
+            "with interrupt=false only for deliberate next-turn input, or "
+            "USER_REQUESTED_INTERRUPT: with interrupt=true after an explicit user stop or "
+            "replacement request."
         )
     return {}
 

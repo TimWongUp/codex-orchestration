@@ -43,14 +43,15 @@ Agent may remove only the confirmed managed links before installing the physical
 projection. Old source directories are still retained unless the user separately approves their
 retirement.
 
-The optional guard handles `send_input` control envelopes and may add advisory context for a
+The optional guard handles `send_input` delivery envelopes and may add advisory context for a
 directly observed non-terminal `wait_agent` result.
-It allows explicit user interrupts and orchestration corrections with one of the Skill's four closed reason codes,
-requires either control prefix to use `interrupt=true` instead of entering the queue,
-rejects mixed or malformed control carriers and other interrupting input, and adds immediate context when that direct wait is timed out,
+It requires current-task guidance and explicit user interruption to use `interrupt=true`,
+requires deliberately after-current-task input to use explicit `interrupt=false`,
+temporarily accepts the previous closed-reason correction form as an immediate upgrade alias,
+rejects unclassified, mixed, malformed, or mismatched delivery envelopes, and adds immediate context when that direct wait is timed out,
 incomplete, or unrecognized. It does not persist terminal state, inspect nested wait results, or enforce
-`close_agent` ordering; the main agent remains responsible for evidence, bounded correction use,
-and waiting for an explicit terminal result before closing an agent. Each subagent lifecycle call
+`close_agent` ordering; the main agent remains responsible for choosing the correct delivery timing
+and waiting for a later explicit terminal result after each accepted input before closing an agent. Each subagent lifecycle call
 is a separate model-visible operation. Hosts with direct lifecycle tools use them; when only
 `functions.exec` exposes those tools, each program makes one lifecycle call, returns the structured
 result unchanged, and leaves the next lifecycle decision to the model.

@@ -341,20 +341,21 @@ def validate_source() -> list[str]:
         "Do not create a worktree unless the user explicitly requests one",
         "timed_out=true",
         "exactly one lifecycle call per program",
-        "Do not interrupt, close, replace, or switch the model",
+        "Do not send guidance, interrupt, close, replace, or switch the model",
         "matching local task override",
         "unisolated prompt injection",
         "same effective route",
         "Do not load or execute this Skill",
-        "ORCHESTRATOR_CORRECTION:",
-        "<reason_code>",
-        "control envelope",
-        "exactly one control prefix",
+        "ORCHESTRATOR_GUIDANCE:",
+        "AFTER_CURRENT_TASK:",
+        "delivery envelopes",
+        "exactly one prefix",
         "sole text carrier",
         "interrupt=true",
-        "wrong_model",
-        "may terminate",
-        "runtime/UI resolved-model metadata",
+        "interrupt=false",
+        "non-empty visible input",
+        "never reuse terminal evidence",
+        "runtime/UI metadata",
         "resolved model",
         "unknown`/unconfirmed",
     ):
@@ -513,11 +514,16 @@ def validate_source() -> list[str]:
     guard_source = (ROOT / "hooks" / "subagent_guard.py").read_text(encoding="utf-8")
     for phrase in (
         "USER_REQUESTED_INTERRUPT:",
+        "ORCHESTRATOR_GUIDANCE:",
+        "AFTER_CURRENT_TASK:",
         "ORCHESTRATOR_CORRECTION:",
         "permissionDecision",
         "appear exactly once",
         "sole text carrier",
-        "requires interrupt=true",
+        "require interrupt=true",
+        "requires explicit interrupt=false",
+        "VISIBLE_INPUT_CATEGORY_PREFIXES",
+        "structuredContent",
         "WAIT RESULT CHECK",
     ):
         require(phrase in guard_source, f"subagent guard missing contract: {phrase}", failures)
@@ -578,10 +584,12 @@ def validate_source() -> list[str]:
 
     for phrase in (
         "may add advisory context for a",
-        "four closed reason codes",
+        "current-task guidance",
+        "after-current-task input",
+        "closed-reason correction form",
         "does not persist terminal state",
         "`close_agent`",
-        "responsible for evidence, bounded correction use",
+        "responsible for choosing the correct delivery timing",
         "does not confirm the resolved model",
     ):
         require(
