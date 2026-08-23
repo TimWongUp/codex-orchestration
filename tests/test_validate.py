@@ -143,6 +143,9 @@ class SourceValidationTest(unittest.TestCase):
         self.assertIn("timed_out=true", route["additionalContext"])
         self.assertIn("USER_REQUESTED_INTERRUPT:", route["additionalContext"])
         self.assertIn("ORCHESTRATOR_CORRECTION:", route["additionalContext"])
+        self.assertIn("set interrupt=true", route["additionalContext"])
+        self.assertIn("exactly once", route["additionalContext"])
+        self.assertIn("sole text carrier", route["additionalContext"])
         self.assertIn("terminal status", route["additionalContext"])
 
         for payload, expected, forbidden in (
@@ -209,6 +212,32 @@ class SourceValidationTest(unittest.TestCase):
         )
         for carrier, text in (
             ("message", "USER_REQUESTED_INTERRUPT: stop"),
+            ("items", "ORCHESTRATOR_CORRECTION: descendant_orchestration\nStop delegating."),
+        ):
+            for queued_mode in ("false", "omitted"):
+                with self.subTest(carrier=carrier, queued_mode=queued_mode):
+                    tool_input: dict[str, object] = {"target": "agent-a"}
+                    if queued_mode == "false":
+                        tool_input["interrupt"] = False
+                    if carrier == "message":
+                        tool_input["message"] = text
+                    else:
+                        tool_input["items"] = [{"type": "text", "text": text}]
+                    result = run_guard(
+                        {
+                            "hook_event_name": "PreToolUse",
+                            "tool_name": "multi_agent_v1send_input",
+                            "tool_input": tool_input,
+                        }
+                    )
+                    hook_output = cast(dict[str, object], result["hookSpecificOutput"])
+                    self.assertEqual(hook_output["permissionDecision"], "deny")
+                    self.assertIn(
+                        "interrupt=true", cast(str, hook_output["permissionDecisionReason"])
+                    )
+
+        for carrier, text in (
+            ("message", "USER_REQUESTED_INTERRUPT: stop"),
             ("items", "USER_REQUESTED_INTERRUPT: stop"),
             ("message", "ORCHESTRATOR_CORRECTION: wrong_role\nReturn to the assigned role."),
             ("items", "ORCHESTRATOR_CORRECTION: scope_drift\nReturn to scope."),
@@ -252,10 +281,79 @@ class SourceValidationTest(unittest.TestCase):
                     {},
                 )
 
+        self.assertEqual(
+            run_guard(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "send_input",
+                    "tool_input": {
+                        "target": "agent-a",
+                        "interrupt": True,
+                        "items": [
+                            {
+                                "type": "text",
+                                "text": "ORCHESTRATOR_CORRECTION: scope_drift\nInspect the image.",
+                            },
+                            {"type": "image", "image_url": "https://example.com/evidence.png"},
+                        ],
+                    },
+                }
+            ),
+            {},
+        )
+
         invalid_inputs: tuple[dict[str, object], ...] = (
             {"interrupt": True, "items": [{"type": "text", "text": "replace reviewer"}]},
             {"interrupt": "true", "message": "USER_REQUESTED_INTERRUPT: stop"},
+            {"interrupt": None, "message": "continue"},
+            {
+                "items": {"type": "text", "text": "USER_REQUESTED_INTERRUPT: stop"},
+            },
+            {
+                "interrupt": True,
+                "message": "Please stop now.",
+                "items": [{"type": "text", "text": "USER_REQUESTED_INTERRUPT: decoy"}],
+            },
+            {
+                "interrupt": True,
+                "items": [
+                    {"type": "text", "text": "Please stop now."},
+                    {"type": "text", "text": "USER_REQUESTED_INTERRUPT: decoy"},
+                ],
+            },
+            {
+                "interrupt": True,
+                "items": [
+                    {
+                        "type": "image",
+                        "text": "USER_REQUESTED_INTERRUPT: stop",
+                        "image_url": "https://example.com/evidence.png",
+                    }
+                ],
+            },
+            {
+                "interrupt": True,
+                "items": [{"text": "USER_REQUESTED_INTERRUPT: stop"}],
+            },
+            {
+                "interrupt": False,
+                "message": "FOCUS: wrap up.\nUSER_REQUESTED_INTERRUPT: stop",
+            },
+            {"message": "\ufeffUSER_REQUESTED_INTERRUPT: stop"},
+            {"message": "\u200bORCHESTRATOR_CORRECTION: scope_drift\nReturn to scope."},
+            {
+                "interrupt": True,
+                "message": ("USER_REQUESTED_INTERRUPT: stop ORCHESTRATOR_CORRECTION: wrong_role"),
+            },
+            {
+                "interrupt": True,
+                "message": (
+                    "ORCHESTRATOR_CORRECTION: wrong_role ORCHESTRATOR_CORRECTION: scope_drift"
+                ),
+            },
             {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: stop"},
+            {"interrupt": False, "message": "ORCHESTRATOR_CORRECTION: timeout"},
+            {"message": "ORCHESTRATOR_CORRECTION: too_slow"},
             {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: timeout"},
             {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: too_slow"},
             {"interrupt": True, "message": "ORCHESTRATOR_CORRECTION: unknown"},

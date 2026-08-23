@@ -348,6 +348,10 @@ def validate_source() -> list[str]:
         "Do not load or execute this Skill",
         "ORCHESTRATOR_CORRECTION:",
         "<reason_code>",
+        "control envelope",
+        "exactly one control prefix",
+        "sole text carrier",
+        "interrupt=true",
         "wrong_model",
         "may terminate",
         "runtime/UI resolved-model metadata",
@@ -511,6 +515,9 @@ def validate_source() -> list[str]:
         "USER_REQUESTED_INTERRUPT:",
         "ORCHESTRATOR_CORRECTION:",
         "permissionDecision",
+        "appear exactly once",
+        "sole text carrier",
+        "requires interrupt=true",
         "WAIT RESULT CHECK",
     ):
         require(phrase in guard_source, f"subagent guard missing contract: {phrase}", failures)
