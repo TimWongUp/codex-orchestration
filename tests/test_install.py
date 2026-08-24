@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.abc
 import importlib.util
 import json
 import os
@@ -18,7 +19,8 @@ sys.path.insert(0, str(SCRIPTS_ROOT))
 INSTALL_SPEC = importlib.util.spec_from_file_location(
     "codex_orchestration_installer", SCRIPTS_ROOT / "install.py"
 )
-assert INSTALL_SPEC is not None and INSTALL_SPEC.loader is not None
+assert INSTALL_SPEC is not None
+assert isinstance(INSTALL_SPEC.loader, importlib.abc.InspectLoader)
 INSTALL = importlib.util.module_from_spec(INSTALL_SPEC)
 sys.modules[INSTALL_SPEC.name] = INSTALL
 INSTALL_SPEC.loader.exec_module(INSTALL)
