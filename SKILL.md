@@ -2,7 +2,7 @@
 name: codex-orchestration
 description: Orchestrate Codex custom subagents for explicit delegation, parallel investigation, writable worker leases, model-diverse panels, and risk-based review. Use when the user asks for subagents or parallel work, or when a coding task has a clear delegation payoff. Keep simple tasks and ordinary documentation with the main agent. Derived subagents must not invoke this Skill.
 metadata:
-  version: 0.6.1
+  version: 0.7.0
 ---
 
 # Codex subagent orchestration

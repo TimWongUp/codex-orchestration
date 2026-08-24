@@ -1,41 +1,57 @@
-# Agent installation contract
+# Deterministic installation contract
 
-Use this contract when the user asks to install, update, repair, or verify this checkout for
-their local Codex environment. Read it completely before changing user configuration.
+Use this contract when installing, updating, repairing, or verifying this checkout for a local
+Codex environment. Read it completely before changing user configuration.
 
-This checkout is the source of truth for portable Skill, Agent, and the orchestration Hook named in
-section 5. Shared context, memory-routing, and closeout Hooks remain owned by their source
-runtime. Installed copies are runtime artifacts and are never edited as an alternate source. Model
-routes, task-package language, Hook registrations, executable paths, and unrelated user
-configuration remain local.
+`scripts/install.py` is the only write implementation of this contract. It plans by default and
+writes only with `--apply`. Do not reproduce its projection with ad hoc copy commands. The checkout
+remains the source of truth for portable Skills, Agents, the managed global-rules block, and the
+writer-lease Hook. Installed files are runtime artifacts; task-package language, model routes,
+executable paths, Hook trust, and unrelated user configuration stay local.
 
-## 1. Preflight
+## 1. Choose the runtime targets
 
-1. Using the Python interpreter command available on the host, confirm the checkout passes
-   `scripts/validate.py`.
-2. Detect the host platform, the active Codex home, and the Skill root that this Codex runtime
-   actually loads. Inspect current configuration and installed Skill listings; check both
-   `<codex-home>/skills` and current official user or repository Skill locations when relevant.
-   Do not infer the active root from a generic default. Record the exact selected paths in the
-   plan.
-3. Inspect every source and destination named below before writing. Classify each managed target as
-   `current`, `missing`, `drift`, or `conflict`. External ownership is recorded separately and is
-   not a managed target classification; report the owning runtime or deployment registry and leave
-   its files or registrations outside this contract untouched.
-   Inspect the retired lifecycle and Route assets in section 4 even when the user does not want the
-   current optional Hook.
-4. Show one complete installation plan. Required components may be applied after the user
-   approves that plan. On first install or when no valid preference exists, ask whether task-package
-   prose should use English or Simplified Chinese. Ask separately about the Hook and model routing
-   because both are optional.
+Use the Python interpreter available on the host (`python3`, `py -3`, or `python`). Python 3.9 or
+newer is required.
 
-Preflight is complete only when every destination has a classification and the user can see
-every proposed create or replacement.
+Resolve these paths before running the installer:
 
-## 2. Required components
+- `--codex-home`: the active Codex home. An explicit value wins, then `CODEX_HOME`, then the
+  documented Codex default `~/.codex`.
+- `--skills-root`: the Skill root loaded by the current Codex runtime. This argument is required so
+  the installer never guesses a non-default active root.
 
-Install copies rather than creating new links so the same contract works on macOS and native
-Windows. Existing links are conflicts and are never traversed or replaced by this procedure.
+Inspect current Codex configuration and installed Skill listings when the active Skill root is not
+already known. Existing deployment registries may record this checkout as the suite authority, but
+they must mark its members as externally installed and leave runtime writes to this installer.
+
+## 2. Plan before applying
+
+On macOS, a typical Simplified Chinese setup with the optional Hook is:
+
+```text
+python3 scripts/install.py --codex-home ~/.codex --skills-root ~/.agents/skills --language zh-CN --hooks
+```
+
+On native Windows PowerShell:
+
+```text
+py -3 scripts/install.py --codex-home "$HOME\.codex" --skills-root "$HOME\.agents\skills" --language zh-CN --hooks
+```
+
+The first command is always a dry run. It validates the checkout, classifies every managed target,
+prints every proposed create, update, or authenticated retirement, shows the exact global-rules
+block and managed Hook group, and reports conflicts without writing.
+
+Review that output, then repeat the same command with `--apply`. When an Agent performs the
+installation, it shows the dry-run plan and obtains approval before adding `--apply`.
+
+The first install requires `--language en` or `--language zh-CN`. A later run preserves an existing
+valid choice when `--language` is omitted; passing a different value explicitly plans that change.
+
+## 3. Required runtime projection
+
+The installer copies physical files so the same result works on macOS and native Windows:
 
 | Source | Destination |
 | --- | --- |
@@ -43,145 +59,147 @@ Windows. Existing links are conflicts and are never traversed or replaced by thi
 | `skills/diagnosing-bugs/` | `<skills-root>/diagnosing-bugs/` |
 | `skills/prototype/` | `<skills-root>/prototype/` |
 | `agents/*.toml` | `<codex-home>/agents/` |
+| rendered `examples/preferences.toml` | `<codex-home>/codex-orchestration/preferences.toml` |
 
-A required destination is current only when every source file named by this contract is an exact
-copy. A same-named but different Skill, a symlink, or a non-directory Skill target is a conflict.
-Differing managed Agent files are drift only when their parent and target are physical paths;
-linked targets are conflicts.
+Do not register the repository root as one Skill or flatten bundled method Skills into the main
+Skill. The runtime is a component projection.
 
-Create a parent only when it is absent and its nearest existing ancestor is a physical directory.
-If a destination or any existing parent below the selected root is a symlink, file where a
-directory is required, or other non-directory path, classify it as a conflict and perform no
-write through it. Preserve unrelated Skills, Agents, configuration, and files. Replace drift
-only after showing the difference and receiving explicit approval. A conflict is resolved by the
-user choosing a different target or explicitly moving the existing path; the installation does
-not delete, unlink, follow, or replace it.
+A target is `current` when its bytes match, `missing` when it can be created safely, and `drift`
+when a physical managed file needs replacement. A same-named Skill whose frontmatter identifies a
+different Skill is a conflict. A non-empty Skill directory without a physical `SKILL.md`, a linked
+target, or a file where a directory is required is also a conflict.
 
-Do not register the checkout root itself as one Skill or copy the whole repository into
-`<skills-root>/codex-orchestration`. The main Skill is only the `SKILL.md` plus `references/`
-projection shown above; the bundled method Skills, Agents, and optional Hook have distinct
-destinations. A separate deployment registry may point to this checkout as its content authority,
-but it must mark the suite as externally installed and defer all runtime writes to this contract.
+Every existing parent below the selected roots must be a physical directory. User-created
+symlinks, Windows reparse points such as junctions, and paths containing `..` are conflicts. The
+platform-owned `/var`, `/tmp`, and `/etc` aliases on macOS are canonicalized before the displayed
+plan. Managed targets at or beyond the conservative native Windows path limit are conflicts rather
+than partial long-path support. The installer never intentionally traverses, unlinks, or replaces links. It preserves
+unrelated Skills, Agents, local preferences, model routes, configuration keys, and files. New
+POSIX directories use mode `0700`; replacement preserves an existing POSIX file mode or Windows
+file ACL and attributes.
 
-## 3. Task-package language
+## 4. Managed global rules
 
-Task-package field names and fixed control literals stay in their canonical English form. The
-natural-language descriptions and requested return language may use English or Simplified Chinese.
+Global orchestration rules are enabled by default. The canonical block lives in
+`examples/global-agents-block.md` and is deliberately small: it points the main agent to the Skill
+and keeps the full workflow out of always-loaded context.
 
-On first install, or when `<codex-home>/codex-orchestration/preferences.toml` is missing, ask the
-user to choose English (`en`) or Simplified Chinese (`zh-CN`). If the user approves persistence,
-start from `examples/preferences.toml`, replace `LANGUAGE` with the selected value, show the exact
-file, and write it to that destination. If the user declines persistence, leave the file absent;
-the Skill then follows the current user's language. Preserve an existing valid preference unless
-the user explicitly asks to change it, and never replace a different or invalid file without
-showing the difference and receiving approval.
+Codex loads the first non-empty global instruction file in this order:
 
-An explicit language request in the current task overrides the saved preference.
+1. `<codex-home>/AGENTS.override.md`
+2. `<codex-home>/AGENTS.md`
 
-## 4. Retired lifecycle and Route assets
+The installer applies the same rule without following links. It owns only the exact block between
+`CODEX-ORCHESTRATION:GLOBAL-RULES` markers. Content outside that block is retained byte-for-byte,
+including its line endings. Re-running setup replaces one complete owned block in place. If the
+active global file changes, setup removes the owned block from the inactive file and injects it
+into the active file so only one copy remains.
 
-Pure v2 completion requires retiring the former managed `subagent_guard.py` and every known prior
-project `orchestration_route.py` projection independently of whether the user installs the current
-optional Hook. Inspect `<codex-home>/hooks/` and `<codex-home>/hooks.json` when they exist. The Hook
-directory must first be a physical directory; a link or non-directory is a conflict and is not
-traversed. Recognize known prior project copies with either LF or CRLF line endings. Classify the
-following candidates:
+Missing markers create a new block. Nested, unmatched, or duplicated markers are conflicts and
+block the complete transaction. Any marker token outside an exact standalone marker line is also
+malformed and conflicts. Use `--no-global-rules` to leave both global instruction files unchanged;
+that option does not uninstall an existing block.
 
-- `<codex-home>/hooks/subagent_guard.py` is retired managed only when it matches the known prior
-  project copy. A different or linked same-named path is a conflict, not an owned deletion target.
-- `<codex-home>/hooks/orchestration_route.py` is retired managed only when it matches a known prior
-  v1 or v2 project copy. Remove the confirmed file and its confirmed managed registration. A
-  different or linked same-named path is a conflict and is never overwritten or removed here.
-- A registration is v1-shaped only when it uses a known former `PreToolUse` or `PostToolUse`
-  matcher and an exact two-argument Python command whose script argument is named
-  `subagent_guard.py`. This recognizes earlier Codex homes, checkouts, and Python executables
-  without matching unrelated command text. Confirm its prior projection path before classifying it
-  as retired managed; otherwise report a conflict for the user to resolve.
-- A known prior Route registration is the exact two-argument Python command for the confirmed
-  `<codex-home>/hooks/orchestration_route.py` projection under `UserPromptSubmit`. Remove it with
-  the confirmed file. A same-shaped registration without confirmed project ownership is a conflict.
+## 5. Optional writer-lease Hook
 
-Show the exact file and registration entries proposed for removal or replacement in the complete
-installation plan. After the user approves that plan, change only confirmed managed assets and
-preserve every unrelated file, event group, matcher, command, and registration. Never delete an
-ambiguous conflict. An unresolved external or ambiguous project-shaped registration remains
-preserved but blocks a pure v2 completion claim. If the user declines cleanup,
-required copies may still be updated, but report that the runtime remains mixed v1/v2 and do not
-claim a completed pure v2 migration.
+Pass `--hooks` to install the Hook. Without it, the current writer-lease script and registration are
+left unchanged.
 
-## 5. Optional Hook
+When selected, setup:
 
-Ask whether the user wants the writer-lease Hook. If approved:
+1. Copies `hooks/subagent_scope.py` to `<codex-home>/hooks/subagent_scope.py`.
+2. Reads `<codex-home>/hooks.json`, or starts a new object when the file is absent.
+3. Removes current registrations only when an exact two-argument Python command invokes that
+   managed target, then appends one `SubagentStart` group.
+4. Preserves unrelated top-level fields, events, matcher groups, handlers, and order.
+5. Uses the absolute current Python executable and managed script path. On Windows, `command` and
+   `commandWindows` contain the same canonical Windows-quoted two-argument command.
 
-1. Copy `hooks/subagent_scope.py` to `<codex-home>/hooks/` under the same drift rules as required
-   files.
-2. Read `<codex-home>/hooks.json`, or start from an empty object when it is absent.
-3. Merge the managed command Hook while preserving unrelated top-level keys, event groups,
-   matchers, commands, shared-runtime Hooks, and ordering where practical. Register
-   `subagent_scope.py` for `SubagentStart`. The installation adds no project `UserPromptSubmit`
-   Hook, tool guard, or `functions.exec` registration; current tool schemas own call mechanics,
-   the Skill owns orchestration policy, and Agent profiles own derived-agent scope. Complete the
-   independent retired-asset step in section 4 before adding this registration.
-4. Resolve the current Python executable to an absolute path. The effective command contains
-   exactly two arguments: that executable and the managed script's absolute path. On macOS write
-   the correctly quoted POSIX `command`. On Windows write both `command` and `commandWindows` as
-   the same canonical Windows-quoted command string with JSON-escaped paths. After JSON parsing,
-   the two fields must be byte-for-byte identical and contain the same exact two arguments. Do not
-   add shell wrappers, extra arguments, suffixes, or duplicate commands.
-5. Parse the final JSON and show the exact added or changed Hook groups before writing it.
+An existing object without a `hooks` field is treated as an empty Hook map; a non-object `hooks`
+value is a conflict. UTF-8 JSON with or without a byte-order mark is accepted. Duplicate keys and
+non-standard constants are conflicts. On Windows, executable or managed-script paths containing
+`%`, `!`, a double quote, or a newline are rejected because `cmd.exe` can reinterpret them.
 
-Hook installation is complete only when the script matches the checkout and `SubagentStart` has
-one effective managed registration. Shared context, memory-routing, and closeout registrations remain
-owned by their source runtime and are outside this contract.
+Codex treats user Hooks as non-managed code. After installation, start a new task, open `/hooks`,
+review the exact definition, and trust it before expecting it to run. A changed Hook hash requires
+review again.
 
-## 6. Optional model routing
+The Hook reinforces only the writable-worker lease check. It does not grant a lease, narrow the
+sandbox, replace the task package, or implement main-agent routing. Shared context, memory-routing,
+and closeout Hooks remain owned by their source runtime.
 
-Ask separately whether the user wants local model routing. Without it, omitting model selection
-only requests inheritance from the current Codex settings; it does not confirm the resolved model.
+## 6. Retired project Hook assets
 
-If approved, start from `examples/model-routing.toml`, replace every placeholder only with
-models, reasoning levels, and service tiers available and enforceable on the current host, remove
-unused example entries, show the complete task overrides, both parent-family panel routes, and
-ordinary role order, and write the approved file to
-`<codex-home>/codex-orchestration/model-routing.toml`. Preserve an existing route unless the user
-explicitly approves its replacement. Never copy another user's model identifiers or change
-unrelated Codex defaults. Verify that every `service_tier` requirement can be enforced without
-silently inheriting a conflicting global tier.
+Pure v2 verification rejects the former `subagent_guard.py` and project
+`orchestration_route.py` assets even when `--hooks` is not selected.
 
-## 7. One-time migration from another source
+The installer removes a retired file only when its bytes match a known prior project hash. It
+removes a former registration only when the handler is an exact two-argument Python command, has a
+known legacy event/matcher shape, and its referenced script has authenticated prior-project bytes.
+An exact reference to the managed retired target outside those known shapes blocks retirement so
+setup cannot create a dangling custom registration. Project-shaped Hook command paths containing
+`..`, relative syntax, or shell expansion characters are unsafe and conflict instead of being
+normalized through an unchecked parent. Existing filesystem aliases are compared by file identity;
+macOS case aliases are conservatively case-folded even after the target disappears. Every existing
+physical script referenced by a recognized Python invocation or explicit command path is also
+checked against known retired hashes, so environment wrappers, renamed hardlinks, and nested
+commands cannot retain retired project code. Ambiguous, missing, linked, or
+different same-named assets remain conflicts. Unrelated Hook text that merely mentions a retired
+filename is preserved.
 
-When an existing installation is a link or copy from a personal checkout, Vault, or other source,
-preflight first records its resolved source and the complete differences from this checkout. Keep
-the local task-package preference, local model routing, and unrelated Hook registrations; do not
-import private Agent or Hook behavior as repository source.
+Declining or failing authenticated retirement blocks a pure v2 completion claim. Old source
+directories outside Codex home remain untouched; deleting or archiving them is a separate user
+decision.
 
-The existing path remains a conflict until the user explicitly approves the exact cutover targets.
-After that approval, remove only the confirmed managed links or move conflicting physical paths to
-a user-approved location, install the required physical copies from the source projection in
-section 2, retire the lifecycle and Route assets from section 4, then apply any separately approved Hook
-update from section 5. Never replace the main
-Skill alone while leaving bundled method Skills, Agent profiles, or approved Hook scripts sourced
-from the old implementation.
+## 7. Local model routing
 
-Run the full verification below before retiring the old source directory. Deleting or archiving
-that old source is a separate user decision; a successful runtime cutover does not imply it.
+Setup does not create or change `<codex-home>/codex-orchestration/model-routing.toml`. Available
+models, reasoning levels, and service-tier enforcement are host facts that must be verified live.
 
-## 8. Verification
+When local routing is wanted, start from `examples/model-routing.toml`, replace every placeholder
+with supported host values, remove unused examples, review the complete file, and install it only
+after explicit approval. An existing route remains local and is preserved by setup. Omitting model
+selection requests inheritance from current Codex settings; it does not confirm the resolved model.
 
-Run:
+## 8. Transaction and conflicts
+
+Within one running installer process, a caught write or verification failure triggers rollback of
+the displayed managed file operations:
+
+- Each write uses a same-directory temporary file and atomic replacement.
+- The installer retains the pre-transaction bytes in memory.
+- A caught write failure or failed post-install verification restores completed target bytes and
+  removes newly created empty directories where possible.
+- A preflight conflict prevents all writes.
+
+The plan is a snapshot, not a lock. Before each operation, the installer rechecks the physical
+path and the target bytes captured during planning, and it rechecks the result after each operation.
+A target that appears, disappears, changes, or gains a linked parent blocks the transaction. This
+is not an operating-system security boundary against an adversarial same-user process; do not edit
+or replace the selected runtime roots concurrently.
+
+An abrupt process termination or power loss is not journaled and can leave a partial projection or
+a same-directory installer temporary file. After either event, stop concurrent editors, run a fresh
+dry run, inspect every reported drift or conflict, and apply again only after the plan is understood.
+Rollback restores managed bytes; metadata for a retired file recreated after deletion can inherit
+the destination defaults.
+
+A one-time migration from links or a different checkout remains an explicit cutover. The installer
+reports those paths as conflicts; the user first chooses the exact targets to move or unlink, then
+runs a new dry run. Successful installation never implies permission to remove the old source.
+
+## 9. Verification
+
+`--apply` automatically runs source validation and the selected runtime checks. The equivalent
+manual command for a setup with global rules and Hook is:
 
 ```text
-python scripts/validate.py --runtime --codex-home <codex-home> --skills-root <skills-root>
+python3 scripts/validate.py --runtime --codex-home <codex-home> --skills-root <skills-root> --global-rules --hooks
 ```
 
-Use the interpreter command available on the host. Runtime validation checks any saved task-package
-language and model route, and fails when a retired Guard or known prior Route file or registration
-remains. Add `--hooks` only when the current optional Hook was approved; without that flag,
-current or unrelated Hook copies and registrations remain outside verification scope, but the
-retirement scan still runs. Then verify host enforcement for every approved model route entry, report every
-remaining drifted or skipped component, and tell the user to start a new Codex task so custom Skills
-and Agents reload.
+Without the optional Hook, omit `--hooks`. With `--no-global-rules`, omit `--global-rules`.
 
-Installation is complete only when source validation passes, required runtime files validate,
-optional components match the user's choices, any saved task-package language is exactly `en` or
-`zh-CN`, and no unapproved target was replaced.
+Installation is complete only when required Skill and Agent copies match, any saved language or
+model route is valid, selected optional components match, no retired project Hook remains, and no
+unapproved target was changed. Start a new Codex task after success so Skills, Agents, global rules,
+and Hooks reload.

@@ -8,17 +8,21 @@ Codex Orchestration is deliberately not a “spawn as many agents as possible”
 
 Repository: [github.com/TimWongUp/codex-orchestration](https://github.com/TimWongUp/codex-orchestration)
 
-## Install with Codex
+## Install
 
-Requirements: macOS or native Windows, Codex with custom subagents enabled, and Python 3.9 or newer for validation.
+Requirements: macOS or native Windows, Codex with custom subagents enabled, and Python 3.9 or newer.
 
-Open the repository in Codex and paste this prompt:
+From a reviewed checkout, first print the complete plan:
 
 ```text
-Install Codex Orchestration from https://github.com/TimWongUp/codex-orchestration for my local Codex environment. Read INSTALL.md completely, show me the full plan before making changes, and preserve unrelated or unapproved configuration.
+python3 scripts/install.py --codex-home ~/.codex --skills-root ~/.agents/skills --language en --hooks
 ```
 
-The Agent validates the checkout, discovers the Codex home and active Skill root instead of guessing paths, classifies every managed destination, and shows all proposed writes before applying them. Required Skills and Agent profiles are copied for portability. Task-package language is chosen during initial setup; Hooks and model routing remain separate, optional decisions. Existing unrelated configuration and unapproved drift are preserved, while externally owned runtime entries are reported separately and left untouched.
+Review the dry run, then repeat the same command with `--apply`. Use the Skill root that your Codex runtime actually loads; `--skills-root` is deliberately required. Replace `python3` with `py -3` on native Windows when needed.
+
+Setup copies the required Skills and Agent profiles, injects one marker-delimited orchestration block into the active global `AGENTS.md` or `AGENTS.override.md`, and optionally merges the writer-lease Hook with `--hooks`. It preserves surrounding global instructions, unrelated Hook groups, local model routing, and other user files. Linked, ambiguous, or corrupt targets stop the entire plan; a caught apply or verification failure rolls completed writes back. After a Hook install, review and trust its current definition with `/hooks`.
+
+Use `--no-global-rules` to leave global instructions unchanged, or omit `--hooks` to leave the Hook unchanged. On first install, `--language` accepts `en` or `zh-CN`; later runs preserve an existing valid preference when the option is omitted.
 
 The authoritative procedure is [INSTALL.md](INSTALL.md), including conflict handling and runtime verification.
 
@@ -47,7 +51,7 @@ The repository is the only source of truth for its portable Skill, Agent, and wr
 
 This release targets Codex on macOS and native Windows for reusable exploration, research, implementation, prototype, debugging, and focused-review agents. A release candidate is supported only after both platform CI jobs pass.
 
-Installation is performed by the user's Agent from a reviewed repository contract. The contract detects the active Codex paths and applies the platform-appropriate file and Hook configuration without requiring a platform-specific installer.
+Installation uses one deterministic, dry-run-first Python implementation on both platforms. An Agent may operate it after reading `INSTALL.md`, but it does not reconstruct the filesystem and Hook merge logic itself.
 
 ## First successful use
 
@@ -66,8 +70,9 @@ For a broader feature discussion, ask Codex to use `web-researcher` for public i
 - Read-only explorer, official-reference research, web research, frontend-design, expert, and focused-review agents.
 - Writable implementation, debugging, and prototype workers governed by a single-writer lease.
 - One optional Hook that reinforces the writable-worker lease. Tool schemas own call mechanics; the Skill owns orchestration policy and Agent profiles own derived-agent scope.
+- One small, managed global `AGENTS.md` block that reliably routes subagent work through the Skill without replacing personal instructions.
 - A local, optional model-routing file. No model IDs are pinned in the repository.
-- An Agent installation contract for macOS and native Windows that preserves unrelated Codex configuration.
+- A deterministic installation contract for macOS and native Windows with planning, ownership checks, rollback, and runtime verification.
 
 The write lease is an orchestration contract, not an operating-system ACL. The main agent remains responsible for Git, validation, review selection, and final delivery.
 
@@ -76,7 +81,7 @@ The write lease is an orchestration contract, not an operating-system ACL. The m
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/configuration.md)
 - [Hooks and long-lived prompts](docs/hooks-and-prompts.md)
-- [Agent installation contract](INSTALL.md)
+- [Deterministic installation contract](INSTALL.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 

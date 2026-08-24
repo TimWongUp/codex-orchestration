@@ -82,7 +82,7 @@ main-agent expectation is not evidence that the wrong model resolved.
 
 ## Local file
 
-During the Agent-driven installation in `INSTALL.md`, model routing is a separate optional choice.
+During the deterministic installation in `INSTALL.md`, model routing is a separate optional choice.
 The Agent starts from `examples/model-routing.toml`, replaces placeholders only with model
 identifiers and host requirements available on the current host, removes unused example entries,
 shows the complete task overrides, panel routes, and ordinary role order, and writes the approved

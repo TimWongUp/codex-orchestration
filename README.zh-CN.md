@@ -8,17 +8,21 @@ Codex Orchestration 刻意不追求“Agent 越多越好”。简单任务仍由
 
 项目仓库：[github.com/TimWongUp/codex-orchestration](https://github.com/TimWongUp/codex-orchestration)
 
-## 用 Codex 安装
+## 安装
 
-要求：macOS 或原生 Windows、已启用自定义子代理的 Codex，以及用于验证的 Python 3.9 或更高版本。
+要求：macOS 或原生 Windows、已启用自定义子代理的 Codex，以及 Python 3.9 或更高版本。
 
-在 Codex 中打开本仓库，然后粘贴下面这段提示词：
+在已审查的仓库副本中，先输出完整计划：
 
 ```text
-从 https://github.com/TimWongUp/codex-orchestration 为我的本地 Codex 环境安装 Codex Orchestration。完整阅读 INSTALL.md，修改前先展示全部计划，并保留无关或未经我批准的配置。
+python3 scripts/install.py --codex-home ~/.codex --skills-root ~/.agents/skills --language zh-CN --hooks
 ```
 
-Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根目录，而不是猜测路径；随后分类每个受管安装目标，并在写入前展示全部变更。必需的 Skill 和 Agent 配置使用复制安装以保证可移植性；首次配置时选择任务包语言，Hooks 与模型路由分别作为可选决定。无关配置和未经批准的漂移会被保留，外部 Runtime 拥有的条目则单独报告并保持不动。
+检查 dry run 后，用完全相同的命令追加 `--apply`。`--skills-root` 必须填写当前 Codex 真正加载的 Skill 根目录；原生 Windows 需要时把 `python3` 换成 `py -3`。
+
+Setup 会复制必需的 Skills 和 Agent 配置，在当前生效的全局 `AGENTS.md` 或 `AGENTS.override.md` 中注入一个带归属标记的编排规则块，并在传入 `--hooks` 时合并写入租约 Hook。它会保留规则块外的个人指令、无关 Hook 组、本机模型路由和其他用户文件。符号链接、归属不明、标记损坏等冲突会阻止整批写入；运行中的安装器捕获到应用或验证失败时会回滚已完成变更。安装 Hook 后，需要在新任务中通过 `/hooks` 审查并信任其当前定义。
+
+使用 `--no-global-rules` 可保持全局指令不变；不传 `--hooks` 则保持现有 Hook 不变。首次安装的 `--language` 支持 `en` 与 `zh-CN`，以后省略该参数会保留已有合法选择。
 
 完整且唯一权威的安装流程位于 [INSTALL.md](INSTALL.md)，其中也定义了冲突处理与运行时验证标准。
 
@@ -45,7 +49,7 @@ Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根�
 
 当前版本以 macOS 和原生 Windows 上的 Codex 为目标，提供可复用的代码探索、资料研究、正式实现、原型、疑难 Bug 和专项 Review 子代理。候选版本只有在两个平台的 CI 都通过后才声明受支持。
 
-安装由用户的 Agent 根据仓库内经过审查的安装契约执行。Agent 会检测当前 Codex 路径，并按平台处理文件与 Hook 配置，不依赖平台专用安装器。
+安装在两个平台上共用一个确定性、默认 dry run 的 Python 实现。Agent 可以在完整阅读 `INSTALL.md` 后代为运行，但不再自行重建复制和 Hook 合并逻辑。
 
 ## 第一次成功使用
 
@@ -64,8 +68,9 @@ Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根�
 - 只读代码探索、官方资料研究、Web 研究、前端设计、专家和专项 Review Agent。
 - 受全局单 Writer 租约约束的实现、Bug 诊断和原型 Worker。
 - 一个可选 Hook：强化可写 Worker 的租约检查；工具 schema 负责调用机制，Skill 负责编排策略，Agent 配置负责派生代理职责边界。
+- 一个精简的全局 `AGENTS.md` 受控块：稳定把子代理任务路由到本 Skill，同时不替换个人指令。
 - 可选的本地模型路由文件；仓库不固定任何模型 ID。
-- 面向 macOS 与原生 Windows、保留无关 Codex 配置的 Agent 安装契约。
+- 面向 macOS 与原生 Windows、带计划、归属检查、回滚和运行时验证的确定性安装契约。
 
 写入租约是编排合同，不是操作系统 ACL。主代理始终负责 Git、验收、Reviewer 选择和最终交付。
 
@@ -74,7 +79,7 @@ Agent 会先验证仓库，实际探测 Codex Home 和当前生效的 Skill 根�
 - [架构](docs/architecture.md)
 - [配置](docs/configuration.md)
 - [Hooks 与长期规则提示词](docs/hooks-and-prompts.md)
-- [Agent 安装契约](INSTALL.md)
+- [确定性安装契约](INSTALL.md)
 - [贡献指南](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)
 
