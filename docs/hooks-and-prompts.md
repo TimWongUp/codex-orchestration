@@ -2,25 +2,19 @@
 
 ## Optional hooks
 
-`orchestration_route.py` adds a short main-agent reminder on `UserPromptSubmit`: wait before
-decisions, writes, or final answers that pending agents could change; otherwise continue only
-independent, non-overlapping work. It also restates the v2 lifecycle: ordinary `spawn_agent` uses
-`fork_turns="none"`, `send_message` queues supplemental context without starting a turn,
-`followup_task` delivers later or corrective work to a running target at its next boundary and
-starts a new turn for an idle target, `wait_agent` waits for the caller mailbox,
-`interrupt_agent` preserves context while interrupting an active turn, and `list_agents` plus final
-notifications reconcile status. `subagent_scope.py` tells derived agents whether they are
-read-only or a lease-gated worker.
+`subagent_scope.py` injects one high-priority check only for writable worker roles: a complete
+canonical lease package must be present before writing. Read-only agents receive no extra Hook
+context because their identity, scope, and panel boundaries already live in Agent profiles.
 
-Hooks are optional during the Agent-driven procedure in `INSTALL.md`. The Agent copies both
-scripts, shows the exact `hooks.json` merge, writes the platform-appropriate command fields, and
-preserves unrelated Hook groups. Runtime validation checks them only when explicitly invoked with
+The Hook is optional during the Agent-driven procedure in `INSTALL.md`. The Agent copies the
+script, shows the exact `hooks.json` merge, writes the platform-appropriate command fields, and
+preserves unrelated Hook groups. Runtime validation checks it only when explicitly invoked with
 `--hooks`. Hook text never grants a write lease.
 
-These scripts are owned and released with `codex-orchestration`; they are not shared Hook Runtime
-source. A machine may register shared context, memory-routing, or closeout Hooks from another
-repository alongside them. Private composition records that coexistence, while installation and
-updates continue to merge registrations without replacing unrelated sources.
+The former project `UserPromptSubmit` route Hook is retired because the Skill, repository prompt,
+and current tool schemas already carry the main-agent policy. A machine may register shared
+context, memory-routing, or closeout Hooks from another repository alongside this Hook. Those
+registrations and Codex-native agent status notifications remain outside this project's ownership.
 
 ## Long-lived main-agent prompt
 

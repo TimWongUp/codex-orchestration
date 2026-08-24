@@ -1,40 +1,80 @@
-schema_version = 1
+schema_version = 2
 
 # Copy this file outside the repository and replace every placeholder.
 # Optional task overrides are prepended to ordinary role routes.
-# They are first candidates, not hard pins for retries or panels.
+# They are first candidates, not hard pins for retries.
 
 [[task_overrides]]
 task_kind = "TASK_KIND"
 roles = ["ROLE_NAME"]
 model = "MODEL_ID_OVERRIDE"
 reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
+
+# Panel and the panel portion of hybrid select distinct primary models from
+# the matching parent family, then use fallbacks in order if needed.
+
+[[panel_routes.gpt]]
+phase = "primary"
+model = "MODEL_ID_PRIMARY_1"
+reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
+
+[[panel_routes.gpt]]
+phase = "primary"
+model = "MODEL_ID_PRIMARY_2"
+reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
+
+[[panel_routes.third_party]]
+phase = "primary"
+model = "MODEL_ID_PRIMARY_1"
+reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
+
+[[panel_routes.third_party]]
+phase = "primary"
+model = "MODEL_ID_PRIMARY_2"
+reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
+
+[[panel_routes.third_party]]
+phase = "fallback"
+model = "MODEL_ID_FALLBACK"
+reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
 
 # Each role may have one or more ordered route entries.
 
 [[roles.worker]]
 model = "MODEL_ID_PRIMARY"
 reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
 
 [[roles.worker]]
 model = "MODEL_ID_FALLBACK"
 reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
 
 [[roles.explorer]]
 model = "MODEL_ID_PRIMARY"
 reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
 
 [[roles.reference-researcher]]
 model = "MODEL_ID_PRIMARY"
 reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
 
 [[roles.web-researcher]]
 model = "MODEL_ID_PRIMARY"
 reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
 
 [[roles.correctness-reviewer]]
 model = "MODEL_ID_PRIMARY"
 reasoning_effort = "REASONING_LEVEL"
+service_tier = "SERVICE_TIER"
 
 # Optional key per entry:
 # note = "Human-readable routing rationale"

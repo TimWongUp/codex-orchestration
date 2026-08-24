@@ -5,7 +5,7 @@ Codex Orchestration separates five concerns:
 1. `SKILL.md` defines main-agent decisions, the collaboration lifecycle, and task-package
    contracts.
 2. `agents/*.toml` defines narrow custom-agent behavior and sandbox defaults.
-3. `hooks/` optionally reinforces main-agent routing and derived-agent identity.
+3. `hooks/` optionally reinforces the writable-worker lease check.
 4. Local preference files select task-package language and models without placing user choices in
    the repository.
 5. `INSTALL.md` defines the reviewed, cross-platform installation contract executed by the user's
@@ -31,26 +31,25 @@ The main agent is the sole orchestrator. Read-only agents may run concurrently. 
 a global single-writer lease: either the main agent writes, or one worker writes inside explicit
 allowed paths.
 
+Read-only collaboration has three multi-agent evaluation modes. `coverage` assigns non-overlapping
+evidence or risk areas. `panel` gives the same core question to distinct models. `hybrid` combines
+one such panel with separate specialist workstreams when both independent model judgment and
+non-overlapping risk coverage can change the decision. The ordinary `single` path creates one
+agent and is not an evaluation mode. Only the panel path classifies the parent model; coverage and
+hybrid's specialist workstreams use ordinary role routes.
+
 ## V2 lifecycle
 
-`spawn_agent` creates a fresh-context agent when called with `fork_turns="none"`, the ordinary
-delegation default. A positive value carries bounded partial history and may combine model or
-reasoning-effort overrides. Omitting `fork_turns` or using `"all"` carries full history, inherits
-the parent model and reasoning effort, and rejects those overrides. `send_message` queues supplemental information to an existing agent and
-does not start a turn. `followup_task` assigns subsequent work to an existing non-root agent after
-it is running at the next message boundary or after a pending tool call, and triggers a new turn
-when the target is idle. `wait_agent` waits for the caller's mailbox, while
-`list_agents` and final notifications reconcile the current tree and statuses. `interrupt_agent`
-interrupts an active turn without discarding its context.
+The model-visible collaboration-tool schemas own call mechanics. The repository does not wrap the
+tools or cache their API descriptions. Its portable policy starts ordinary delegation with
+`fork_turns="none"` and a self-contained task package; bounded transcript context is an explained
+exception.
 
 The main agent waits before any decision, write, or final answer that pending work could change,
-while continuing only independent work. A missing mailbox update is not completion; the current
-tree and final notification are the authoritative convergence signals. After a follow-up is
-accepted, earlier final notifications and snapshots for that target are stale, so the main agent
-waits for a newer final and reconciles it with a fresh snapshot. Each lifecycle call is a separate
-model-visible operation; when a host exposes the tools only through `functions.exec`, one call is
-made per program and its structured result is returned unchanged. A third writable round creates a
-new agent with a fresh package rather than closing an old thread.
+while continuing only independent work. The current tree and final notification are the
+authoritative convergence signals. After a follow-up is accepted, earlier final notifications and
+snapshots for that target are stale, so the main agent waits for a newer final and reconciles it
+with a fresh snapshot. A third writable round creates a new agent with a fresh package and lease.
 
 An explicit stop freezes new delegation, snapshots the tree, interrupts every active descendant,
 and waits for final notifications plus a fresh snapshot showing no running agents. A leased worker
@@ -58,11 +57,12 @@ retains its lease until that convergence point. A correction that must prevent f
 work first interrupts the target and waits for the interruption to become visible, then uses
 `followup_task` to deliver the corrected task.
 
-The two orchestration Hooks stay in this repository because they reinforce the Skill's routing and
-derived-agent identity contracts and share its tests and validator. Cross-host context injection,
-memory routing, and closeout behavior belong to their shared runtime instead. A private
-composition layer may enable both sources on one machine, but it records only paths, deployment
-mode, and registrations; it does not absorb or redefine either implementation.
+The `SubagentStart` Hook stays in this repository because it reinforces the writer-lease contract
+and shares its tests and validator. Agent profiles remain the authority for derived-agent identity
+and read-only scope. Main-agent orchestration policy remains in the Skill and current tool schemas,
+so no `UserPromptSubmit` route reminder is installed. Cross-host context injection, memory routing,
+and closeout behavior belong to their shared runtime; Codex-native agent status UI remains
+host-owned.
 
 Installation is Agent-driven on macOS and native Windows. The repository declares source-to-target
 intent, conflict policy, one-time source migration, optional choices, and completion criteria
