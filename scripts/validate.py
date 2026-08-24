@@ -39,6 +39,7 @@ READERS = {
 }
 FORBIDDEN_KEYS = {"model", "model_reasoning_effort", "service_tier"}
 TASK_PACKAGE_LANGUAGES = {"en", "zh-CN"}
+REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
 WORKER_PACKAGE_FIELDS = (
     "GOAL",
     "SCOPE",
@@ -59,10 +60,7 @@ FORBIDDEN_PUBLIC_PATTERNS = {
     "gpt-" + "5.6": "machine-specific model route",
     "deepseek-" + "v4": "machine-specific model route",
 }
-HOOK_REGISTRATIONS = (
-    ("UserPromptSubmit", "orchestration_route.py", None),
-    ("SubagentStart", "subagent_scope.py", None),
-)
+HOOK_REGISTRATIONS = (("SubagentStart", "subagent_scope.py", None),)
 RETIRED_HOOK_SCRIPTS = ("subagent_guard.py",)
 RETIRED_HOOK_SHA256 = {
     "subagent_guard.py": frozenset(
@@ -78,6 +76,13 @@ LEGACY_V1_ROUTE_SHA256 = frozenset(
         "bdbacc28beb7c081db9d85e82d85ddadde259058a16ea2084f02ee361575c561",
     }
 )
+KNOWN_PRIOR_V2_ROUTE_SHA256 = frozenset(
+    {
+        "060848145efd4639999a16cd2fe5987ff0e7187e794f7aa7a42057a91ce2cc54",
+        "ce1979fb2c88f5a8449c9e31e00d0d9ea5e0d136d87aed5d244a89dd65fd6503",
+    }
+)
+RETIRED_ROUTE_SHA256 = LEGACY_V1_ROUTE_SHA256 | KNOWN_PRIOR_V2_ROUTE_SHA256
 LEGACY_HOOK_GROUPS = frozenset(
     {
         ("PreToolUse", r"send_input$"),
@@ -94,11 +99,12 @@ def require(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
-def routing_example_failures(source: str) -> list[str]:
-    """Validate the deliberately small TOML subset used by the routing example."""
+def model_routing_failures(source: str, *, allow_placeholders: bool) -> list[str]:
+    """Validate the deliberately small TOML subset used by local model routing."""
     failures: list[str] = []
     top_level: dict[str, object] = {}
     overrides: list[dict[str, object]] = []
+    panel_routes: dict[str, list[dict[str, object]]] = {}
     routes: dict[str, list[dict[str, object]]] = {}
     current = top_level
 
@@ -106,38 +112,58 @@ def routing_example_failures(source: str) -> list[str]:
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        section = re.fullmatch(r"\[\[(task_overrides|roles\.([A-Za-z0-9_-]+))\]\]", line)
+        section = re.fullmatch(
+            r"\[\[(task_overrides|roles\.([A-Za-z0-9_-]+)|panel_routes\.([A-Za-z0-9_-]+))\]\]",
+            line,
+        )
         if section:
             if section.group(1) == "task_overrides":
                 current = {}
                 overrides.append(current)
+            elif section.group(3):
+                family = section.group(3)
+                current = {}
+                panel_routes.setdefault(family, []).append(current)
             else:
                 role = section.group(2)
                 current = {}
+                assert role is not None
                 routes.setdefault(role, []).append(current)
             continue
         assignment = re.fullmatch(r"([A-Za-z0-9_-]+)\s*=\s*(.+)", line)
         if not assignment:
-            failures.append(f"routing example line {line_number} is not supported TOML")
+            failures.append(f"model routing line {line_number} is not supported TOML")
             continue
         key, raw_value = assignment.groups()
         if key in current:
-            failures.append(f"routing example line {line_number} repeats {key}")
+            failures.append(f"model routing line {line_number} repeats {key}")
             continue
         try:
             current[key] = ast.literal_eval(raw_value)
         except (SyntaxError, ValueError):
-            failures.append(f"routing example line {line_number} has an invalid value")
+            failures.append(f"model routing line {line_number} has an invalid value")
 
+    schema_version = top_level.get("schema_version")
     require(
-        top_level == {"schema_version": 1}, "routing example schema_version is invalid", failures
+        top_level.keys() == {"schema_version"},
+        "model routing top-level fields are invalid",
+        failures,
     )
-    allowed_roles = WRITERS | READERS | {"ROLE_NAME"}
-    override_keys = {"task_kind", "roles", "model", "reasoning_effort"}
-    route_keys = {"model", "reasoning_effort"}
+    require(
+        type(schema_version) is int and schema_version == 2,
+        "model routing schema_version is invalid",
+        failures,
+    )
+    allowed_roles = WRITERS | READERS
+    if allow_placeholders:
+        allowed_roles.add("ROLE_NAME")
+    route_keys = {"model", "reasoning_effort", "service_tier"}
+    override_keys = {"task_kind", "roles"} | route_keys
+    panel_keys = {"phase"} | route_keys
     optional_keys = {"note"}
 
-    require(bool(overrides), "routing example has no task override", failures)
+    if allow_placeholders:
+        require(bool(overrides), "model routing template has no task override", failures)
     for index, entry in enumerate(overrides, 1):
         require(
             override_keys <= entry.keys(),
@@ -157,10 +183,61 @@ def routing_example_failures(source: str) -> list[str]:
             f"routing override {index} has invalid roles",
             failures,
         )
+        task_kind = entry.get("task_kind")
+        require(
+            isinstance(task_kind, str)
+            and bool(task_kind.strip())
+            and (allow_placeholders or task_kind != "TASK_KIND"),
+            f"routing override {index} has invalid task_kind",
+            failures,
+        )
 
-    require(bool(routes), "routing example has no role routes", failures)
+    require(
+        set(panel_routes) == {"gpt", "third_party"},
+        "model routing panel families are invalid",
+        failures,
+    )
+    panel_entries: list[dict[str, object]] = []
+    for family, entries in panel_routes.items():
+        primary_models: set[str] = set()
+        family_models: set[str] = set()
+        for index, entry in enumerate(entries, 1):
+            require(
+                panel_keys <= entry.keys(),
+                f"routing panel {family}[{index}] is missing required fields",
+                failures,
+            )
+            require(
+                entry.keys() <= panel_keys | optional_keys,
+                f"routing panel {family}[{index}] has unknown fields",
+                failures,
+            )
+            phase = entry.get("phase")
+            require(
+                isinstance(phase, str) and phase in {"primary", "fallback"},
+                f"routing panel {family}[{index}] has invalid phase",
+                failures,
+            )
+            model = entry.get("model")
+            if isinstance(model, str):
+                require(
+                    model not in family_models,
+                    f"routing panel {family} repeats model: {model}",
+                    failures,
+                )
+                family_models.add(model)
+                if phase == "primary":
+                    primary_models.add(model)
+            panel_entries.append(entry)
+        require(
+            len(primary_models) >= 2,
+            f"routing panel {family} needs at least two distinct primary models",
+            failures,
+        )
+
+    require(bool(routes), "model routing has no role routes", failures)
     for role, entries in routes.items():
-        require(role in allowed_roles, f"routing example has unknown role: {role}", failures)
+        require(role in allowed_roles, f"model routing has unknown role: {role}", failures)
         for index, entry in enumerate(entries, 1):
             require(
                 route_keys <= entry.keys(),
@@ -173,19 +250,54 @@ def routing_example_failures(source: str) -> list[str]:
                 failures,
             )
 
-    for entry in overrides + [item for entries in routes.values() for item in entries]:
+    all_entries = (
+        overrides + panel_entries + [item for entries in routes.values() for item in entries]
+    )
+    for entry in all_entries:
         model = entry.get("model")
+        if not isinstance(model, str):
+            model_is_valid = False
+        elif allow_placeholders:
+            model_is_valid = bool(model.strip()) and model.startswith("MODEL_ID_")
+        else:
+            model_is_valid = bool(model.strip()) and not model.startswith("MODEL_ID_")
         require(
-            isinstance(model, str) and model.startswith("MODEL_ID_"),
-            "routing example contains a non-placeholder model",
+            model_is_valid,
+            "model routing has an invalid model",
             failures,
         )
+        reasoning_effort = entry.get("reasoning_effort")
+        valid_reasoning = isinstance(reasoning_effort, str) and (
+            reasoning_effort in REASONING_EFFORTS
+            or (allow_placeholders and reasoning_effort == "REASONING_LEVEL")
+        )
         require(
-            isinstance(entry.get("reasoning_effort"), str),
-            "routing example has an invalid reasoning_effort",
+            valid_reasoning,
+            "model routing has an invalid reasoning_effort",
+            failures,
+        )
+        service_tier = entry.get("service_tier")
+        valid_service_tier = isinstance(service_tier, str) and (
+            service_tier in {"priority", "standard"}
+            or (allow_placeholders and service_tier == "SERVICE_TIER")
+        )
+        require(
+            valid_service_tier,
+            "model routing has an invalid service_tier",
+            failures,
+        )
+        note = entry.get("note")
+        require(
+            note is None or (isinstance(note, str) and bool(note.strip())),
+            "model routing has an invalid note",
             failures,
         )
     return failures
+
+
+def routing_example_failures(source: str) -> list[str]:
+    """Validate the placeholder routing template shipped by the repository."""
+    return model_routing_failures(source, allow_placeholders=True)
 
 
 def preferences_failures(source: str, *, allow_placeholder: bool = False) -> list[str]:
@@ -360,7 +472,7 @@ def hook_path_key(path: str | Path, *, windows: bool) -> str:
 
 
 def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> list[str]:
-    """Find v1-shaped assets without claiming unrelated Hook ownership."""
+    """Find retired project Hook assets without claiming unrelated Hook ownership."""
     failures: list[str] = []
     use_windows = windows if windows is not None else os.name == "nt"
     hooks_root = codex_home / "hooks"
@@ -384,17 +496,17 @@ def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> l
                     failures.append(f"retired Hook path ownership conflicts: {target}")
 
         if route_target.is_symlink() or (route_target.exists() and not route_target.is_file()):
-            failures.append(f"legacy route path conflicts: {route_target}")
+            failures.append(f"retired route path conflicts: {route_target}")
         elif route_target.is_file():
             try:
                 route_digest = file_sha256(route_target)
             except OSError as error:
-                failures.append(f"orchestration route unreadable: {route_target}: {error}")
+                failures.append(f"retired route unreadable: {route_target}: {error}")
             else:
-                if route_digest in LEGACY_V1_ROUTE_SHA256:
-                    failures.append(f"legacy managed v1 route remains: {route_target}")
-                elif route_digest != file_sha256(ROOT / "hooks" / "orchestration_route.py"):
-                    failures.append(f"legacy route path ownership conflicts: {route_target}")
+                if route_digest in RETIRED_ROUTE_SHA256:
+                    failures.append(f"retired managed route remains: {route_target}")
+                else:
+                    failures.append(f"retired route path ownership conflicts: {route_target}")
 
     hooks_path = codex_home / "hooks.json"
     if not hooks_path.exists() and not hooks_path.is_symlink():
@@ -439,11 +551,17 @@ def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> l
                         if script_key in seen_route_paths:
                             continue
                         seen_route_paths.add(script_key)
-                        script_path = Path(script)
                         managed_key = hook_path_key(route_target, windows=command_windows)
+                        if script_key == managed_key:
+                            failures.append(
+                                f"retired route registration remains: {event}: {hooks_path}: "
+                                f"{script}"
+                            )
+                            continue
+                        script_path = Path(script)
                         if script_path.is_symlink() or not script_path.is_file():
                             failures.append(
-                                f"legacy route registration ownership conflicts: {event}: "
+                                f"retired route registration ownership conflicts: {event}: "
                                 f"{hooks_path}: {script}"
                             )
                             continue
@@ -451,18 +569,18 @@ def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> l
                             script_digest = file_sha256(script_path)
                         except OSError as error:
                             failures.append(
-                                f"legacy route registration unreadable: {event}: {hooks_path}: "
+                                f"retired route registration unreadable: {event}: {hooks_path}: "
                                 f"{script}: {error}"
                             )
                             continue
-                        if script_digest in LEGACY_V1_ROUTE_SHA256:
+                        if script_digest in RETIRED_ROUTE_SHA256:
                             failures.append(
-                                f"legacy v1 route registration remains: {event}: {hooks_path}: "
+                                f"retired route registration remains: {event}: {hooks_path}: "
                                 f"{script}"
                             )
-                        elif script_key != managed_key:
+                        else:
                             failures.append(
-                                f"legacy route registration ownership conflicts: {event}: "
+                                f"retired route registration ownership conflicts: {event}: "
                                 f"{hooks_path}: {script}"
                             )
 
@@ -511,16 +629,17 @@ def validate_source() -> list[str]:
     skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
     install_contract = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
     worker_contract = (ROOT / "references" / "worker-writing.md").read_text(encoding="utf-8")
+    model_routing = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
 
     require(
-        top_level_values(project).get("version") == "0.6.0",
-        "project version must be 0.6.0",
+        top_level_values(project).get("version") == "0.6.1",
+        "project version must be 0.6.1",
         failures,
     )
 
     for phrase in (
-        "version: 0.6.0",
+        "version: 0.6.1",
         "references/model-routing.md",
         "references/worker-writing.md",
         "task_package_language",
@@ -531,31 +650,40 @@ def validate_source() -> list[str]:
         "Add only the extensions that materially change the work",
         "FOCUS",
         "DELTA",
-        "no prior lease is extended",
+        "No prior lease is extended",
         "Single writer",
         "Do not create a worktree unless the user explicitly requests one",
         'fork_turns="none"',
-        "positive `fork_turns`",
-        "full-history fork inherits the parent model and reasoning effort",
-        "send_message",
         "followup_task",
-        "wait_agent",
         "interrupt_agent",
-        "list_agents",
-        "caller's mailbox",
-        "final notifications",
-        "new agent",
-        "exactly one lifecycle call per program",
+        "collaboration-tool schemas are the sole authority",
+        "dependency barrier",
+        "earlier final notification",
+        "fresh agent-tree snapshot",
         "Do not send guidance, interrupt, replace, or switch the model",
-        "matching local task override",
+        "WORKSTREAM: panel | specialist",
+        "Before selecting a model for any delegation",
+        "`WORKSTREAM: panel` in `hybrid` use parent-aware panel routes",
         "unisolated prompt injection",
-        "same effective route",
         "Do not load or execute this Skill",
-        "runtime/UI metadata",
-        "resolved model",
-        "unknown`/unconfirmed",
+        "writable-worker lease check",
     ):
         require(phrase in skill, f"missing Skill contract: {phrase}", failures)
+
+    for phrase in (
+        "latest host-generated system or developer model binding",
+        "explicit `model_switch`",
+        "panel_routes.gpt",
+        "panel_routes.third_party",
+        "fails closed to `panel_routes.gpt`",
+        "WORKSTREAM: panel | specialist",
+        "specialist workstreams use ordinary role routes",
+        "host precondition",
+        "at least two distinct usable models",
+        "ordinary task overrides do not",
+        "no distinct model remains",
+    ):
+        require(phrase in model_routing, f"missing model routing contract: {phrase}", failures)
 
     for name, path in BUNDLED_SKILLS.items():
         bundled = (path / "SKILL.md").read_text(encoding="utf-8")
@@ -637,8 +765,8 @@ def validate_source() -> list[str]:
             failures,
         )
     require(
-        "HIGH PRIORITY DERIVED-AGENT IDENTITY" in hook_source,
-        "SubagentStart Hook identity context is not high priority",
+        "WRITER LEASE CHECK (HIGH PRIORITY)" in hook_source,
+        "SubagentStart Hook lease check is not high priority",
         failures,
     )
     for name in READERS:
@@ -727,23 +855,23 @@ def validate_source() -> list[str]:
         "examples/preferences.toml",
         "<codex-home>/codex-orchestration/preferences.toml",
         "--skills-root",
-        "orchestration_route.py",
         "subagent_scope.py",
-        "does not register a tool guard",
-        "Retired v1 lifecycle assets",
+        "tool guard",
+        "Retired lifecycle and Route assets",
         "mixed v1/v2",
         "does not confirm the resolved model",
     ):
         require(phrase in install_contract, f"missing install contract: {phrase}", failures)
 
     for phrase in (
-        "send_message",
-        "followup_task",
-        "wait_agent",
-        "interrupt_agent",
-        "list_agents",
-        "caller mailbox",
+        "model-visible collaboration-tool schemas own call mechanics",
         'fork_turns="none"',
+        "dependency barrier",
+        "follow-up invalidates earlier completion evidence",
+        "latest host-generated system or developer model binding",
+        "Ordinary `single`, `coverage`, worker, and Hybrid specialist delegation do not",
+        "Every task, panel, and role entry includes `service_tier",
+        "validates any saved task-package language and model route",
         "does not confirm the resolved model",
     ):
         require(
@@ -777,6 +905,11 @@ def validate_source() -> list[str]:
             f"retired lifecycle Hook remains in source: {script}",
             failures,
         )
+    require(
+        not (ROOT / "hooks" / "orchestration_route.py").exists(),
+        "retired main-agent Route Hook remains in source",
+        failures,
+    )
 
     require(
         not (ROOT / "scripts" / "install.py").exists(),
@@ -788,7 +921,14 @@ def validate_source() -> list[str]:
     preferences_example = (ROOT / "examples" / "preferences.toml").read_text(encoding="utf-8")
     failures.extend(preferences_failures(preferences_example, allow_placeholder=True))
     routing_contract = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
-    for phrase in ("effective route", "first candidate, not a hard pin"):
+    for phrase in (
+        "effective route",
+        "first candidate, not a hard pin",
+        "panel_routes.gpt",
+        "panel_routes.third_party",
+        "worker-round-three",
+        "host precondition",
+    ):
         require(phrase in routing_contract, f"routing contract missing: {phrase}", failures)
     return failures
 
@@ -858,6 +998,20 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
                 failures.extend(
                     f"runtime preferences invalid: {preferences_path}: {failure}"
                     for failure in preferences_failures(source)
+                )
+    routing_path = codex_home / "codex-orchestration" / "model-routing.toml"
+    if routing_path.exists() or routing_path.is_symlink():
+        if has_symlink_component(routing_path, codex_home) or not routing_path.is_file():
+            failures.append(f"runtime model routing linked or conflicting: {routing_path}")
+        else:
+            try:
+                source = routing_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as error:
+                failures.append(f"runtime model routing unreadable: {routing_path}: {error}")
+            else:
+                failures.extend(
+                    f"runtime model routing invalid: {routing_path}: {failure}"
+                    for failure in model_routing_failures(source, allow_placeholders=False)
                 )
     return failures
 

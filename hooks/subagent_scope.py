@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inject role-aware scope reminders for spawned Codex subagents."""
+"""Reinforce write-lease requirements for writable Codex subagents."""
 
 from __future__ import annotations
 
@@ -8,34 +8,17 @@ import sys
 
 WRITER_ROLES = frozenset({"worker", "diagnosing-bugs-worker", "prototype-worker"})
 
-COMMON = """\
-HIGH PRIORITY DERIVED-AGENT IDENTITY:
-You are a derived agent, not the main orchestrator.
-Do not load or execute the codex-orchestration Skill.
-Do not create, coordinate, wait for, summarize, close, or manage descendants.
-If the task declares panel or hybrid evaluation mode, you are only a panel member.
-Panel membership never authorizes main-agent orchestration or descendant management.
-Complete only the assigned task and return the result to the main agent.
-"""
-
 WRITER = """\
-You are a writable worker. This hook does not grant a write lease.
-Write only when the main-agent task message contains the complete canonical
-worker package defined by codex-orchestration. It must include GOAL, SCOPE,
-CONSTRAINTS, DONE WHEN, RETURN, WRITE LEASE: granted, ALLOWED PATHS, BRANCH,
-ROUND, and VALIDATION. Otherwise return blocked. Modify only ALLOWED PATHS.
-Do not perform Git operations or external writes.
-"""
-
-READ_ONLY = """\
-You are read-only. Do not modify files or external state.
-Return evidence, analysis, design guidance, or review findings.
+WRITER LEASE CHECK (HIGH PRIORITY): This hook does not grant write authority.
+Write only when the main-agent task package includes GOAL, SCOPE, CONSTRAINTS,
+DONE WHEN, RETURN, WRITE LEASE: granted, ALLOWED PATHS, BRANCH, ROUND, and
+VALIDATION. Otherwise return blocked. Modify only ALLOWED PATHS; leave Git and
+external writes to the main agent.
 """
 
 
 def context_for(agent_type: str) -> str:
-    boundary = WRITER if agent_type in WRITER_ROLES else READ_ONLY
-    return f"{COMMON}\n{boundary}"
+    return WRITER if agent_type in WRITER_ROLES else ""
 
 
 def main() -> int:

@@ -47,60 +47,59 @@ class SourceValidationTest(unittest.TestCase):
     def test_source_contract(self) -> None:
         self.assertEqual(VALIDATOR.validate_source(), [])
 
-    def test_v2_tool_contract_is_explicit(self) -> None:
+    def test_v2_policy_does_not_use_a_main_agent_route_hook(self) -> None:
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
-        route = subprocess.run(
-            [sys.executable, str(ROOT / "hooks" / "orchestration_route.py")],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        self.assertEqual(route.returncode, 0, route.stderr)
-        context = cast(dict[str, object], json.loads(route.stdout)["hookSpecificOutput"])
-        additional = cast(str, context["additionalContext"])
-        for text in (
-            'fork_turns="none"',
-            "positive value",
-            "partial history",
-            "send_message",
-            "followup_task",
-            "wait_agent",
-            "interrupt_agent",
-            "list_agents",
-            "caller's mailbox",
-            "final notifications",
-        ):
-            with self.subTest(text=text):
-                self.assertIn(text, skill)
-                self.assertIn(text, additional)
-        self.assertIn("Omitting `fork_turns`", skill)
-        self.assertIn("Omitting fork_turns", additional)
+        self.assertFalse((ROOT / "hooks" / "orchestration_route.py").exists())
+        self.assertIn('fork_turns="none"', skill)
+        self.assertIn("collaboration-tool schemas are the sole authority", skill)
+        self.assertIn("earlier final notification", skill)
+        self.assertNotIn("functions.exec", skill)
 
-    def test_routing_example_schema_rejects_service_placement_and_invalid_values(self) -> None:
+    def test_only_panel_routing_uses_host_model_binding(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        routing = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
+
+        self.assertIn("`WORKSTREAM: panel` in `hybrid` use parent-aware panel routes", skill)
+        self.assertIn("delegation never inspect the\nparent model identity", routing)
+        self.assertIn("latest host-generated system or developer model binding", routing)
+        self.assertIn("explicit `model_switch`", routing)
+        self.assertIn("uses `panel_routes.gpt`", routing)
+        self.assertIn("uses `panel_routes.third_party`", routing)
+        self.assertIn("fails closed to `panel_routes.gpt`", routing)
+        self.assertIn("specialist workstreams use ordinary role routes", routing)
+        self.assertIn("WORKSTREAM: panel | specialist", skill)
+        self.assertIn("WORKSTREAM: panel | specialist", routing)
+
+    def test_routing_example_schema_validates_panel_and_service_requirements(self) -> None:
         source = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
         self.assertEqual(VALIDATOR.routing_example_failures(source), [])
 
-        invalid_override_service = source.replace(
-            'reasoning_effort = "REASONING_LEVEL"',
-            'reasoning_effort = "REASONING_LEVEL"\nservice_tier = "SERVICE_TIER"',
-            1,
-        )
+        missing_service = source.replace('service_tier = "SERVICE_TIER"\n', "", 1)
         self.assertTrue(
             any(
-                "unknown fields" in failure
-                for failure in VALIDATOR.routing_example_failures(invalid_override_service)
+                "missing required fields" in failure
+                for failure in VALIDATOR.routing_example_failures(missing_service)
             )
         )
 
-        invalid_role_service = source.replace(
-            'model = "MODEL_ID_PRIMARY"',
-            'model = "MODEL_ID_PRIMARY"\nservice_tier = "SERVICE_TIER"',
+        invalid_service = source.replace('service_tier = "SERVICE_TIER"', 'service_tier = "fast"')
+        self.assertIn(
+            "model routing has an invalid service_tier",
+            VALIDATOR.routing_example_failures(invalid_service),
         )
+
+        invalid_phase = source.replace('phase = "primary"', 'phase = "reserve"', 1)
         self.assertTrue(
             any(
-                "unknown fields" in failure
-                for failure in VALIDATOR.routing_example_failures(invalid_role_service)
+                "invalid phase" in failure
+                for failure in VALIDATOR.routing_example_failures(invalid_phase)
             )
+        )
+
+        unknown_family = source.replace("panel_routes.gpt", "panel_routes.unknown")
+        self.assertIn(
+            "model routing panel families are invalid",
+            VALIDATOR.routing_example_failures(unknown_family),
         )
 
         unknown_role = source.replace('roles = ["ROLE_NAME"]', 'roles = ["unknown-role"]')
@@ -116,6 +115,29 @@ class SourceValidationTest(unittest.TestCase):
                 for failure in VALIDATOR.routing_example_failures(invalid_value)
             )
         )
+
+    def test_model_routing_rejects_invalid_types_and_weak_panels(self) -> None:
+        source = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
+
+        cases = {
+            "float schema": source.replace("schema_version = 2", "schema_version = 2.0"),
+            "invalid task kind": source.replace('task_kind = "TASK_KIND"', "task_kind = []"),
+            "unhashable phase": source.replace('phase = "primary"', "phase = []", 1),
+            "unhashable tier": source.replace(
+                'service_tier = "SERVICE_TIER"', "service_tier = []", 1
+            ),
+            "duplicate panel model": source.replace(
+                'model = "MODEL_ID_PRIMARY_2"', 'model = "MODEL_ID_PRIMARY_1"', 1
+            ),
+            "one primary": source.replace(
+                '[[panel_routes.gpt]]\nphase = "primary"\nmodel = "MODEL_ID_PRIMARY_2"',
+                '[[panel_routes.gpt]]\nphase = "fallback"\nmodel = "MODEL_ID_PRIMARY_2"',
+                1,
+            ),
+        }
+        for label, candidate in cases.items():
+            with self.subTest(label=label):
+                self.assertTrue(VALIDATOR.routing_example_failures(candidate))
 
     def test_source_helpers_reject_model_pins_and_public_model_routes(self) -> None:
         profile = (
@@ -163,8 +185,8 @@ class SourceValidationTest(unittest.TestCase):
         reader = cast(str, run_scope('{"agent_type":"explorer"}')["additionalContext"])
         self.assertIn("WRITE LEASE: granted", worker)
         self.assertIn("GOAL", worker)
-        self.assertIn("You are read-only", reader)
-        self.assertNotIn("WRITE LEASE: granted", reader)
+        self.assertIn("WRITER LEASE CHECK (HIGH PRIORITY)", worker)
+        self.assertEqual(reader, "")
 
     def test_runtime_validation_accepts_copied_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -189,6 +211,34 @@ class SourceValidationTest(unittest.TestCase):
             failures = VALIDATOR.validate_runtime(codex_home, skills_root)
 
         self.assertTrue(any("runtime preferences invalid" in failure for failure in failures))
+
+    def test_runtime_validation_checks_saved_model_routing(self) -> None:
+        template = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
+        route = (
+            template.replace('"TASK_KIND"', '"worker-round-three"')
+            .replace('"ROLE_NAME"', '"worker"')
+            .replace('"MODEL_ID_OVERRIDE"', '"model-override"')
+            .replace('"MODEL_ID_PRIMARY_1"', '"model-primary-1"')
+            .replace('"MODEL_ID_PRIMARY_2"', '"model-primary-2"')
+            .replace('"MODEL_ID_FALLBACK"', '"model-fallback"')
+            .replace('"MODEL_ID_PRIMARY"', '"model-role-primary"')
+            .replace('"REASONING_LEVEL"', '"high"')
+            .replace('"SERVICE_TIER"', '"standard"')
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            routing_path = codex_home / "codex-orchestration" / "model-routing.toml"
+            routing_path.parent.mkdir()
+            routing_path.write_text(route, encoding="utf-8")
+            self.assertEqual(VALIDATOR.validate_runtime(codex_home, skills_root), [])
+
+            routing_path.write_text(
+                route.replace("schema_version = 2", "schema_version = 2.0"),
+                encoding="utf-8",
+            )
+            failures = VALIDATOR.validate_runtime(codex_home, skills_root)
+
+        self.assertTrue(any("runtime model routing invalid" in item for item in failures))
 
     def test_runtime_validation_reports_missing_components(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -263,13 +313,10 @@ class SourceValidationTest(unittest.TestCase):
 
             self.assertEqual(VALIDATOR.validate_runtime(codex_home, skills_root), [])
 
-    def test_hook_registration_contract_has_two_hooks(self) -> None:
+    def test_hook_registration_contract_has_one_hook(self) -> None:
         self.assertEqual(
             VALIDATOR.HOOK_REGISTRATIONS,
-            (
-                ("UserPromptSubmit", "orchestration_route.py", None),
-                ("SubagentStart", "subagent_scope.py", None),
-            ),
+            (("SubagentStart", "subagent_scope.py", None),),
         )
 
     def test_hook_validation_accepts_one_registration_per_event(self) -> None:
@@ -542,7 +589,7 @@ class SourceValidationTest(unittest.TestCase):
             with mock.patch.object(VALIDATOR, "file_sha256", return_value=legacy_digest):
                 failures = VALIDATOR.validate_runtime(codex_home, skills_root)
 
-        self.assertTrue(any("legacy managed v1 route remains" in failure for failure in failures))
+        self.assertTrue(any("retired managed route remains" in failure for failure in failures))
 
     def test_retired_scan_rejects_conflicting_route_paths(self) -> None:
         for kind in ("foreign", "directory", "symlink"):
@@ -565,21 +612,25 @@ class SourceValidationTest(unittest.TestCase):
 
                 failures = VALIDATOR.retired_hook_failures(codex_home)
 
-            self.assertTrue(any("legacy route path" in failure for failure in failures))
+            self.assertTrue(any("retired route path" in failure for failure in failures))
 
-    def test_retired_scan_accepts_current_unselected_route_copy(self) -> None:
+    def test_retired_scan_rejects_known_prior_v2_route_copy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home = Path(temporary) / "codex-home"
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir(parents=True)
-            shutil.copy2(
-                ROOT / "hooks" / "orchestration_route.py",
-                hooks_root / "orchestration_route.py",
-            )
+            route_target = hooks_root / "orchestration_route.py"
+            route_target.write_text("known prior v2\n", encoding="utf-8")
+            original_digest = VALIDATOR.file_sha256
+            prior_digest = next(iter(VALIDATOR.KNOWN_PRIOR_V2_ROUTE_SHA256))
 
-            failures = VALIDATOR.retired_hook_failures(codex_home)
+            def route_digest(path: Path) -> str:
+                return prior_digest if path == route_target else original_digest(path)
 
-        self.assertEqual(failures, [])
+            with mock.patch.object(VALIDATOR, "file_sha256", side_effect=route_digest):
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("retired managed route remains" in item for item in failures))
 
     def test_retired_scan_rejects_legacy_route_registration(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -621,7 +672,7 @@ class SourceValidationTest(unittest.TestCase):
                 failures = VALIDATOR.retired_hook_failures(codex_home)
 
         self.assertTrue(
-            any("legacy v1 route registration remains" in failure for failure in failures)
+            any("retired route registration remains" in failure for failure in failures)
         )
 
     def test_retired_scan_rejects_missing_route_registration_target(self) -> None:
@@ -655,7 +706,7 @@ class SourceValidationTest(unittest.TestCase):
             failures = VALIDATOR.retired_hook_failures(codex_home)
 
         self.assertTrue(
-            any("legacy route registration ownership conflicts" in failure for failure in failures)
+            any("retired route registration ownership conflicts" in failure for failure in failures)
         )
 
     def test_retired_scan_preserves_unrelated_hook_commands(self) -> None:
