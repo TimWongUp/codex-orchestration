@@ -121,9 +121,10 @@ class InstallerTests(unittest.TestCase):
             skills_root.mkdir()
             (codex_home / "AGENTS.md").write_bytes(b"personal\r\n")
             crlf_template = Path(temporary).resolve() / "global-agents-block.md"
-            crlf_template.write_bytes(
-                INSTALL.contract.GLOBAL_RULES_TEMPLATE.read_bytes().replace(b"\n", b"\r\n")
+            canonical_lf = INSTALL.contract.GLOBAL_RULES_TEMPLATE.read_bytes().replace(
+                b"\r\n", b"\n"
             )
+            crlf_template.write_bytes(canonical_lf.replace(b"\n", b"\r\n"))
             original_reader = INSTALL.read_managed_source
 
             def read_crlf_template(path: Path, label: str, plan):
