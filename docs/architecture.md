@@ -1,6 +1,6 @@
 # Architecture
 
-Codex Orchestration separates five concerns:
+Codex Orchestration separates six concerns:
 
 1. `SKILL.md` defines main-agent decisions, the collaboration lifecycle, and task-package
    contracts.
@@ -8,8 +8,10 @@ Codex Orchestration separates five concerns:
 3. `hooks/` optionally reinforces the writable-worker lease check.
 4. Local preference files select task-package language and models without placing user choices in
    the repository.
-5. `INSTALL.md` defines the reviewed, cross-platform installation contract executed by the user's
-   Agent.
+5. `examples/global-agents-block.md` is the minimal global pointer injected into the active Codex
+   instruction file.
+6. `INSTALL.md` defines the reviewed installation contract, implemented deterministically by
+   `scripts/install.py`.
 
 The repository is the single source of truth for portable runtime behavior. Installed Skill,
 Agent, and Hook files are replaceable deployment artifacts, while task-package language, model
@@ -22,6 +24,12 @@ only root `SKILL.md` and `references/`; each bundled method Skill has its own Sk
 Agent profiles and optional Hook scripts go to Codex home. Deployment registries may record this
 repository as authority, but suite installation remains governed by `INSTALL.md` so a generic
 single-Skill linker cannot flatten these components or expose the whole checkout as one Skill.
+
+The installer is dry-run by default and treats the selected Codex home and Skill root as explicit
+trust boundaries. It refuses linked or ambiguous targets, owns only named runtime files, merges the
+optional Hook by exact command identity, and rolls back completed writes when verification fails.
+Codex plugin packaging is not the suite authority because plugins do not replace the separate
+custom-Agent projection.
 
 The `skills/diagnosing-bugs` and `skills/prototype` directories contain the complete method Skills
 loaded by their corresponding writable workers. The Agent profiles retain lease and orchestration
@@ -64,8 +72,12 @@ so no `UserPromptSubmit` route reminder is installed. Cross-host context injecti
 and closeout behavior belong to their shared runtime; Codex-native agent status UI remains
 host-owned.
 
-Installation is Agent-driven on macOS and native Windows. The repository declares source-to-target
-intent, conflict policy, one-time source migration, optional choices, and completion criteria
-instead of reproducing filesystem and configuration logic in a platform-specific installer.
+Installation uses one standard-library Python implementation on macOS and native Windows. The
+canonical global block is inserted into the first non-empty global `AGENTS.override.md` or
+`AGENTS.md`; surrounding bytes remain user-owned, and corrupt or duplicated markers fail closed.
 `scripts/validate.py` remains read-only and verifies both the public source contract and an
 installed runtime supplied by path.
+
+The transaction contract covers failures caught by the running installer, not abrupt termination
+or hostile same-user path replacement. A fresh dry run is the recovery authority after a crash or
+power loss; linked or changed targets fail closed instead of being followed.

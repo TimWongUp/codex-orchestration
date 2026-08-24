@@ -1,0 +1,53 @@
+# Adopt a deterministic installer and managed global rules
+
+**Status:** accepted
+
+## Context
+
+The earlier Agent-only installation contract described safe outcomes but required every installing
+Agent to reconstruct the same copying, Hook merge, ownership, and rollback behavior. That increased
+variance across macOS and native Windows and made updates harder to audit. The installation model in
+[oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) demonstrated a useful boundary:
+project-owned runtime files and prompt content can be reconciled deterministically while unrelated
+user configuration remains outside the managed surface.
+
+Codex does not support Claude Code's companion-file import syntax for global instructions. It reads
+the first non-empty `AGENTS.override.md` or `AGENTS.md` in Codex home. Codex plugins can bundle Skills
+and Hooks, but this suite also installs custom Agent profiles, so plugin packaging would still leave
+a second installation path.
+
+## Decision
+
+Ship `scripts/install.py` as the deterministic implementation of `INSTALL.md`. It is dry-run by
+default and writes only with `--apply`. The caller supplies the active Skill root; Codex home follows
+the explicit argument, `CODEX_HOME`, or the documented Codex default. The installer classifies every
+managed path, refuses linked or ambiguous targets, applies file changes atomically, and rolls the
+completed transaction back when the running process catches a write or verification failure.
+
+The canonical global prompt is `examples/global-agents-block.md`. Installation enables it by default
+and owns only the exact marker-delimited block in the active global instruction file. Surrounding
+bytes remain user-owned. Corrupt or duplicated markers fail closed, and a change in the active
+override moves the managed block instead of leaving two copies.
+
+The writer-lease Hook remains optional. When selected, the installer replaces only registrations
+that invoke its exact managed script path, removes authenticated retired project registrations, and
+preserves unrelated Hook handlers, event groups, ordering, and top-level JSON fields. Codex Hook
+trust remains host-owned and must be reviewed through `/hooks` after installation.
+
+Model routing stays local and outside automated setup because availability and service-tier
+enforcement require live host evidence. Symlink cutovers and ambiguous legacy ownership remain
+explicit user decisions rather than `--apply` side effects.
+
+The installer is not a journaled or hostile-local-process transaction boundary. Abrupt termination
+can leave a partial projection, and concurrent replacement of selected roots is unsupported. The
+documented recovery is a fresh dry run followed by an explicitly reviewed apply.
+
+## Consequences
+
+Installation and update now have one testable implementation shared by macOS and native Windows.
+The global orchestration pointer loads consistently without replacing personal instructions, while
+the full policy remains in the Skill. The repository gains installer and prompt-injection tests and
+must keep `INSTALL.md`, both READMEs, runtime validation, and the canonical block synchronized.
+
+This supersedes the former no-write-installer implementation choice while preserving ADR 0001's
+repository authority and runtime-projection boundary.

@@ -7,10 +7,11 @@ import argparse
 import ast
 import hashlib
 import json
+import ntpath
 import os
+import posixpath
 import re
 import shlex
-import subprocess
 import sys
 from pathlib import Path
 
@@ -61,6 +62,9 @@ FORBIDDEN_PUBLIC_PATTERNS = {
     "deepseek-" + "v4": "machine-specific model route",
 }
 HOOK_REGISTRATIONS = (("SubagentStart", "subagent_scope.py", None),)
+GLOBAL_RULES_START = b"<!-- CODEX-ORCHESTRATION:GLOBAL-RULES:START -->"
+GLOBAL_RULES_END = b"<!-- CODEX-ORCHESTRATION:GLOBAL-RULES:END -->"
+GLOBAL_RULES_TEMPLATE = ROOT / "examples" / "global-agents-block.md"
 RETIRED_HOOK_SCRIPTS = ("subagent_guard.py",)
 RETIRED_HOOK_SHA256 = {
     "subagent_guard.py": frozenset(
@@ -352,10 +356,37 @@ def preferences_failures(source: str, *, allow_placeholder: bool = False) -> lis
 def top_level_values(source: str) -> dict[str, str]:
     values: dict[str, str] = {}
     for line in source.splitlines():
-        match = re.match(r'^([A-Za-z0-9_-]+)\s*=\s*"([^"]*)"\s*$', line)
+        match = re.match(r"^([A-Za-z0-9_-]+)\s*=\s*(['\"])(.*?)\2\s*$", line)
         if match:
-            values[match.group(1)] = match.group(2)
+            values[match.group(1)] = match.group(3)
     return values
+
+
+def path_is_link_like(path: Path) -> bool:
+    """Reject symlinks and Windows reparse points such as NTFS junctions."""
+    if path.is_symlink():
+        return True
+    if os.name != "nt" or not os.path.lexists(path):
+        return False
+    try:
+        attributes = getattr(os.lstat(path), "st_file_attributes", 0)
+    except OSError:
+        return False
+    return bool(attributes & 0x400)
+
+
+def canonical_selected_root(path: Path) -> Path:
+    """Resolve parent aliases while leaving the selected leaf available for link checks."""
+    absolute = path.expanduser().absolute()
+    return absolute.parent.resolve(strict=False) / absolute.name
+
+
+def allowed_platform_path_alias(path: Path) -> bool:
+    return sys.platform == "darwin" and path in {
+        Path("/etc"),
+        Path("/tmp"),
+        Path("/var"),
+    }
 
 
 def skill_document_name(source: str) -> str | None:
@@ -380,24 +411,36 @@ def skill_document_name(source: str) -> str | None:
 def has_symlink_component(path: Path, boundary: Path) -> bool:
     current = path
     while current != boundary:
-        if current.is_symlink():
+        if path_is_link_like(current):
             return True
         if current == current.parent:
             return False
         current = current.parent
-    return boundary.is_symlink()
+    return path_is_link_like(boundary)
 
 
 def first_symlink_component(path: Path) -> Path | None:
-    return path if path.is_symlink() else None
+    if ".." in path.parts:
+        return path
+    current = path.absolute()
+    while True:
+        if path_is_link_like(current) and not allowed_platform_path_alias(current):
+            return current
+        if current == current.parent:
+            return None
+        current = current.parent
 
 
 def expected_hook_command(target: Path, *, windows: bool | None = None) -> str:
     arguments = [str(Path(sys.executable).absolute()), str(target.absolute())]
     use_windows = windows if windows is not None else os.name == "nt"
     if use_windows:
-        return subprocess.list2cmdline(arguments)
+        return " ".join(f'"{argument}"' for argument in arguments)
     return shlex.join(arguments)
+
+
+def unsafe_windows_hook_path(path: str | Path) -> bool:
+    return any(character in str(path) for character in '%!\r\n"')
 
 
 def hook_command_matches(command: object, target: Path, *, windows: bool | None = None) -> bool:
@@ -455,8 +498,96 @@ def python_hook_script(command: object, *, windows: bool) -> str | None:
     return arguments[1]
 
 
+def python_invoked_script(command: object, *, windows: bool) -> str | None:
+    """Find a Python script after interpreter options for fail-closed reference checks."""
+    arguments = hook_command_arguments(command, windows=windows)
+    if arguments is None or len(arguments) < 2:
+        return None
+    index = 0
+    assignment = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", re.DOTALL)
+    if not windows:
+        while index < len(arguments) and assignment.fullmatch(arguments[index]) is not None:
+            index += 1
+        if index < len(arguments):
+            executable = arguments[index].replace("\\", "/").rsplit("/", 1)[-1]
+            if executable == "env":
+                index += 1
+                env_options_with_value = {"-u", "--unset", "-C", "--chdir"}
+                while index < len(arguments):
+                    argument = arguments[index]
+                    if argument == "--":
+                        index += 1
+                        break
+                    if argument in env_options_with_value:
+                        index += 2
+                        continue
+                    if argument.startswith("-"):
+                        index += 1
+                        continue
+                    if assignment.fullmatch(argument) is not None:
+                        index += 1
+                        continue
+                    break
+    if index >= len(arguments):
+        return None
+    executable = arguments[index].replace("\\", "/").rsplit("/", 1)[-1]
+    if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?(?:\.exe)?", executable, re.IGNORECASE) is None:
+        return None
+    index += 1
+    options_with_value = {"-W", "-X", "--check-hash-based-pycs"}
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in {"-c", "-m", "-"}:
+            return None
+        if argument == "--":
+            return arguments[index + 1] if index + 1 < len(arguments) else None
+        if argument in options_with_value:
+            index += 2
+            continue
+        if argument.startswith("-"):
+            index += 1
+            continue
+        return argument
+    return None
+
+
+def command_path_candidates(command: object, *, windows: bool) -> list[str]:
+    """Find explicit or nested absolute paths plus a parsed Python script argument."""
+    candidates: list[str] = []
+
+    def add(candidate: str) -> None:
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    invoked = python_invoked_script(command, windows=windows)
+    if invoked is not None:
+        add(invoked)
+    arguments = hook_command_arguments(command, windows=windows)
+    if arguments is None:
+        return candidates
+    path_module = ntpath if windows else posixpath
+    for argument in arguments:
+        if path_module.isabs(argument):
+            add(argument)
+        if not windows and any(character.isspace() for character in argument):
+            nested = hook_command_arguments(argument, windows=False)
+            if nested is None or nested == [argument]:
+                continue
+            nested_invoked = python_invoked_script(argument, windows=False)
+            if nested_invoked is not None:
+                add(nested_invoked)
+            for nested_argument in nested:
+                if posixpath.isabs(nested_argument):
+                    add(nested_argument)
+    return candidates
+
+
 def file_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def files_equal(left: Path, right: Path) -> bool:
@@ -466,23 +597,229 @@ def files_equal(left: Path, right: Path) -> bool:
         return False
 
 
+def strict_json_loads(source: str | bytes) -> object:
+    def reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key: {key}")
+            result[key] = value
+        return result
+
+    def reject_constant(value: str) -> object:
+        raise ValueError(f"invalid JSON constant: {value}")
+
+    return json.loads(
+        source,
+        object_pairs_hook=reject_duplicates,
+        parse_constant=reject_constant,
+    )
+
+
+def managed_global_rules_ranges(content: bytes) -> tuple[str, list[tuple[int, int]]]:
+    """Parse exact standalone managed-block markers without normalizing user bytes."""
+    ranges: list[tuple[int, int]] = []
+    offset = 0
+    open_start: int | None = None
+    diagnostics = False
+    saw_marker = False
+
+    for raw_line in content.splitlines(keepends=True):
+        if raw_line.endswith(b"\r\n"):
+            line = raw_line[:-2]
+        elif raw_line.endswith(b"\n"):
+            line = raw_line[:-1]
+        else:
+            line = raw_line
+        line_end = offset + len(raw_line)
+        if line == GLOBAL_RULES_START:
+            saw_marker = True
+            if open_start is not None:
+                diagnostics = True
+            else:
+                open_start = offset
+        elif line == GLOBAL_RULES_END:
+            saw_marker = True
+            if open_start is None:
+                diagnostics = True
+            else:
+                ranges.append((open_start, line_end))
+                open_start = None
+        elif GLOBAL_RULES_START in line or GLOBAL_RULES_END in line:
+            diagnostics = True
+        offset = line_end
+
+    if open_start is not None:
+        diagnostics = True
+    if not saw_marker and (GLOBAL_RULES_START in content or GLOBAL_RULES_END in content):
+        diagnostics = True
+    if diagnostics:
+        return "corrupt", []
+    return ("complete" if saw_marker else "none"), ranges
+
+
+def active_global_rules_target(codex_home: Path) -> tuple[Path | None, str | None]:
+    """Resolve the one global instruction file Codex loads without traversing links."""
+    if path_is_link_like(codex_home):
+        return None, f"Codex home linked or conflicting: {codex_home}"
+    linked = first_symlink_component(codex_home)
+    if linked is not None:
+        return None, f"Codex home has linked or unsafe path component: {linked}"
+    codex_home = canonical_selected_root(codex_home)
+    override = codex_home / "AGENTS.override.md"
+    base = codex_home / "AGENTS.md"
+    if path_is_link_like(override) or (override.exists() and not override.is_file()):
+        return None, f"global override linked or conflicting: {override}"
+    if override.is_file():
+        try:
+            if override.read_bytes().strip():
+                return override, None
+        except OSError as error:
+            return None, f"global override unreadable: {override}: {error}"
+    if path_is_link_like(base) or (base.exists() and not base.is_file()):
+        return None, f"global instructions linked or conflicting: {base}"
+    return base, None
+
+
+def validate_global_rules(codex_home: Path) -> list[str]:
+    """Require one canonical managed block in the active global instruction file."""
+    failures: list[str] = []
+    codex_home = canonical_selected_root(codex_home)
+    target, target_error = active_global_rules_target(codex_home)
+    if target_error is not None or target is None:
+        return [target_error or "global instructions target could not be resolved"]
+    try:
+        canonical = GLOBAL_RULES_TEMPLATE.read_bytes().replace(b"\r\n", b"\n")
+    except OSError as error:
+        return [f"global rules template unreadable: {GLOBAL_RULES_TEMPLATE}: {error}"]
+
+    for candidate in (codex_home / "AGENTS.md", codex_home / "AGENTS.override.md"):
+        if path_is_link_like(candidate) or (candidate.exists() and not candidate.is_file()):
+            failures.append(f"global instructions linked or conflicting: {candidate}")
+            continue
+        if not candidate.is_file():
+            if candidate == target:
+                failures.append(f"global instructions missing: {candidate}")
+            continue
+        try:
+            content = candidate.read_bytes()
+        except OSError as error:
+            failures.append(f"global instructions unreadable: {candidate}: {error}")
+            continue
+        state, ranges = managed_global_rules_ranges(content)
+        if state == "corrupt" or len(ranges) > 1:
+            failures.append(f"global rules markers corrupt or duplicated: {candidate}")
+            continue
+        if candidate != target:
+            if ranges:
+                failures.append(f"inactive global instructions retain managed block: {candidate}")
+            continue
+        if len(ranges) != 1:
+            failures.append(f"global rules block missing: {candidate}")
+            continue
+        start, end = ranges[0]
+        installed = content[start:end].replace(b"\r\n", b"\n")
+        require(
+            installed == canonical,
+            f"global rules block differs: {candidate}",
+            failures,
+        )
+    return failures
+
+
 def hook_path_key(path: str | Path, *, windows: bool) -> str:
-    key = str(path).replace("\\", "/")
+    path_value = str(path)
+    if windows == (os.name == "nt"):
+        parsed = Path(path_value)
+        if parsed.is_absolute() and ".." not in parsed.parts:
+            path_value = str(canonical_selected_root(parsed))
+    key = path_value.replace("\\", "/")
     return key.casefold() if windows else key
+
+
+def hook_path_has_parent_traversal(path: str | Path) -> bool:
+    return ".." in str(path).replace("\\", "/").split("/")
+
+
+def hook_path_is_ambiguous(path: str | Path, *, windows: bool) -> bool:
+    value = str(path)
+    path_module = ntpath if windows else posixpath
+    expansion_characters = "%!^&|<>" if windows else "$`*?[{}"
+    return (
+        hook_path_has_parent_traversal(value)
+        or not path_module.isabs(value)
+        or any(character in value for character in expansion_characters)
+    )
+
+
+def hook_paths_may_alias(left: str | Path, right: str | Path, *, windows: bool) -> bool:
+    left_key = hook_path_key(left, windows=windows)
+    right_key = hook_path_key(right, windows=windows)
+    if left_key == right_key:
+        return True
+    if windows == (os.name == "nt"):
+        for source, target_key in ((left, right_key), (right, left_key)):
+            source_path = Path(source)
+            if not path_is_link_like(source_path):
+                continue
+            try:
+                link_value = Path(os.readlink(source_path))
+            except OSError:
+                continue
+            if not link_value.is_absolute():
+                link_value = source_path.parent / link_value
+            link_key = hook_path_key(link_value.resolve(strict=False), windows=windows)
+            if link_key == target_key or (
+                sys.platform == "darwin"
+                and not windows
+                and link_key.casefold() == target_key.casefold()
+            ):
+                return True
+        try:
+            if os.path.samefile(left, right):
+                return True
+        except (OSError, ValueError):
+            pass
+    return sys.platform == "darwin" and not windows and left_key.casefold() == right_key.casefold()
+
+
+def referenced_script_has_retired_hash(path: str | Path, *, windows: bool) -> bool:
+    if windows != (os.name == "nt") or hook_path_is_ambiguous(path, windows=windows):
+        return False
+    try:
+        candidate = Path(path).resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    if not candidate.is_file():
+        return False
+    try:
+        digest = file_sha256(candidate)
+    except OSError:
+        return False
+    retired_hashes = set(RETIRED_ROUTE_SHA256)
+    for hashes in RETIRED_HOOK_SHA256.values():
+        retired_hashes.update(hashes)
+    return digest in retired_hashes
 
 
 def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> list[str]:
     """Find retired project Hook assets without claiming unrelated Hook ownership."""
     failures: list[str] = []
+    if path_is_link_like(codex_home):
+        return [f"runtime Codex home linked or conflicting: {codex_home}"]
+    linked = first_symlink_component(codex_home)
+    if linked is not None:
+        return [f"runtime Codex home has linked or unsafe path component: {linked}"]
+    codex_home = canonical_selected_root(codex_home)
     use_windows = windows if windows is not None else os.name == "nt"
     hooks_root = codex_home / "hooks"
     route_target = hooks_root / "orchestration_route.py"
-    if hooks_root.is_symlink() or (hooks_root.exists() and not hooks_root.is_dir()):
+    if path_is_link_like(hooks_root) or (hooks_root.exists() and not hooks_root.is_dir()):
         failures.append(f"runtime Hook directory linked or conflicting: {hooks_root}")
     elif hooks_root.is_dir():
         for script in RETIRED_HOOK_SCRIPTS:
             target = hooks_root / script
-            if target.is_symlink() or (target.exists() and not target.is_file()):
+            if path_is_link_like(target) or (target.exists() and not target.is_file()):
                 failures.append(f"retired Hook path conflicts: {target}")
             elif target.is_file():
                 try:
@@ -495,7 +832,9 @@ def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> l
                 else:
                     failures.append(f"retired Hook path ownership conflicts: {target}")
 
-        if route_target.is_symlink() or (route_target.exists() and not route_target.is_file()):
+        if path_is_link_like(route_target) or (
+            route_target.exists() and not route_target.is_file()
+        ):
             failures.append(f"retired route path conflicts: {route_target}")
         elif route_target.is_file():
             try:
@@ -509,26 +848,79 @@ def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> l
                     failures.append(f"retired route path ownership conflicts: {route_target}")
 
     hooks_path = codex_home / "hooks.json"
-    if not hooks_path.exists() and not hooks_path.is_symlink():
+    if not hooks_path.exists() and not path_is_link_like(hooks_path):
         return failures
-    if hooks_path.is_symlink() or not hooks_path.is_file():
+    if path_is_link_like(hooks_path) or not hooks_path.is_file():
         failures.append(f"runtime hooks config linked or conflicting: {hooks_path}")
         return failures
     try:
-        data = json.loads(hooks_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeError) as error:
+        data = strict_json_loads(hooks_path.read_bytes())
+    except (json.JSONDecodeError, OSError, UnicodeError, ValueError) as error:
         failures.append(f"runtime hooks config invalid: {hooks_path}: {error}")
         return failures
-    if not isinstance(data, dict) or not isinstance(data.get("hooks"), dict):
+    if not isinstance(data, dict):
+        failures.append(f"runtime hooks config has invalid root: {hooks_path}")
+        return failures
+    hooks_value = data.get("hooks", {})
+    if not isinstance(hooks_value, dict):
         failures.append(f"runtime hooks config has invalid root: {hooks_path}")
         return failures
 
-    for event, groups in data["hooks"].items():
+    seen_managed_retired_references: set[tuple[str, str]] = set()
+    retired_targets = (
+        hooks_root / "subagent_guard.py",
+        route_target,
+    )
+    for event, groups in hooks_value.items():
         if not isinstance(groups, list):
             continue
         for group in groups:
             if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
                 continue
+
+            for hook in group["hooks"]:
+                if not isinstance(hook, dict) or hook.get("type") != "command":
+                    continue
+                command_fields = ((hook.get("command"), use_windows),)
+                if hook.get("commandWindows") is not None:
+                    command_fields += ((hook.get("commandWindows"), True),)
+                for command, command_windows in command_fields:
+                    for script in command_path_candidates(command, windows=command_windows):
+                        script_name = script.replace("\\", "/").rsplit("/", 1)[-1]
+                        if command_windows or sys.platform == "darwin":
+                            script_name = script_name.casefold()
+                        retired_names = {
+                            name.casefold() if command_windows or sys.platform == "darwin" else name
+                            for name in (*RETIRED_HOOK_SCRIPTS, "orchestration_route.py")
+                        }
+                        if script_name in retired_names and hook_path_is_ambiguous(
+                            script, windows=command_windows
+                        ):
+                            failures.append(
+                                f"retired-looking Hook registration has unsafe path: {event}: "
+                                f"{hooks_path}: {script}"
+                            )
+                            continue
+                        if referenced_script_has_retired_hash(script, windows=command_windows):
+                            failures.append(
+                                f"retired project Hook code registration remains: {event}: "
+                                f"{hooks_path}: {script}"
+                            )
+                            continue
+                        script_key = hook_path_key(script, windows=command_windows)
+                        if not any(
+                            hook_paths_may_alias(script, target, windows=command_windows)
+                            for target in retired_targets
+                        ):
+                            continue
+                        reference_key = (event, script_key)
+                        if reference_key in seen_managed_retired_references:
+                            continue
+                        seen_managed_retired_references.add(reference_key)
+                        failures.append(
+                            f"retired managed Hook registration remains: {event}: "
+                            f"{hooks_path}: {script}"
+                        )
 
             if event == "UserPromptSubmit":
                 seen_route_paths: set[str] = set()
@@ -558,31 +950,10 @@ def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> l
                                 f"{script}"
                             )
                             continue
-                        script_path = Path(script)
-                        if script_path.is_symlink() or not script_path.is_file():
-                            failures.append(
-                                f"retired route registration ownership conflicts: {event}: "
-                                f"{hooks_path}: {script}"
-                            )
-                            continue
-                        try:
-                            script_digest = file_sha256(script_path)
-                        except OSError as error:
-                            failures.append(
-                                f"retired route registration unreadable: {event}: {hooks_path}: "
-                                f"{script}: {error}"
-                            )
-                            continue
-                        if script_digest in RETIRED_ROUTE_SHA256:
-                            failures.append(
-                                f"retired route registration remains: {event}: {hooks_path}: "
-                                f"{script}"
-                            )
-                        else:
-                            failures.append(
-                                f"retired route registration ownership conflicts: {event}: "
-                                f"{hooks_path}: {script}"
-                            )
+                        failures.append(
+                            f"retired route registration ownership conflicts: {event}: "
+                            f"{hooks_path}: {script}"
+                        )
 
             matcher = group.get("matcher")
             if not isinstance(matcher, str) or (event, matcher) not in LEGACY_HOOK_GROUPS:
@@ -633,13 +1004,13 @@ def validate_source() -> list[str]:
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
 
     require(
-        top_level_values(project).get("version") == "0.6.1",
-        "project version must be 0.6.1",
+        top_level_values(project).get("version") == "0.7.0",
+        "project version must be 0.7.0",
         failures,
     )
 
     for phrase in (
-        "version: 0.6.1",
+        "version: 0.7.0",
         "references/model-routing.md",
         "references/worker-writing.md",
         "task_package_language",
@@ -842,23 +1213,26 @@ def validate_source() -> list[str]:
     )
 
     for phrase in (
-        "Agent installation contract",
-        "Existing links are conflicts",
-        "Show one complete installation plan",
-        "not a managed target classification",
+        "Deterministic installation contract",
+        "`scripts/install.py` is the only write implementation",
+        "dry run",
+        "`--apply`",
+        "`--language en` or `--language zh-CN`",
+        "CODEX-ORCHESTRATION:GLOBAL-RULES",
+        "AGENTS.override.md",
+        "byte-for-byte",
         "commandWindows",
-        "byte-for-byte identical",
-        "Preserve unrelated Skills, Agents, configuration, and files",
-        "Do not register the checkout root itself as one Skill",
-        "One-time migration from another source",
-        "Task-package language",
+        "Preserves unrelated top-level fields, events, matcher groups, handlers, and order",
+        "Do not register the repository root as one Skill",
+        "one-time migration from links or a different checkout",
         "examples/preferences.toml",
-        "<codex-home>/codex-orchestration/preferences.toml",
         "--skills-root",
         "subagent_scope.py",
-        "tool guard",
-        "Retired lifecycle and Route assets",
-        "mixed v1/v2",
+        "Retired project Hook assets",
+        "Pure v2 verification",
+        "caught write or verification failure",
+        "abrupt process termination",
+        "/hooks",
         "does not confirm the resolved model",
     ):
         require(phrase in install_contract, f"missing install contract: {phrase}", failures)
@@ -899,6 +1273,11 @@ def validate_source() -> list[str]:
         "pure v2 collaboration ADR missing",
         failures,
     )
+    require(
+        (ROOT / "docs" / "adr" / "0008-deterministic-installer-and-global-rules.md").is_file(),
+        "deterministic installer ADR missing",
+        failures,
+    )
     for script in RETIRED_HOOK_SCRIPTS:
         require(
             not (ROOT / "hooks" / script).exists(),
@@ -911,11 +1290,30 @@ def validate_source() -> list[str]:
         failures,
     )
 
-    require(
-        not (ROOT / "scripts" / "install.py").exists(),
-        "legacy write installer must not be shipped",
-        failures,
-    )
+    installer = ROOT / "scripts" / "install.py"
+    require(installer.is_file(), "deterministic installer missing", failures)
+    if installer.is_file():
+        try:
+            compile(installer.read_text(encoding="utf-8"), str(installer), "exec")
+        except SyntaxError as error:
+            failures.append(f"installer syntax error: {error}")
+    try:
+        global_rules = GLOBAL_RULES_TEMPLATE.read_bytes()
+    except OSError as error:
+        failures.append(f"global rules template unreadable: {error}")
+    else:
+        state, ranges = managed_global_rules_ranges(global_rules)
+        require(
+            state == "complete" and len(ranges) == 1 and ranges[0] == (0, len(global_rules)),
+            "global rules template must be one complete managed block",
+            failures,
+        )
+        hooks_and_prompts = (ROOT / "docs" / "hooks-and-prompts.md").read_bytes()
+        require(
+            global_rules.rstrip() in hooks_and_prompts,
+            "Hook documentation does not contain the canonical global rules block",
+            failures,
+        )
     routing_example = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
     failures.extend(routing_example_failures(routing_example))
     preferences_example = (ROOT / "examples" / "preferences.toml").read_text(encoding="utf-8")
@@ -936,17 +1334,22 @@ def validate_source() -> list[str]:
 def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
     failures: list[str] = []
     for label, root in (("Codex home", codex_home), ("Skill root", skills_root)):
+        if path_is_link_like(root):
+            failures.append(f"runtime {label} linked or conflicting: {root}")
+            continue
         linked = first_symlink_component(root)
         if linked is not None:
             failures.append(f"runtime {label} has linked path component: {linked}")
     if failures:
         return failures
+    codex_home = canonical_selected_root(codex_home)
+    skills_root = canonical_selected_root(skills_root)
 
     failures.extend(retired_hook_failures(codex_home))
 
     for name, source_root in BUNDLED_SKILLS.items():
         target_root = skills_root / name
-        if target_root.is_symlink() or not target_root.is_dir():
+        if path_is_link_like(target_root) or not target_root.is_dir():
             failures.append(f"runtime Skill missing, linked, or conflicting: {target_root}")
             continue
         if name == "codex-orchestration":
@@ -972,19 +1375,19 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
             )
 
     agents_root = codex_home / "agents"
-    if agents_root.is_symlink() or not agents_root.is_dir():
+    if path_is_link_like(agents_root) or not agents_root.is_dir():
         failures.append(f"runtime Agent directory missing, linked, or conflicting: {agents_root}")
     else:
         for source in sorted((ROOT / "agents").glob("*.toml")):
             target = agents_root / source.name
             require(
-                not target.is_symlink() and target.is_file() and files_equal(target, source),
+                not path_is_link_like(target) and target.is_file() and files_equal(target, source),
                 f"runtime agent differs: {target}",
                 failures,
             )
 
     preferences_path = codex_home / "codex-orchestration" / "preferences.toml"
-    if preferences_path.exists() or preferences_path.is_symlink():
+    if preferences_path.exists() or path_is_link_like(preferences_path):
         if has_symlink_component(preferences_path, codex_home) or not preferences_path.is_file():
             failures.append(
                 f"runtime preferences missing, linked, or conflicting: {preferences_path}"
@@ -1000,7 +1403,7 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
                     for failure in preferences_failures(source)
                 )
     routing_path = codex_home / "codex-orchestration" / "model-routing.toml"
-    if routing_path.exists() or routing_path.is_symlink():
+    if routing_path.exists() or path_is_link_like(routing_path):
         if has_symlink_component(routing_path, codex_home) or not routing_path.is_file():
             failures.append(f"runtime model routing linked or conflicting: {routing_path}")
         else:
@@ -1019,11 +1422,14 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
 def validate_hooks(codex_home: Path, *, windows: bool | None = None) -> list[str]:
     failures: list[str] = []
     use_windows = windows if windows is not None else os.name == "nt"
+    if path_is_link_like(codex_home):
+        return [f"runtime Codex home linked or conflicting: {codex_home}"]
     linked = first_symlink_component(codex_home)
     if linked is not None:
         return [f"runtime Codex home has linked path component: {linked}"]
+    codex_home = canonical_selected_root(codex_home)
     hooks_root = codex_home / "hooks"
-    if hooks_root.is_symlink() or not hooks_root.is_dir():
+    if path_is_link_like(hooks_root) or not hooks_root.is_dir():
         return [f"runtime Hook directory missing, linked, or conflicting: {hooks_root}"]
     failures.extend(retired_hook_failures(codex_home, windows=use_windows))
 
@@ -1031,20 +1437,25 @@ def validate_hooks(codex_home: Path, *, windows: bool | None = None) -> list[str
     for event, script, matcher in HOOK_REGISTRATIONS:
         source = ROOT / "hooks" / script
         target = hooks_root / script
+        if use_windows and (
+            unsafe_windows_hook_path(Path(sys.executable).absolute())
+            or unsafe_windows_hook_path(target.absolute())
+        ):
+            failures.append(f"runtime Hook command path is unsafe for cmd.exe: {target}")
         require(
-            not target.is_symlink() and target.is_file() and files_equal(target, source),
+            not path_is_link_like(target) and target.is_file() and files_equal(target, source),
             f"runtime hook differs: {target}",
             failures,
         )
         targets.append((event, target, matcher))
 
     hooks_path = codex_home / "hooks.json"
-    if hooks_path.is_symlink() or not hooks_path.is_file():
+    if path_is_link_like(hooks_path) or not hooks_path.is_file():
         failures.append(f"runtime hooks config missing, linked, or conflicting: {hooks_path}")
         return failures
     try:
-        data = json.loads(hooks_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeError) as error:
+        data = strict_json_loads(hooks_path.read_bytes())
+    except (json.JSONDecodeError, OSError, UnicodeError, ValueError) as error:
         failures.append(f"runtime hooks config invalid: {hooks_path}: {error}")
         return failures
     if not isinstance(data, dict) or not isinstance(data.get("hooks"), dict):
@@ -1086,6 +1497,7 @@ def main() -> int:
     parser.add_argument("--codex-home", type=Path)
     parser.add_argument("--skills-root", type=Path)
     parser.add_argument("--hooks", action="store_true")
+    parser.add_argument("--global-rules", action="store_true")
     args = parser.parse_args()
 
     failures = validate_source()
@@ -1103,8 +1515,10 @@ def main() -> int:
         )
         if args.hooks:
             failures.extend(validate_hooks(codex_home))
-    elif args.hooks:
-        parser.error("--hooks requires --runtime")
+        if args.global_rules:
+            failures.extend(validate_global_rules(codex_home))
+    elif args.hooks or args.global_rules:
+        parser.error("--hooks and --global-rules require --runtime")
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shlex
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,7 @@ cast(ExecutableLoader, SPEC.loader).exec_module(VALIDATOR)
 
 class SourceValidationTest(unittest.TestCase):
     def copy_runtime(self, temporary_path: Path) -> tuple[Path, Path]:
+        temporary_path = temporary_path.resolve()
         codex_home = temporary_path / "codex-home"
         skills_root = temporary_path / "skills"
         for name, source in VALIDATOR.BUNDLED_SKILLS.items():
@@ -163,6 +165,12 @@ class SourceValidationTest(unittest.TestCase):
                 selected = source.replace('"LANGUAGE"', f'"{language}"')
                 self.assertEqual(VALIDATOR.preferences_failures(selected), [])
 
+        single_quoted = source.replace('"LANGUAGE"', "'zh-CN'")
+        self.assertEqual(
+            VALIDATOR.top_level_values(single_quoted).get("task_package_language"),
+            "zh-CN",
+        )
+
         unsupported = source.replace('"LANGUAGE"', '"fr"')
         self.assertIn(
             "preferences task_package_language is invalid",
@@ -190,12 +198,67 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_runtime_validation_accepts_copied_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
             self.assertEqual(VALIDATOR.validate_runtime(codex_home, skills_root), [])
+
+    def test_global_rules_validation_follows_codex_precedence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary).resolve() / "codex-home"
+            codex_home.mkdir()
+            canonical = VALIDATOR.GLOBAL_RULES_TEMPLATE.read_bytes()
+            base = codex_home / "AGENTS.md"
+            override = codex_home / "AGENTS.override.md"
+            base.write_bytes(b"base\n\n" + canonical)
+            self.assertEqual(VALIDATOR.validate_global_rules(codex_home), [])
+
+            override.write_bytes(b"override\n")
+            failures = VALIDATOR.validate_global_rules(codex_home)
+            self.assertTrue(
+                any(
+                    "inactive global instructions retain managed block" in item for item in failures
+                )
+            )
+            self.assertTrue(any("global rules block missing" in item for item in failures))
+
+            base.write_bytes(b"base\n")
+            override.write_bytes(b"override\n\n" + canonical)
+            self.assertEqual(VALIDATOR.validate_global_rules(codex_home), [])
+
+    def test_global_rules_validation_rejects_corrupt_or_duplicate_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary).resolve() / "codex-home"
+            codex_home.mkdir()
+            target = codex_home / "AGENTS.md"
+            target.write_bytes(VALIDATOR.GLOBAL_RULES_START + b"\nmissing end\n")
+            self.assertTrue(
+                any(
+                    "markers corrupt or duplicated" in item
+                    for item in VALIDATOR.validate_global_rules(codex_home)
+                )
+            )
+
+            canonical = VALIDATOR.GLOBAL_RULES_TEMPLATE.read_bytes()
+            target.write_bytes(
+                canonical + b"\n# mention " + VALIDATOR.GLOBAL_RULES_END + b" token\n"
+            )
+            self.assertTrue(
+                any(
+                    "markers corrupt or duplicated" in item
+                    for item in VALIDATOR.validate_global_rules(codex_home)
+                )
+            )
+
+            target.write_bytes(canonical + b"\n" + canonical)
+            self.assertTrue(
+                any(
+                    "markers corrupt or duplicated" in item
+                    for item in VALIDATOR.validate_global_rules(codex_home)
+                )
+            )
 
     def test_runtime_validation_checks_saved_task_package_language(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
             preferences = codex_home / "codex-orchestration" / "preferences.toml"
             preferences.parent.mkdir()
             preferences.write_text(
@@ -226,7 +289,7 @@ class SourceValidationTest(unittest.TestCase):
             .replace('"SERVICE_TIER"', '"standard"')
         )
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
             routing_path = codex_home / "codex-orchestration" / "model-routing.toml"
             routing_path.parent.mkdir()
             routing_path.write_text(route, encoding="utf-8")
@@ -242,7 +305,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_runtime_validation_reports_missing_components(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            temporary_path = Path(temporary)
+            temporary_path = Path(temporary).resolve()
             failures = VALIDATOR.validate_runtime(
                 temporary_path / "codex-home", temporary_path / "skills"
             )
@@ -252,7 +315,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_runtime_validation_reports_main_skill_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
             (skills_root / "codex-orchestration" / "SKILL.md").write_text(
                 "drift\n", encoding="utf-8"
             )
@@ -262,7 +325,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_runtime_validation_rejects_method_skill_stub(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
             (skills_root / "prototype" / "SKILL.md").write_text(
                 "---\nname: prototype\n---\n", encoding="utf-8"
             )
@@ -272,7 +335,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_runtime_validation_rejects_linked_skill_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            temporary_path = Path(temporary)
+            temporary_path = Path(temporary).resolve()
             codex_home, skills_root = self.copy_runtime(temporary_path)
             target = skills_root / "codex-orchestration"
             external = temporary_path / "external"
@@ -287,7 +350,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_runtime_validation_rejects_linked_roots(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            temporary_path = Path(temporary)
+            temporary_path = Path(temporary).resolve()
             codex_home, skills_root = self.copy_runtime(temporary_path)
             linked_skills = temporary_path / "linked-skills"
             external_home = temporary_path / "external-codex-home"
@@ -301,12 +364,12 @@ class SourceValidationTest(unittest.TestCase):
             skill_failures = VALIDATOR.validate_runtime(external_home, linked_skills.absolute())
             home_failures = VALIDATOR.validate_runtime(codex_home.absolute(), skills_root)
 
-        self.assertTrue(any("linked path component" in failure for failure in skill_failures))
-        self.assertTrue(any("linked path component" in failure for failure in home_failures))
+        self.assertTrue(any("linked" in failure for failure in skill_failures))
+        self.assertTrue(any("linked" in failure for failure in home_failures))
 
     def test_runtime_validation_ignores_unselected_hooks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir()
             (hooks_root / "custom_hook.py").write_text("custom\n", encoding="utf-8")
@@ -322,7 +385,7 @@ class SourceValidationTest(unittest.TestCase):
     def test_hook_validation_accepts_one_registration_per_event(self) -> None:
         for windows in (False, True):
             with self.subTest(windows=windows), tempfile.TemporaryDirectory() as temporary:
-                codex_home = Path(temporary) / "codex-home"
+                codex_home = Path(temporary).resolve() / "codex-home"
                 hooks_root = codex_home / "hooks"
                 hooks_root.mkdir(parents=True)
                 hooks: dict[str, list[dict[str, object]]] = {}
@@ -357,7 +420,7 @@ class SourceValidationTest(unittest.TestCase):
                     self.subTest(windows=windows, mutation=mutation),
                     tempfile.TemporaryDirectory() as temporary,
                 ):
-                    codex_home = Path(temporary) / "codex-home"
+                    codex_home = Path(temporary).resolve() / "codex-home"
                     hooks_root = codex_home / "hooks"
                     hooks_root.mkdir(parents=True)
                     hooks: dict[str, list[dict[str, object]]] = {}
@@ -392,7 +455,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_runtime_validation_rejects_retired_guard_without_hooks_opt_in(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            temporary_path = Path(temporary)
+            temporary_path = Path(temporary).resolve()
             codex_home, skills_root = self.copy_runtime(temporary_path)
             external_guard = temporary_path / "old-codex" / "hooks" / "subagent_guard.py"
             external_guard.parent.mkdir(parents=True)
@@ -444,7 +507,7 @@ class SourceValidationTest(unittest.TestCase):
                     ),
                     tempfile.TemporaryDirectory() as temporary,
                 ):
-                    temporary_path = Path(temporary)
+                    temporary_path = Path(temporary).resolve()
                     codex_home = temporary_path / "codex-home"
                     hooks_root = codex_home / "hooks"
                     hooks_root.mkdir(parents=True)
@@ -494,7 +557,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_hook_validation_rejects_retired_guard_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home = Path(temporary) / "codex-home"
+            codex_home = Path(temporary).resolve() / "codex-home"
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir(parents=True)
             retired_target = hooks_root / "subagent_guard.py"
@@ -508,7 +571,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_hook_validation_reports_unreadable_selected_hook(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home = Path(temporary) / "codex-home"
+            codex_home = Path(temporary).resolve() / "codex-home"
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir(parents=True)
             hooks: dict[str, list[dict[str, object]]] = {}
@@ -541,7 +604,7 @@ class SourceValidationTest(unittest.TestCase):
     def test_retired_scan_accepts_unhashable_foreign_matchers(self) -> None:
         for matcher in ([], {}):
             with self.subTest(matcher=matcher), tempfile.TemporaryDirectory() as temporary:
-                codex_home = Path(temporary) / "codex-home"
+                codex_home = Path(temporary).resolve() / "codex-home"
                 codex_home.mkdir()
                 (codex_home / "hooks.json").write_text(
                     json.dumps({"hooks": {"PostToolUse": [{"matcher": matcher, "hooks": []}]}}),
@@ -554,7 +617,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_retired_scan_reports_unreadable_guard(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home = Path(temporary) / "codex-home"
+            codex_home = Path(temporary).resolve() / "codex-home"
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir(parents=True)
             (hooks_root / "subagent_guard.py").write_text("retired\n", encoding="utf-8")
@@ -563,9 +626,175 @@ class SourceValidationTest(unittest.TestCase):
 
         self.assertTrue(any("retired Hook path unreadable" in failure for failure in failures))
 
+    def test_retired_scan_rejects_dangling_custom_reference_to_managed_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary).resolve() / "codex-home"
+            hooks_root = codex_home / "hooks"
+            hooks_root.mkdir(parents=True)
+            retired_target = hooks_root / "subagent_guard.py"
+            command = VALIDATOR.expected_hook_command(
+                retired_target, windows=VALIDATOR.os.name == "nt"
+            )
+            handler: dict[str, object] = {"type": "command", "command": command}
+            if VALIDATOR.os.name == "nt":
+                handler["commandWindows"] = command
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
+                ),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(
+            any("retired managed Hook registration remains" in failure for failure in failures)
+        )
+
+    def test_retired_scan_rejects_parent_traversal_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary).resolve() / "codex-home"
+            hooks_root = codex_home / "hooks"
+            (hooks_root / "x").mkdir(parents=True)
+            traversal_target = hooks_root / "x" / ".." / "subagent_guard.py"
+            command = VALIDATOR.expected_hook_command(
+                traversal_target, windows=VALIDATOR.os.name == "nt"
+            )
+            handler: dict[str, object] = {"type": "command", "command": command}
+            if VALIDATOR.os.name == "nt":
+                handler["commandWindows"] = command
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
+                ),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(
+            any("retired-looking Hook registration has unsafe path" in item for item in failures)
+        )
+
+    def test_retired_scan_rejects_macos_case_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary).resolve() / "codex-home"
+            hooks_root = codex_home / "hooks"
+            hooks_root.mkdir(parents=True)
+            case_alias = hooks_root / "SUBAGENT_GUARD.PY"
+            command = VALIDATOR.expected_hook_command(case_alias, windows=VALIDATOR.os.name == "nt")
+            handler: dict[str, object] = {"type": "command", "command": command}
+            if VALIDATOR.os.name == "nt":
+                handler["commandWindows"] = command
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(VALIDATOR.sys, "platform", "darwin"):
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(
+            any("retired managed Hook registration remains" in item for item in failures)
+        )
+
+    def test_retired_scan_rejects_orphan_hardlink_with_retired_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary).resolve() / "codex-home"
+            hooks_root = codex_home / "hooks"
+            hooks_root.mkdir(parents=True)
+            alias = hooks_root / "custom_alias.py"
+            alias.write_bytes(b"known retired fixture\n")
+            command = VALIDATOR.expected_hook_command(alias, windows=VALIDATOR.os.name == "nt")
+            handler: dict[str, object] = {"type": "command", "command": command}
+            if VALIDATOR.os.name == "nt":
+                handler["commandWindows"] = command
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
+                ),
+                encoding="utf-8",
+            )
+            known_digest = next(iter(VALIDATOR.RETIRED_HOOK_SHA256["subagent_guard.py"]))
+
+            with mock.patch.object(VALIDATOR, "file_sha256", return_value=known_digest):
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(
+            any("retired project Hook code registration remains" in item for item in failures)
+        )
+
+    def test_retired_hash_scan_follows_an_exact_script_symlink_read_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            target = root / "renamed_retired_copy.py"
+            target.write_bytes(b"known retired fixture\n")
+            alias = root / "custom_alias.py"
+            try:
+                alias.symlink_to(target)
+            except OSError as error:
+                self.skipTest(f"symlinks unavailable: {error}")
+            known_digest = next(iter(VALIDATOR.RETIRED_HOOK_SHA256["subagent_guard.py"]))
+
+            with mock.patch.object(VALIDATOR, "file_sha256", return_value=known_digest):
+                retired = VALIDATOR.referenced_script_has_retired_hash(
+                    alias, windows=VALIDATOR.os.name == "nt"
+                )
+
+        self.assertTrue(retired)
+
+    def test_project_hook_path_ambiguity_checks_platform_syntax(self) -> None:
+        self.assertTrue(VALIDATOR.hook_path_is_ambiguous("hooks/subagent_guard.py", windows=False))
+        self.assertTrue(VALIDATOR.hook_path_is_ambiguous("/$HOME/subagent_guard.py", windows=False))
+        self.assertTrue(
+            VALIDATOR.hook_path_is_ambiguous("/runtime/hook*/subagent_guard.py", windows=False)
+        )
+        self.assertTrue(
+            VALIDATOR.hook_path_is_ambiguous(
+                r"C:\Accounts\%USERNAME%\subagent_guard.py", windows=True
+            )
+        )
+        self.assertFalse(
+            VALIDATOR.hook_path_is_ambiguous("/external/subagent_guard.py", windows=False)
+        )
+
+    def test_python_invoked_script_accepts_options_without_weakening_exact_parser(self) -> None:
+        target = Path("runtime") / "subagent_guard.py"
+        arguments = [sys.executable, "-u", str(target)]
+        command = (
+            " ".join(f'"{argument}"' for argument in arguments)
+            if VALIDATOR.os.name == "nt"
+            else shlex.join(arguments)
+        )
+
+        self.assertIsNone(VALIDATOR.python_hook_script(command, windows=VALIDATOR.os.name == "nt"))
+        self.assertEqual(
+            VALIDATOR.python_invoked_script(command, windows=VALIDATOR.os.name == "nt"),
+            str(target),
+        )
+
+    @unittest.skipIf(VALIDATOR.os.name == "nt", "POSIX command syntax only")
+    def test_python_invoked_script_accepts_environment_wrappers(self) -> None:
+        target = Path("/runtime/hooks/subagent_guard.py")
+        direct = f"PYTHONUNBUFFERED=1 {shlex.join([sys.executable, str(target)])}"
+        via_env = shlex.join(
+            ["/usr/bin/env", "PYTHONUNBUFFERED=1", sys.executable, "-u", str(target)]
+        )
+
+        self.assertEqual(
+            VALIDATOR.python_invoked_script(direct, windows=False),
+            str(target),
+        )
+        self.assertEqual(
+            VALIDATOR.python_invoked_script(via_env, windows=False),
+            str(target),
+        )
+
     def test_retired_scan_recognizes_windows_guard_copy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home = Path(temporary) / "codex-home"
+            codex_home = Path(temporary).resolve() / "codex-home"
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir(parents=True)
             (hooks_root / "subagent_guard.py").write_text("retired\n", encoding="utf-8")
@@ -581,7 +810,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_runtime_validation_rejects_legacy_v1_route_without_hooks_opt_in(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir()
             (hooks_root / "orchestration_route.py").write_text("legacy\n", encoding="utf-8")
@@ -594,7 +823,7 @@ class SourceValidationTest(unittest.TestCase):
     def test_retired_scan_rejects_conflicting_route_paths(self) -> None:
         for kind in ("foreign", "directory", "symlink"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
-                codex_home = Path(temporary) / "codex-home"
+                codex_home = Path(temporary).resolve() / "codex-home"
                 hooks_root = codex_home / "hooks"
                 hooks_root.mkdir(parents=True)
                 route_target = hooks_root / "orchestration_route.py"
@@ -603,7 +832,7 @@ class SourceValidationTest(unittest.TestCase):
                 elif kind == "directory":
                     route_target.mkdir()
                 else:
-                    external = Path(temporary) / "external-route.py"
+                    external = Path(temporary).resolve() / "external-route.py"
                     external.write_text("external\n", encoding="utf-8")
                     try:
                         route_target.symlink_to(external)
@@ -616,7 +845,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_retired_scan_rejects_known_prior_v2_route_copy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home = Path(temporary) / "codex-home"
+            codex_home = Path(temporary).resolve() / "codex-home"
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir(parents=True)
             route_target = hooks_root / "orchestration_route.py"
@@ -632,9 +861,9 @@ class SourceValidationTest(unittest.TestCase):
 
         self.assertTrue(any("retired managed route remains" in item for item in failures))
 
-    def test_retired_scan_rejects_legacy_route_registration(self) -> None:
+    def test_retired_scan_rejects_external_route_registration_as_ownership_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            temporary_path = Path(temporary)
+            temporary_path = Path(temporary).resolve()
             codex_home = temporary_path / "codex-home"
             codex_home.mkdir()
             external_route = temporary_path / "old-codex" / "hooks" / "orchestration_route.py"
@@ -662,24 +891,17 @@ class SourceValidationTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            original_digest = VALIDATOR.file_sha256
-            legacy_digest = next(iter(VALIDATOR.LEGACY_V1_ROUTE_SHA256))
-
-            def route_digest(path: Path) -> str:
-                return legacy_digest if path == external_route else original_digest(path)
-
-            with mock.patch.object(VALIDATOR, "file_sha256", side_effect=route_digest):
-                failures = VALIDATOR.retired_hook_failures(codex_home)
+            failures = VALIDATOR.retired_hook_failures(codex_home)
 
         self.assertTrue(
-            any("retired route registration remains" in failure for failure in failures)
+            any("retired route registration ownership conflicts" in item for item in failures)
         )
 
     def test_retired_scan_rejects_missing_route_registration_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home = Path(temporary) / "codex-home"
+            codex_home = Path(temporary).resolve() / "codex-home"
             codex_home.mkdir()
-            missing_route = Path(temporary) / "old" / "orchestration_route.py"
+            missing_route = Path(temporary).resolve() / "old" / "orchestration_route.py"
             route_command = VALIDATOR.expected_hook_command(
                 missing_route, windows=VALIDATOR.os.name == "nt"
             )
@@ -711,7 +933,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_retired_scan_preserves_unrelated_hook_commands(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
             (codex_home / "hooks.json").write_text(
                 json.dumps(
                     {
@@ -752,7 +974,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_retired_scan_does_not_traverse_linked_hook_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            temporary_path = Path(temporary)
+            temporary_path = Path(temporary).resolve()
             codex_home = temporary_path / "codex-home"
             codex_home.mkdir()
             external_hooks = temporary_path / "external-hooks"
@@ -768,9 +990,10 @@ class SourceValidationTest(unittest.TestCase):
         self.assertEqual(len(failures), 1)
         self.assertIn("Hook directory linked or conflicting", failures[0])
 
-    def test_runtime_cli_validates_selected_hooks(self) -> None:
+    def test_runtime_cli_validates_selected_hooks_and_global_rules(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.copy_runtime(Path(temporary))
+            codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
+            (codex_home / "AGENTS.md").write_bytes(VALIDATOR.GLOBAL_RULES_TEMPLATE.read_bytes())
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir()
             hooks: dict[str, list[dict[str, object]]] = {}
@@ -798,6 +1021,7 @@ class SourceValidationTest(unittest.TestCase):
                     "--skills-root",
                     str(skills_root),
                     "--hooks",
+                    "--global-rules",
                 ],
                 text=True,
                 capture_output=True,
@@ -814,7 +1038,7 @@ class SourceValidationTest(unittest.TestCase):
                     self.subTest(windows=windows, command_kind=command_kind),
                     tempfile.TemporaryDirectory() as temporary,
                 ):
-                    codex_home = Path(temporary) / "codex-home"
+                    codex_home = Path(temporary).resolve() / "codex-home"
                     hooks_root = codex_home / "hooks"
                     hooks_root.mkdir(parents=True)
                     hooks: dict[str, list[dict[str, object]]] = {}
@@ -848,15 +1072,19 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_expected_hook_command_uses_platform_quoting(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            target = Path(temporary) / "hook scripts" / "route.py"
+            target = Path(temporary).resolve() / "hook scripts" / "route.py"
             windows_command = VALIDATOR.expected_hook_command(target, windows=True)
             posix_command = VALIDATOR.expected_hook_command(target, windows=False)
 
         self.assertNotEqual(windows_command, posix_command)
         self.assertEqual(
             windows_command,
-            subprocess.list2cmdline([str(Path(sys.executable).absolute()), str(target.absolute())]),
+            " ".join(
+                f'"{argument}"'
+                for argument in (str(Path(sys.executable).absolute()), str(target.absolute()))
+            ),
         )
+        self.assertTrue(windows_command.startswith('"'))
         self.assertIn(f'"{target.absolute()}"', windows_command)
         self.assertIn(f"'{target.absolute()}'", posix_command)
         self.assertEqual(
@@ -880,7 +1108,7 @@ class SourceValidationTest(unittest.TestCase):
                 self.subTest(invalid_field=invalid_field),
                 tempfile.TemporaryDirectory() as temporary,
             ):
-                codex_home = Path(temporary) / "codex-home"
+                codex_home = Path(temporary).resolve() / "codex-home"
                 hooks_root = codex_home / "hooks"
                 hooks_root.mkdir(parents=True)
                 hooks: dict[str, list[dict[str, object]]] = {}
@@ -916,7 +1144,7 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_hook_validation_rejects_invalid_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            codex_home = Path(temporary) / "codex-home"
+            codex_home = Path(temporary).resolve() / "codex-home"
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir(parents=True)
             for source in (ROOT / "hooks").glob("*.py"):
@@ -926,6 +1154,16 @@ class SourceValidationTest(unittest.TestCase):
             failures = VALIDATOR.validate_hooks(codex_home)
 
         self.assertTrue(any("hooks config invalid" in failure for failure in failures))
+
+    def test_hook_validation_rejects_duplicate_json_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary).resolve() / "codex-home"
+            codex_home.mkdir()
+            (codex_home / "hooks.json").write_text('{"hooks": {}, "hooks": {}}', encoding="utf-8")
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("duplicate JSON key" in failure for failure in failures))
 
 
 if __name__ == "__main__":

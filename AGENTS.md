@@ -9,9 +9,9 @@
 - The target local platforms are macOS and native Windows. Claim support only after both CI
   runners pass for the release candidate.
 - When asked to install, update, repair, or verify this project, read `INSTALL.md` completely
-  before changing user configuration. The installation contract, not a write installer, is the
-  authority for target discovery, managed versus external ownership, conflict handling,
-  platform-specific Hook commands, optional components, and verification.
+  before changing user configuration. `INSTALL.md` defines the contract and `scripts/install.py`
+  is its deterministic implementation for planning, ownership checks, writes, rollback, and
+  verification. Use its dry run before `--apply`; do not reproduce installation with ad hoc copies.
 
 ## Commands
 
@@ -22,12 +22,16 @@
 - Format check: `ruff format --check .`
 - Type check: `pyright`
 - Runtime validation: `<python> scripts/validate.py --runtime --codex-home <path> --skills-root <path>`
+- Install dry run: `<python> scripts/install.py --codex-home <path> --skills-root <path> --language <en|zh-CN> [--hooks]`
 
 ## Constraints
 
 - Keep agent profiles model-neutral. User model routes live outside the repository.
 - Keep task-package prose language local while canonical field names and control literals remain portable.
-- Preserve unrelated files and hook registrations during Agent-driven installation.
+- Preserve unrelated files and Hook registrations during deterministic installation.
+- Keep the managed global-rules block canonical in `examples/global-agents-block.md`; installation
+  injects it into the active global `AGENTS.md` or `AGENTS.override.md` without owning surrounding
+  user content.
 - Pure v2 verification rejects the retired Guard, known prior Route projections, and unresolved
   project-shaped registrations even when the current optional Hook is not selected.
 - Keep `subagent_scope.py` with this repository's writer-lease contract; main-agent orchestration
@@ -45,6 +49,7 @@
 - Configuration: `docs/configuration.md`
 - Hooks and prompt integration: `docs/hooks-and-prompts.md`
 - Hook ownership decision: `docs/adr/0002-keep-orchestration-hooks-with-contract.md`
+- Installation ownership decision: `docs/adr/0008-deterministic-installer-and-global-rules.md`
 - Decisions: create `docs/adr/` only when a hard-to-reverse choice needs a durable record.
 
 ## Update gate

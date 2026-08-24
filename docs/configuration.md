@@ -22,12 +22,15 @@ generic Skill root. Managed destinations are:
 - `<codex-home>/codex-orchestration/preferences.toml` — only when a task-package language is
   saved.
 - `<codex-home>/codex-orchestration/model-routing.toml` — only when local routing is approved.
+- The active `<codex-home>/AGENTS.override.md` or `<codex-home>/AGENTS.md` — only the canonical
+  marker-delimited orchestration block.
 
 `INSTALL.md` is the authority for path discovery, planning, conflict handling, optional choices,
-and verification. Installation creates copies rather than links so the same contract works on
-macOS and native Windows. Existing symlinks and non-directory parents are conflicts: the Agent
-does not traverse, unlink, replace, or write through them. Unrelated files and Hook registrations
-are preserved.
+and verification. `scripts/install.py` implements it, prints a dry run by default, and writes only
+with `--apply`. Installation creates copies rather than links so the same contract works on macOS
+and native Windows. Existing symlinks and non-directory parents are conflicts: setup does not
+traverse, unlink, replace, or write through them. Unrelated files and Hook registrations are
+preserved.
 
 Externally owned registrations and deployment metadata are reported with their owning runtime or
 registry and left untouched. They are outside the `current`, `missing`, `drift`, and `conflict`
@@ -47,7 +50,7 @@ managed files are drift. The Agent shows the difference and replaces it only aft
 approval; conflicts are left for the user to resolve without deletion.
 
 Those rules govern ordinary installation. During a one-time migration from another source,
-`INSTALL.md` section 7 is authoritative: after the user approves the exact cutover targets, the
+`INSTALL.md` section 8 is authoritative: after the user approves the exact cutover targets, the
 Agent may remove only the confirmed managed links before installing the physical runtime
 projection. Old source directories are still retained unless the user separately approves their
 retirement.
@@ -65,6 +68,8 @@ Known legacy event/matcher pairs plus an exact two-argument Python command ident
 registration candidate even when it points to an older Codex home, checkout, or Python executable.
 A Route registration is confirmed only when its exact Python command points to the confirmed prior
 Route projection. The installer removes confirmed v1 and v2 project Route copies and registrations.
+An exact reference to a managed retired target under any other event or matcher is a conflict so
+retirement cannot leave a dangling custom registration.
 Ambiguous, external, linked, or different same-named assets remain conflicts, not automatic
 deletion targets, and unresolved project-shaped conflicts block a pure v2 completion claim. If
 cleanup is declined, the installation remains mixed v1/v2.
@@ -79,6 +84,18 @@ the active tree, and a third worker round starts with a fresh package and lease.
 
 The optional Hook reinforces only the writable-worker lease check. Agent profiles own derived-agent
 identity and read-only scope; no project `UserPromptSubmit` Hook restates main-agent policy.
+
+## Global instructions
+
+`examples/global-agents-block.md` is the single source of truth for the always-loaded orchestration
+pointer. Setup enables it by default and selects the first non-empty global instruction file using
+Codex precedence: `AGENTS.override.md`, then `AGENTS.md`. Only the exact marker-delimited block is
+managed. Surrounding content and line endings are preserved, and a change in the active target
+moves the block so two copies cannot load at different times.
+
+Nested, unmatched, duplicated, or non-standalone marker tokens are conflicts.
+`--no-global-rules` leaves existing global files unchanged; it is not an uninstall operation. The
+full workflow stays in the Skill to keep global context small.
 
 ## Task-package language
 
@@ -129,6 +146,7 @@ two distinct primaries.
 ```text
 python scripts/validate.py
 python scripts/validate.py --runtime --codex-home <codex-home> --skills-root <skills-root>
+python scripts/validate.py --runtime --global-rules --codex-home <codex-home> --skills-root <skills-root>
 python scripts/validate.py --runtime --hooks --codex-home <codex-home> --skills-root <skills-root>
 ```
 
@@ -137,5 +155,6 @@ cannot guess a non-active location. Runtime validation checks exact bundled Skil
 validates any saved task-package language and model route, rejects linked managed targets, and
 rejects retired Guard or Route files and registrations. Add `--hooks` only when the current Hook
 was approved; it then checks the exact script, parses `hooks.json`, and requires one effective
-`SubagentStart` registration. The installing Agent separately verifies that the host can enforce
-each approved model route entry.
+`SubagentStart` registration. Add `--global-rules` when the managed block was selected; it checks
+the active Codex global instruction file and rejects stale copies in the inactive file. The
+installing Agent separately verifies that the host can enforce each approved model route entry.
