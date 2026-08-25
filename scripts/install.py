@@ -357,6 +357,38 @@ def plan_global_rules(plan: InstallPlan) -> None:
         )
 
 
+def check_unchanged_global_rules(plan: InstallPlan) -> None:
+    """Reject stale owned policy while honoring an explicit no-injection choice."""
+    canonical = read_managed_source(contract.GLOBAL_RULES_TEMPLATE, "global rules template", plan)
+    if canonical is None:
+        return
+    for filename in GLOBAL_RULES_CANDIDATES:
+        candidate = plan.codex_home / filename
+        if not regular_target(candidate, plan.codex_home, "global instructions", plan):
+            continue
+        try:
+            if not candidate.is_file():
+                continue
+            content = candidate.read_bytes()
+        except OSError as error:
+            plan.conflicts.append(f"global instructions unreadable: {candidate}: {error}")
+            continue
+        state, ranges = contract.managed_global_rules_ranges(content)
+        if state == "corrupt" or len(ranges) > 1:
+            plan.conflicts.append(f"global rules markers corrupt or duplicated: {candidate}")
+            continue
+        if not ranges:
+            continue
+        start, end = ranges[0]
+        if content[start:end] != render_block_for(content, canonical):
+            plan.conflicts.append(
+                "managed global-rules block is stale; rerun without --no-global-rules to "
+                f"migrate it: {candidate}"
+            )
+            continue
+        plan.current.append((candidate, "current managed global-rules block left unchanged"))
+
+
 def script_basename(path: str, *, windows: bool) -> str:
     name = path.replace("\\", "/").rsplit("/", 1)[-1]
     name = name.split("\0", 1)[0]
@@ -754,6 +786,8 @@ def build_plan(
     plan_preferences(plan, language)
     if global_rules:
         plan_global_rules(plan)
+    else:
+        check_unchanged_global_rules(plan)
     plan_retired_hooks(plan)
     return plan
 

@@ -51,6 +51,7 @@
 - Hook and brief-format decision: `docs/adr/0010-retire-orchestration-hook-and-rigid-briefs.md`
 - Installation ownership decision: `docs/adr/0008-deterministic-installer-and-global-rules.md`
 - Worktree-root decision: `docs/adr/0009-coordinate-independent-worktree-roots.md`
+- Delivery Review boundary decision: `docs/adr/0011-separate-delivery-review-from-orchestration.md`
 - Decisions: create `docs/adr/` only when a hard-to-reverse choice needs a durable record.
 
 ## Update gate

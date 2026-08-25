@@ -56,6 +56,7 @@ The installer copies physical files so the same result works on macOS and native
 | Source | Destination |
 | --- | --- |
 | `SKILL.md` and `references/` | `<skills-root>/codex-orchestration/` |
+| `skills/codex-review-gate/` | `<skills-root>/codex-review-gate/` |
 | `skills/diagnosing-bugs/` | `<skills-root>/diagnosing-bugs/` |
 | `skills/prototype/` | `<skills-root>/prototype/` |
 | `agents/*.toml` | `<codex-home>/agents/` |
@@ -82,9 +83,9 @@ file ACL and attributes.
 
 ## 4. Managed global rules
 
-Global orchestration rules are enabled by default. The canonical block lives in
-`examples/global-agents-block.md` and is deliberately small: it points the main agent to the Skill
-and keeps the full workflow out of always-loaded context.
+Global orchestration and code Review rules are enabled by default. The canonical block lives in
+`examples/global-agents-block.md` and is deliberately small: it points the main agent to the two
+policy Skills and keeps their full workflows out of always-loaded context.
 
 Codex loads the first non-empty global instruction file in this order:
 
@@ -100,12 +101,15 @@ into the active file so only one copy remains.
 Missing markers create a new block. Nested, unmatched, or duplicated markers are conflicts and
 block the complete transaction. Any marker token outside an exact standalone marker line is also
 malformed and conflicts. Use `--no-global-rules` to leave both global instruction files unchanged;
-that option does not uninstall an existing block.
+that option does not uninstall an existing block. It permits no managed block as an explicit
+opt-out, but an owned block that already exists must match the current canonical block. A stale or
+malformed owned block conflicts so an update cannot silently install new Skills with old Review
+routing.
 
 ## 5. No project Hook installation
 
-This project installs no Hook. Worker authority, task boundaries, and acceptance live in the Skill,
-Agent profiles, current tool schemas, and main-agent diff inspection. Setup preserves unrelated
+This project installs no Hook. Worker authority, task boundaries, and acceptance live in the policy
+Skills, Agent profiles, current tool schemas, and main-agent diff inspection. Setup preserves unrelated
 context, memory-routing, closeout, and user Hook groups.
 
 Earlier project Hook assets are retired through the authenticated cleanup below. The installer

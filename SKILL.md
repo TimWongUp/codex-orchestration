@@ -1,8 +1,8 @@
 ---
 name: codex-orchestration
-description: Orchestrate Codex custom subagents and independent Worktree Roots for explicit delegation, parallel investigation or implementation, writable worker leases, model-diverse panels, and risk-based review. Use when the user asks for subagents, parallel work, or official Codex worktrees, or when a coding task has a clear delegation payoff. Keep simple tasks and ordinary documentation with the main agent. Derived subagents must not invoke this Skill.
+description: Orchestrate Codex custom subagents and independent Worktree Roots for explicit delegation, parallel investigation or implementation, writable worker leases, and model-diverse panels. Use when the user asks for subagents, parallel work, or official Codex worktrees, when codex-review-gate selects R1-R3 Reviewers, or when a coding task has a clear delegation payoff. Keep simple tasks and ordinary documentation with the main agent. Derived subagents must not invoke this Skill.
 metadata:
-  version: 0.8.0
+  version: 0.9.0
 ---
 
 # Codex subagent orchestration
@@ -18,9 +18,10 @@ authorizes that agent to become the main orchestrator or manage descendants.
 
 The main agent owns its task's goal, decomposition, model selection, write lease, Git operations,
 local acceptance, and delivery. An Integration Root additionally owns cross-worktree handoff and
-batch acceptance, coordination, serial integration, the final review gate, and the integrated
-outcome. Delegate only when the result is likely to change the decision or materially improve
-execution.
+batch acceptance, coordination, serial integration, and the integrated outcome. Use ordinary
+proactive delegation only when the result is likely to change the decision or materially improve
+execution. `codex-review-gate` separately authorizes only the read-only Reviewers it selects for
+R1-R3; it does not lower the admission threshold for implementation or investigation delegation.
 
 ## Research routing
 
@@ -100,7 +101,8 @@ dispatches beyond the fresh visible count. If that cap cannot be confirmed, the 
 and does not spawn derived agents. While any lane is nonterminal, the Integration Root remains
 repository-read-only: its main agent does not write and it neither creates nor retains a local
 writable-worker lease. After the complete batch is accepted, it may activate one local writer,
-serially integrate the lane branches, and apply the final R0-R3 review gate to the combined result.
+serially integrate the lane branches, run combined validation, and hand the final diff to
+`codex-review-gate`.
 
 ## Task-package language
 
@@ -177,8 +179,8 @@ A branch receives at most three writable worker rounds:
 
 No prior lease is extended into a new round.
 
-After round three, the main agent takes over, decomposes again, or reports the blocker. The final
-pull-request review has no round limit because reviewers are read-only and the main agent controls
+After round three, the main agent takes over, decomposes again, or reports the blocker. Read-only
+review delegation has no round limit because reviewers remain read-only and the main agent controls
 remediation.
 
 ## Git and staged work
@@ -194,23 +196,13 @@ remediation.
 - Prototype branches remain separate until the user accepts the direction. Delete them only after that confirmation.
 - Do not create a worktree unless the user explicitly requests one.
 
-## Review gate
+## Review handoff
 
-- R0: no independent reviewer.
-- R1: one reviewer for the most material risk.
-- R2: multiple non-overlapping reviewers; use panel or hybrid only when model diversity is itself useful.
-- R3: focused review and remediation, followed by an `adversarial-verifier`.
-
-Main-agent diff inspection, tests, lint, type checks, and builds are delivery validation, not
-independent review. Code changes do not automatically require a reviewer.
-
-For staged work, perform one full review after all accepted stages are merged into the integration
-branch. Add intermediate review only when risk would otherwise compound.
-
-A Worktree Root handoff is one staged result: inspect its actual diff and run lane validation, but
-do not require a separate full review merely because it was implemented in parallel. The
-Integration Root waits for every Worktree Root in the batch, serially merges their accepted
-branches, runs integrated validation, and then selects R0-R3 for the combined diff.
+`codex-review-gate` defines the review route and authorizes its R1-R3 read-only Reviewers. The root
+main agent executes classification, role selection, remediation, verification, and the final
+delivery decision. When the gate selects R1-R3, use this Skill for model routing, briefs, lifecycle,
+and waiting. Do not reclassify or suppress those Reviewers through the ordinary
+proactive-delegation threshold.
 
 ## Runtime boundary
 

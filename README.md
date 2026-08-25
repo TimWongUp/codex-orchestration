@@ -20,9 +20,9 @@ python3 scripts/install.py --codex-home ~/.codex --skills-root ~/.agents/skills 
 
 Review the dry run, then repeat the same command with `--apply`. Use the Skill root that your Codex runtime actually loads; `--skills-root` is deliberately required. Replace `python3` with `py -3` on native Windows when needed.
 
-Setup copies the required Skills and Agent profiles and injects one marker-delimited orchestration block into the active global `AGENTS.md` or `AGENTS.override.md`. It also retires authenticated Agent and Hook assets from earlier project versions while preserving unrelated profiles, Hook groups, surrounding global instructions, local model routing, and other user files. Linked, ambiguous, or corrupt targets stop the entire plan; a caught apply or verification failure rolls completed writes back.
+Setup copies the required Skills and Agent profiles and injects one marker-delimited orchestration and code-review block into the active global `AGENTS.md` or `AGENTS.override.md`. It also retires authenticated Agent and Hook assets from earlier project versions while preserving unrelated profiles, Hook groups, surrounding global instructions, local model routing, and other user files. Linked, ambiguous, or corrupt targets stop the entire plan; a caught apply or verification failure rolls completed writes back.
 
-Use `--no-global-rules` to leave global instructions unchanged. On first install, `--language` accepts `en` or `zh-CN`; later runs preserve an existing valid preference when the option is omitted.
+Use `--no-global-rules` to leave global instructions unchanged; an existing owned block must already be current, so stale Review routing blocks the plan. On first install, `--language` accepts `en` or `zh-CN`; later runs preserve an existing valid preference when the option is omitted.
 
 The authoritative procedure is [INSTALL.md](INSTALL.md), including conflict handling and runtime verification.
 
@@ -30,7 +30,7 @@ The repository is the only source of truth for its portable Skills, Agents, inst
 
 ## What makes it different
 
-- **Delegation has a threshold.** Subagents are used only when parallel evidence, specialization, or a bounded worker can materially improve the result.
+- **Delegation has a threshold.** Subagents are used only when parallel evidence, specialization, or a bounded worker can materially improve the result; the separate delivery gate authorizes only its selected read-only Reviewers.
 - **Handoffs preserve useful compression.** Delegation uses compact natural-language briefs with optional task, context, handoff, and reference sections instead of mandatory fields or temporary documents. Agents recover ordinary repository context and return traceable evidence.
 - **Task language is local.** Setup can persist English or Simplified Chinese delegation prose while role names, paths, and external protocol literals stay stable.
 - **Parallel reading, locally serialized writing.** Explorers, researchers, and reviewers may run concurrently; inside each root task, only the main agent or one leased worker writes at a time.
@@ -45,7 +45,7 @@ The repository is the only source of truth for its portable Skills, Agents, inst
   model judgments on one question, and `hybrid` runs that same-question panel alongside separate
   specialist workstreams. `single` remains the ordinary one-agent path, not a multi-agent
   evaluation mode.
-- **Review scales with integrated risk.** The R0–R3 gate ranges from main-agent validation to focused reviewers, remediation, and adversarial verification. Worktree lanes validate locally; the complete review runs after accepted lanes are merged.
+- **Review is a separate delivery gate.** `codex-review-gate` defines the route independently of proactive-delegation admission, while the root main agent classifies and remediates. R0 covers fully verifiable non-behavioral changes; R1 uses one Reviewer for one localized, validated, recoverable risk; R2 uses two non-overlapping Reviewers for cross-cutting, sensitive-boundary, multiple, or otherwise unclassified risks; R3 adds focused remediation and adversarial verification for changed trust boundaries or high-impact failure. Worktree lanes validate locally; the complete gate runs after accepted lanes are merged.
 - **Models stay local and replaceable.** Agent profiles are model-neutral; optional role routes,
   task-specific overrides, parent-aware panel rosters, and host-enforced service-tier requirements
   live outside the repository. Only `panel` and the panel portion of `hybrid` inspect the latest
@@ -70,12 +70,13 @@ For a broader feature discussion, ask Codex to use `web-researcher` for public i
 
 ## What is included
 
-- A root-task orchestration Skill that owns delegation briefs, local write leases, Worktree Root coordination, acceptance, and the R0–R3 review gate.
+- A root-task orchestration Skill that owns delegation briefs, local write leases, Worktree Root coordination, acceptance, and reusable Agent execution.
+- An independent `codex-review-gate` Skill that defines the R0–R3 route and authorizes only its selected read-only Reviewers; the root main agent executes classification, remediation, and delivery.
 - The complete `diagnosing-bugs` and `prototype` method Skills used by their workers.
 - Read-only explorer, official-reference research, web research, expert, and focused-review agents.
 - Writable implementation, debugging, and prototype workers governed by a per-root single-writer lease.
 - No project Hook; tool schemas own call mechanics, the Skill owns orchestration policy, and Agent profiles own derived-agent scope.
-- One small, managed global `AGENTS.md` block that reliably routes subagent work through the Skill without replacing personal instructions.
+- One small, managed global `AGENTS.md` block that independently routes subagent execution and code-change Review without replacing personal instructions.
 - A local, optional model-routing file. No model IDs are pinned in the repository.
 - A deterministic installation contract for macOS and native Windows with planning, ownership checks, rollback, and runtime verification.
 

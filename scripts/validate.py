@@ -19,9 +19,11 @@ ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM_REVISION = "8b78b531ab965735c5dc74f6f7a219e1e37326df"
 BUNDLED_SKILLS = {
     "codex-orchestration": ROOT,
+    "codex-review-gate": ROOT / "skills" / "codex-review-gate",
     "diagnosing-bugs": ROOT / "skills" / "diagnosing-bugs",
     "prototype": ROOT / "skills" / "prototype",
 }
+THIRD_PARTY_SKILLS = {"diagnosing-bugs", "prototype"}
 WRITERS = {"worker", "diagnosing-bugs-worker", "prototype-worker"}
 READERS = {
     "default",
@@ -69,7 +71,8 @@ WORKTREE_INTEGRATION_SEQUENCE = (
     "The Integration Root waits for the complete batch",
     "Serially merges accepted branches into a dedicated integration branch",
     "Runs the combined validation after all accepted branches are present",
-    "Selects and completes the R0-R3 review gate against the combined diff",
+    "Loads `codex-review-gate`, then selects and completes its R0-R3 review gate against the "
+    "combined diff",
 )
 WORKTREE_ADR_PHRASES = (
     "at most three nonterminal Worktree Roots",
@@ -441,7 +444,7 @@ def source_version_failures(project: str, skill: str) -> list[str]:
     frontmatter = skill[4:frontmatter_end] if frontmatter_end >= 0 else ""
     version_fields = re.findall(r"^\s*version:\s*.+$", frontmatter, re.MULTILINE)
     project_version_fields = re.findall(r"^version\s*=\s*.+$", project, re.MULTILINE)
-    require(project_version == "0.8.0", "project version must be 0.8.0", failures)
+    require(project_version == "0.9.0", "project version must be 0.9.0", failures)
     require(
         len(project_version_fields) == 1,
         "project version must appear exactly once",
@@ -1217,6 +1220,9 @@ def validate_source() -> list[str]:
     failures: list[str] = []
     project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    review_skill = read_required_text(
+        ROOT / "skills" / "codex-review-gate" / "SKILL.md", "Review Skill", failures
+    )
     install_contract = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
     worker_contract = (ROOT / "references" / "worker-writing.md").read_text(encoding="utf-8")
     worktree_contract = read_required_text(
@@ -1231,6 +1237,7 @@ def validate_source() -> list[str]:
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
 
     failures.extend(source_version_failures(project, skill))
+    failures.extend(source_version_failures(project, review_skill))
 
     for phrase in (
         "references/model-routing.md",
@@ -1265,8 +1272,27 @@ def validate_source() -> list[str]:
         "at most three nonterminal lane slots",
         "same local orchestration authority as any other",
         "Integration Root remains\nrepository-read-only",
+        "separately authorizes only the read-only Reviewers",
+        "`codex-review-gate` defines the review route",
     ):
         require(phrase in skill, f"missing Skill contract: {phrase}", failures)
+
+    for phrase in (
+        "delivery control, not an admission test",
+        "already authorizes the\nread-only reviewers selected by R1-R3",
+        "Choose the highest matching level",
+        "Changed line or file counts never determine a level",
+        "R0 needs no Agent",
+        "One Reviewer for the most material risk",
+        "Two Reviewers with non-overlapping responsibilities",
+        "Focused review, main-agent remediation, then an `adversarial-verifier`",
+        "current user message does not need to name a subagent or\nReviewer again",
+        "classify it as\nR2. This fail-closed fallback",
+        "explicit user prohibition on subagents or Reviewers still takes priority",
+        "repository implementation, tests, dependencies, build or deployment configuration",
+        "Classify one final integrated diff",
+    ):
+        require(phrase in review_skill, f"missing Review Skill contract: {phrase}", failures)
 
     failures.extend(worktree_contract_failures(worktree_contract))
     failures.extend(worktree_adr_failures(worktree_adr))
@@ -1287,13 +1313,13 @@ def validate_source() -> list[str]:
         require(phrase in model_routing, f"missing model routing contract: {phrase}", failures)
 
     for name, path in BUNDLED_SKILLS.items():
-        bundled = (path / "SKILL.md").read_text(encoding="utf-8")
+        bundled = read_required_text(path / "SKILL.md", f"bundled Skill {name}", failures)
         require(
             skill_document_name(bundled) == name,
             f"bundled Skill name mismatch: {name}",
             failures,
         )
-        if name != "codex-orchestration":
+        if name in THIRD_PARTY_SKILLS:
             for phrase in (
                 "author: Matt Pocock",
                 "source: https://github.com/mattpocock/skills",
@@ -1486,6 +1512,11 @@ def validate_source() -> list[str]:
         "Hook and rigid-brief retirement ADR missing",
         failures,
     )
+    require(
+        (ROOT / "docs" / "adr" / "0011-separate-delivery-review-from-orchestration.md").is_file(),
+        "delivery Review boundary ADR missing",
+        failures,
+    )
     for script in RETIRED_HOOK_SCRIPTS:
         require(
             not os.path.lexists(ROOT / "hooks" / script),
@@ -1529,6 +1560,11 @@ def validate_source() -> list[str]:
             "at most three nonterminal lanes",
             "Each root task has one active writer",
             "derived agents never orchestrate descendants",
+            "loads `codex-review-gate` before final delivery",
+            "repository implementation, tests, dependencies",
+            "This rule authorizes only those Reviewer calls",
+            "current user explicitly prohibits subagents or Reviewers",
+            "R3 completes with an `adversarial-verifier`",
         ):
             require(
                 phrase in decoded_global_rules,
