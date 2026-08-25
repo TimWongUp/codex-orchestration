@@ -33,3 +33,10 @@ prohibits them; it does not authorize implementation delegation. The managed glo
 orchestration and code Review as separate pointers, and deterministic installation projects both
 Skills. They remain components of one released suite and share its version; the separation is an
 authority boundary, not an independent distribution channel.
+
+Risk level expresses impact and recoverability, not a Reviewer quota. R1-R3 always select at least
+one matching Reviewer; extra seats follow only additional material failure hypotheses for which
+independent judgment can change delivery. Passing mechanical validation, an absent evidence axis,
+or a desired headcount does not create an extra seat. Reviewer findings remain hypotheses until the
+root main agent verifies their cited evidence against the pinned final diff, and Review is not
+repeated solely to obtain a clean report.

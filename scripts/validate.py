@@ -44,6 +44,39 @@ REVIEWER_EVIDENCE_CONTRACT = (
     "the assignment, and omit checks conclusively covered by current passing tooling unless that "
     "coverage is itself in question."
 )
+WRITER_TEST_SCOPE_CONTRACT = (
+    "Keep test changes proportional to the assigned change's material risks. Add or update a test "
+    "only when it supplies unique confidence at a correct observable seam and would fail for a "
+    "credible regression; prefer extending an existing test at the lowest-cost appropriate layer. "
+    "Use behavior rather than implementation order, private internals, mutable prose, or copies of "
+    "production logic as the assertion boundary; count static analysis, schema validation, and "
+    "stronger existing tests as protection when they already prove the property. Consolidate or "
+    "remove a test within the assigned scope only when it adds no unique behavior or failure "
+    "protection and equivalent protection remains; keep compatibility coverage only for current "
+    "contracts, and never optimize for test count or a coverage percentage."
+)
+TEST_NECESSITY_REVIEW_CONTRACT = (
+    "Assess whether each added or retained test earns its maintenance cost by protecting a current "
+    "material behavior, credible failure path, boundary or contract, or regression. Prefer the "
+    "lowest-cost correct seam and test layer that supply missing confidence, and recognize "
+    "stronger existing tests or static tooling when they already prove the property. Treat "
+    "coverage-chasing, "
+    "production-logic copies, incidental implementation or prose checks, retired compatibility, "
+    "and flaky or expensive setup without unique risk protection as removal or consolidation "
+    "candidates. Recommend removal only when equivalent behavior and failure protection remain; "
+    "never optimize for test count."
+)
+REVIEW_ROUTE_REVIEW_CELLS = {
+    "R0": "None; the main agent inspects the complete diff and validates it.",
+    "R1": "One Reviewer for the material hypothesis.",
+    "R2": (
+        "At least one matching Reviewer; add seats only for additional material hypotheses that "
+        "need independent judgment, never to fill a quota."
+    ),
+    "R3": (
+        "At least one focused Reviewer, main-agent remediation, then an `adversarial-verifier`."
+    ),
+}
 FORBIDDEN_KEYS = {"model", "model_reasoning_effort", "service_tier"}
 TASK_PACKAGE_LANGUAGES = {"en", "zh-CN"}
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
@@ -789,9 +822,11 @@ def validate_source() -> list[str]:
         "Choose the highest matching level",
         "Changed line or file counts never determine a level",
         "R0 needs no Agent",
-        "One Reviewer for the most material risk",
-        "Two Reviewers with non-overlapping responsibilities",
-        "Focused review, main-agent remediation, then an `adversarial-verifier`",
+        "localized runtime, public-contract, managed-policy",
+        "broad or hard-to-recover public contract",
+        "One Reviewer for the material hypothesis",
+        "At least one matching Reviewer",
+        "At least one focused Reviewer, main-agent remediation, then an `adversarial-verifier`",
         "current user message does not need to name a subagent or\nReviewer again",
         "classify it as\nR2. This fail-closed fallback",
         "explicit user prohibition on subagents or Reviewers still takes priority",
@@ -804,6 +839,13 @@ def validate_source() -> list[str]:
         "Review Skill risk table must precede its execution workflow",
         failures,
     )
+    for level, expected_review in REVIEW_ROUTE_REVIEW_CELLS.items():
+        rows = [line for line in review_skill.splitlines() if line.startswith(f"| {level} |")]
+        require(
+            len(rows) == 1 and rows[0].endswith(f"| {expected_review} |"),
+            f"Review Skill {level} independent-review route drifted",
+            failures,
+        )
 
     failures.extend(worktree_contract_failures(worktree_contract))
 
@@ -892,6 +934,11 @@ def validate_source() -> list[str]:
             f"{name} does not permit the smallest complete adjacent change",
             failures,
         )
+        require(
+            profile_instructions.get(name, "").rstrip().endswith(WRITER_TEST_SCOPE_CONTRACT),
+            f"{name} missing canonical test-scope contract",
+            failures,
+        )
     for name in READERS:
         require(
             profiles.get(name, {}).get("sandbox_mode") == "read-only",
@@ -905,6 +952,13 @@ def validate_source() -> list[str]:
             f"{name} missing canonical reviewer evidence contract",
             failures,
         )
+    require(
+        profile_instructions.get("test-reliability-reviewer", "")
+        .rstrip()
+        .endswith(TEST_NECESSITY_REVIEW_CONTRACT + "\n\n" + REVIEWER_EVIDENCE_CONTRACT),
+        "test-reliability-reviewer missing canonical test-necessity contract",
+        failures,
+    )
     derived_identity = (
         "Do not load or execute the codex-orchestration Skill",
         "do not orchestrate any other agent",
