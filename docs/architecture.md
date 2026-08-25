@@ -2,8 +2,8 @@
 
 Codex Orchestration separates six concerns:
 
-1. `SKILL.md` defines root-task Agent execution, the collaboration lifecycle, and delegation and
-   handoff contracts.
+1. `SKILL.md` defines root-task routing and always-on orchestration invariants; branch-specific
+   collaboration, worker, lifecycle, model, and Worktree contracts live under `references/`.
 2. `skills/codex-review-gate/SKILL.md` defines and authorizes the final-diff risk route; the root
    main agent executes classification, Reviewer selection, remediation, and adversarial
    verification.
@@ -94,6 +94,12 @@ The model-visible collaboration-tool schemas own call mechanics. The repository 
 tools or cache their API descriptions. Its portable policy starts ordinary delegation with
 `fork_turns="none"` and a self-contained natural-language brief; bounded transcript context is an
 explained exception.
+
+The root Skill keeps the dependency barrier and authority boundaries inline. It progressively
+discloses multi-agent read-only modes through `references/read-only-collaboration.md`, follow-up and
+stop edge cases through `references/collaboration-lifecycle.md`, writable-worker details through
+`references/worker-writing.md`, and Worktree-batch behavior through
+`references/worktree-roots.md`.
 
 The main agent waits before any decision, write, or final answer that pending work could change,
 while continuing only independent work. The current tree and final notification are the

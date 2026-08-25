@@ -9,9 +9,9 @@ the result can be independently accepted, the repository state is ready, and no 
 active in this root task. Selecting the writable worker role starts that root task's lease; while
 the worker is active, the main agent and every other derived agent remain read-only.
 
-Workers are derived agents. They do not load or execute `codex-orchestration`, create or coordinate
-descendants, manage Git, or change external state. A sandbox or role name is not permission to
-expand the user's task.
+Workers are derived agents. They do not load or execute `codex-orchestration`, call collaboration
+tools, orchestrate any other agent, manage Git, or change external state. A sandbox or role name is
+not permission to expand the user's task.
 
 ## Worker brief
 

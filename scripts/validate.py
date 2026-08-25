@@ -444,7 +444,7 @@ def source_version_failures(project: str, skill: str) -> list[str]:
     frontmatter = skill[4:frontmatter_end] if frontmatter_end >= 0 else ""
     version_fields = re.findall(r"^\s*version:\s*.+$", frontmatter, re.MULTILINE)
     project_version_fields = re.findall(r"^version\s*=\s*.+$", project, re.MULTILINE)
-    require(project_version == "0.9.0", "project version must be 0.9.0", failures)
+    require(project_version == "0.9.1", "project version must be 0.9.1", failures)
     require(
         len(project_version_fields) == 1,
         "project version must appear exactly once",
@@ -1225,6 +1225,16 @@ def validate_source() -> list[str]:
     )
     install_contract = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
     worker_contract = (ROOT / "references" / "worker-writing.md").read_text(encoding="utf-8")
+    read_only_contract = read_required_text(
+        ROOT / "references" / "read-only-collaboration.md",
+        "read-only collaboration contract",
+        failures,
+    )
+    lifecycle_contract = read_required_text(
+        ROOT / "references" / "collaboration-lifecycle.md",
+        "collaboration lifecycle contract",
+        failures,
+    )
     worktree_contract = read_required_text(
         ROOT / "references" / "worktree-roots.md", "worktree-root contract", failures
     )
@@ -1235,47 +1245,85 @@ def validate_source() -> list[str]:
     )
     model_routing = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
+    normalized_skill = re.sub(r"\s+", " ", skill)
+    normalized_read_only = re.sub(r"\s+", " ", read_only_contract)
+    normalized_lifecycle = re.sub(r"\s+", " ", lifecycle_contract)
 
     failures.extend(source_version_failures(project, skill))
     failures.extend(source_version_failures(project, review_skill))
 
     for phrase in (
-        "references/model-routing.md",
-        "references/worker-writing.md",
-        "references/worktree-roots.md",
         "task_package_language",
-        "coverage",
-        "panel",
-        "hybrid",
-        "compact brief usually",
-        "headings are optional",
-        "temporary handoff document",
-        "same-thread follow-up",
-        "No prior lease is extended",
         "Single writer",
         "Do not create a worktree unless the user explicitly requests one",
         'fork_turns="none"',
-        "followup_task",
-        "interrupt_agent",
         "collaboration-tool schemas are the sole authority",
         "dependency barrier",
-        "earlier final notification",
-        "fresh agent-tree snapshot",
-        "Do not send guidance, interrupt, replace, or switch the model",
-        "semantic instructions, not required labels",
         "Before selecting a model for any delegation",
-        "panel workstream in `hybrid` use parent-aware panel routes",
         "unisolated prompt injection",
         "Do not load or execute this Skill",
-        "Missing labels never make an",
+        "do not call collaboration tools or create, coordinate, wait for, interrupt, message, "
+        "manage, or summarize any other agent",
         "Independent Worktree Roots",
-        "at most three nonterminal lane slots",
         "same local orchestration authority as any other",
-        "Integration Root remains\nrepository-read-only",
         "separately authorizes only the read-only Reviewers",
         "`codex-review-gate` defines the review route",
     ):
-        require(phrase in skill, f"missing Skill contract: {phrase}", failures)
+        require(phrase in normalized_skill, f"missing Skill contract: {phrase}", failures)
+
+    for phrase in (
+        "Before creating two or more read-only agents, read "
+        "[references/read-only-collaboration.md](references/read-only-collaboration.md)",
+        "Before selecting a model for any delegation, read "
+        "[references/model-routing.md](references/model-routing.md)",
+        "Before creating a writable worker, read "
+        "[references/worker-writing.md](references/worker-writing.md)",
+        "read [references/worktree-roots.md](references/worktree-roots.md) before creating or "
+        "coordinating official Worktree Roots",
+        "or stopping agent work, read "
+        "[references/collaboration-lifecycle.md](references/collaboration-lifecycle.md)",
+    ):
+        require(phrase in normalized_skill, f"missing Skill reference pointer: {phrase}", failures)
+
+    require(
+        re.search(r"^#{1,6}\s+Review gate\b.*$", skill, re.IGNORECASE | re.MULTILINE) is None,
+        "orchestration Skill must not redefine the Review gate",
+        failures,
+    )
+
+    for phrase in (
+        "coverage",
+        "panel",
+        "hybrid",
+        "semantic instructions, not required labels",
+        "missing labels never make an",
+        "same question",
+        "Majority vote is not the decision rule",
+        "does not load or execute `codex-orchestration`",
+        "call collaboration tools, or orchestrate any other agent",
+    ):
+        require(
+            phrase in normalized_read_only,
+            f"read-only collaboration contract missing: {phrase}",
+            failures,
+        )
+
+    for phrase in (
+        "same-thread follow-up",
+        "followup_task",
+        "interrupt_agent",
+        "earlier final notification",
+        "fresh agent-tree snapshot",
+        "ordinary final notification is sufficient",
+        "Slow progress, sparse output",
+        "no prior lease is extended",
+        "explicitly stops subagent work",
+    ):
+        require(
+            phrase in normalized_lifecycle,
+            f"collaboration lifecycle contract missing: {phrase}",
+            failures,
+        )
 
     for phrase in (
         "delivery control, not an admission test",
@@ -1382,7 +1430,8 @@ def validate_source() -> list[str]:
         )
     derived_identity = (
         "Do not load or execute the codex-orchestration Skill",
-        "do not create, coordinate, wait for, or manage descendants",
+        "do not orchestrate any other agent",
+        "call collaboration tools",
         "panel member",
     )
     for name, source in profile_sources.items():
@@ -1559,7 +1608,7 @@ def validate_source() -> list[str]:
             "neither the Integration Root nor its local workers write the repository",
             "at most three nonterminal lanes",
             "Each root task has one active writer",
-            "derived agents never orchestrate descendants",
+            "derived agents never call collaboration tools or orchestrate other agents",
             "loads `codex-review-gate` before final delivery",
             "repository implementation, tests, dependencies",
             "This rule authorizes only those Reviewer calls",
