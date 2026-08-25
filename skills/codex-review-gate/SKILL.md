@@ -2,7 +2,7 @@
 name: codex-review-gate
 description: Apply the independent R0-R3 delivery review gate after repository implementation, tests, dependencies, build or deployment configuration, public contracts, or managed runtime policy changes and before final delivery. Use whenever an applicable project, user, or workflow rule requires risk-based review, including final integrated diffs from staged work or Worktree Roots. This Skill defines the risk route and authorizes its read-only Reviewers; the root main agent executes classification, remediation, verification, and delivery. It does not authorize implementation delegation or Worktree creation.
 metadata:
-  version: 0.9.1
+  version: 0.9.2
 ---
 
 # Codex delivery review gate

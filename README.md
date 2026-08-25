@@ -48,6 +48,7 @@ The repository is the only source of truth for its portable Skills, Agents, inst
   specialist workstreams. `single` remains the ordinary one-agent path, not a multi-agent
   evaluation mode.
 - **Review is a separate delivery gate.** `codex-review-gate` defines the route independently of proactive-delegation admission, while the root main agent classifies and remediates. R0 covers fully verifiable non-behavioral changes; R1 uses one Reviewer for one localized, validated, recoverable risk; R2 uses two non-overlapping Reviewers for cross-cutting, sensitive-boundary, multiple, or otherwise unclassified risks; R3 adds focused remediation and adversarial verification for changed trust boundaries or high-impact failure. Worktree lanes validate locally; the complete gate runs after accepted lanes are merged.
+- **Review findings preserve evidence classes.** Reviewers stay within the assigned change boundary and risk. When a finding depends on a task or spec requirement or a repository standard, they cite that source and identify the evidence class without starting a generic Standards/Spec pass. Judgment calls remain labelled, and checks conclusively covered by current passing tooling are omitted unless that coverage is itself in question.
 - **Models stay local and replaceable.** Agent profiles are model-neutral; optional role routes,
   task-specific overrides, parent-aware panel rosters, and host-enforced service-tier requirements
   live outside the repository. Only `panel` and the panel portion of `hybrid` inspect the latest

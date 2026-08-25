@@ -81,6 +81,11 @@ remediation, validation, and delivery. When Reviewers are selected, it calls
 `codex-orchestration` for model routing, briefs, lifecycle, and waiting rather than duplicating
 those mechanics.
 
+Normal Reviewers remain within the assigned change boundary and risk. When a finding depends on a
+task or spec requirement or a repository standard, it cites and identifies that evidence class;
+this does not create a generic Standards/Spec pass. Sourced violations remain distinct from
+judgment calls, and passing mechanical checks are not repeated unless their coverage is the risk.
+
 The gate evaluates the highest-risk property of the final integrated diff: non-behavioral and fully
 verifiable work may be R0; localized, validated, recoverable single-risk changes are R1;
 cross-module, public-contract, sensitive-boundary, multiple-risk, or otherwise unclassified changes
