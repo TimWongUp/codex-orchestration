@@ -128,16 +128,22 @@ normal threshold.
 
 `codex-review-gate` classifies the final integrated diff before delivery. R0 covers only mechanical,
 non-behavioral, fully verifiable changes; R1 covers one localized, validated, recoverable risk,
-including local runtime, test-semantic, dependency, or build changes; R2 covers cross-module,
-public-contract, sensitive-boundary, multiple independent, or otherwise unclassified risk; R3
-covers changed trust or authorization boundaries and high-impact failure. The highest matching
+including localized runtime, public-contract, managed-policy, test-semantic, dependency, or build
+changes; R2 covers multiple independent risks, broad or hard-to-recover public contracts,
+sensitive boundaries, or otherwise unclassified risk; R3 covers changed trust or authorization
+boundaries and high-impact failure. The highest matching
 level wins, diff size alone never decides the level, and uncertainty fails closed to the higher
 level or R2 fallback.
 
-R0 uses main-agent inspection and validation only. R1 uses one Reviewer for the most material risk,
-R2 uses two non-overlapping Reviewers, and R3 performs focused Review and main-agent remediation
-before an `adversarial-verifier`. Review Agent execution reuses `codex-orchestration`; the Review
-Skill does not duplicate model routing, lifecycle, or waiting policy.
+The risk level does not set a Reviewer quota. R1-R3 always select at least one matching read-only
+Reviewer; extra seats require additional material hypotheses where independent judgment can change
+delivery, and R3 still ends with adversarial verification. Validation-proven properties and missing
+evidence axes do not receive filler Reviewers.
+
+R0 uses main-agent inspection and validation only. R1-R3 use the Reviewer coverage selected above,
+and R3 performs focused Review and main-agent remediation before an `adversarial-verifier`.
+Review Agent execution reuses `codex-orchestration`; the Review Skill does not duplicate model
+routing, lifecycle, or waiting policy.
 
 Each normal Reviewer stays within its assigned change boundary and risk. When a finding depends on
 a task or spec requirement or a repository standard, the Reviewer cites that source and identifies

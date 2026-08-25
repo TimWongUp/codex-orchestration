@@ -49,6 +49,11 @@ lanes and cross-lane state for that batch. Inside each root task, read-only agen
 concurrently and writable work uses one local single-writer lease: either the main agent writes, or
 one worker writes toward one bounded outcome.
 
+Writable Agent profiles keep test work proportional to the assigned change's material risks. They
+add tests only when a correct observable seam supplies unique confidence, prefer existing tests at
+the lowest-cost appropriate layer, recognize static tooling that already proves a property, and
+consolidate or remove tests only when no unique protection is lost.
+
 When the user explicitly requests official Codex worktrees and the admission gate in
 `references/worktree-roots.md` passes, one Integration Root may coordinate at most three
 nonterminal Worktree Roots. Each works in a verified distinct checkout, owns lane-local Git, returns
@@ -89,12 +94,25 @@ task or spec requirement or a repository standard, it cites and identifies that 
 this does not create a generic Standards/Spec pass. Sourced violations remain distinct from
 judgment calls, and passing mechanical checks are not repeated unless their coverage is the risk.
 
+The `test-reliability-reviewer` covers both protection and necessity. It checks whether tests add
+confidence in current behavior or credible failures at a correct seam, whether a cheaper layer
+already supplies that confidence, and whether removal preserves equivalent behavior and failure
+protection. Test count and coverage percentage are evidence inputs, not optimization targets.
+
 The gate evaluates the highest-risk property of the final integrated diff: non-behavioral and fully
-verifiable work may be R0; localized, validated, recoverable single-risk changes are R1;
-cross-module, public-contract, sensitive-boundary, multiple-risk, or otherwise unclassified changes
-are R2; changed trust boundaries or high-impact failure are R3. Main-agent validation is required
+verifiable work may be R0; localized, validated, recoverable single-risk changes are R1, including
+localized public-contract and managed-policy changes; multiple independent risks, broad or
+hard-to-recover public contracts, sensitive boundaries, or otherwise unclassified changes are R2;
+changed trust boundaries or high-impact failure are R3. Main-agent validation is required
 at every level but does not count as independent Review. R3 ends with adversarial verification
 after focused Review and remediation.
+
+Risk level and Reviewer count are separate decisions. The level expresses impact and
+recoverability; R1-R3 always select at least one matching Reviewer, and additional seats correspond
+only to additional material failure hypotheses for which independent judgment can change delivery.
+Mechanical validation, an absent evidence axis, and a desired panel size do not create extra seats.
+Reviewer findings remain hypotheses until the main agent checks their cited evidence against the
+pinned final diff, and Review is not repeated solely to obtain a clean report.
 
 ## V2 lifecycle
 
