@@ -2,7 +2,7 @@
 name: codex-orchestration
 description: Orchestrate Codex custom subagents and independent Worktree Roots for explicit delegation, parallel investigation or implementation, writable worker leases, and model-diverse panels. Use when the user asks for subagents, parallel work, or official Codex worktrees, when codex-review-gate selects R1-R3 Reviewers, or when a coding task has a clear delegation payoff. Keep simple tasks and ordinary documentation with the main agent. Derived subagents must not invoke this Skill.
 metadata:
-  version: 0.9.2
+  version: 0.10.0
 ---
 
 # Codex subagent orchestration

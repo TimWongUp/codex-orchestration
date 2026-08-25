@@ -20,7 +20,7 @@ python3 scripts/install.py --codex-home ~/.codex --skills-root ~/.agents/skills 
 
 Review the dry run, then repeat the same command with `--apply`. Use the Skill root that your Codex runtime actually loads; `--skills-root` is deliberately required. Replace `python3` with `py -3` on native Windows when needed.
 
-Setup copies the required Skills and Agent profiles and injects one marker-delimited orchestration and code-review block into the active global `AGENTS.md` or `AGENTS.override.md`. It also retires authenticated Agent and Hook assets from earlier project versions while preserving unrelated profiles, Hook groups, surrounding global instructions, local model routing, and other user files. Linked, ambiguous, or corrupt targets stop the entire plan; a caught apply or verification failure rolls completed writes back.
+Setup copies the required Skills and Agent profiles and injects one marker-delimited orchestration and code-review block into the active global `AGENTS.md` or `AGENTS.override.md`. It writes only that current projection and preserves unmanaged Agent profiles, Hook registrations and files, surrounding global instructions, local model routing, and other user files. Linked, ambiguous, or corrupt managed targets stop the entire plan; a caught apply or verification failure rolls completed writes back. Removing assets from earlier versions is a separate user-directed maintenance action.
 
 Use `--no-global-rules` to leave global instructions unchanged; an existing owned block must already be current, so stale Review routing blocks the plan. On first install, `--language` accepts `en` or `zh-CN`; later runs preserve an existing valid preference when the option is omitted.
 
@@ -59,7 +59,7 @@ The repository is the only source of truth for its portable Skills, Agents, inst
 
 This release targets Codex on macOS and native Windows for reusable exploration, research, implementation, prototype, debugging, and focused-review agents. A release candidate is supported only after both platform CI jobs pass.
 
-Installation uses one deterministic, dry-run-first Python implementation on both platforms. An Agent may operate it after reading `INSTALL.md`, but it does not reconstruct the filesystem projection or authenticated retirement logic itself.
+Installation uses one deterministic, dry-run-first Python implementation on both platforms. An Agent may operate it after reading `INSTALL.md`, but it does not reconstruct the filesystem projection itself.
 
 ## First successful use
 

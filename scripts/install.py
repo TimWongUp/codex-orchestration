@@ -5,11 +5,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import os
 import secrets
 import stat
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -23,12 +21,10 @@ TEMPORARY_TOKEN_LENGTH = 24
 
 @dataclass(frozen=True)
 class Operation:
-    kind: str
     path: Path
     reason: str
-    content: bytes | None = None
+    content: bytes
     expected: bytes | None = None
-    preconditions: tuple[tuple[Path, bytes | None], ...] = ()
 
 
 @dataclass
@@ -48,7 +44,6 @@ class InstallPlan:
         *,
         expected: bytes | None = None,
         use_expected: bool = False,
-        preconditions: tuple[tuple[Path, bytes | None], ...] = (),
     ) -> None:
         planned = expected
         if not use_expected and path.is_file() and not contract.path_is_link_like(path):
@@ -60,26 +55,7 @@ class InstallPlan:
         if planned == content:
             self.current.append((path, reason))
             return
-        self.operations.append(Operation("write", path, reason, content, planned, preconditions))
-
-    def add_delete(
-        self,
-        path: Path,
-        reason: str,
-        *,
-        expected: bytes | None = None,
-        use_expected: bool = False,
-    ) -> None:
-        if not use_expected:
-            try:
-                expected = path.read_bytes()
-            except OSError as error:
-                self.conflicts.append(f"unreadable removal target: {path}: {error}")
-                return
-        if expected is None:
-            self.conflicts.append(f"removal target disappeared while planning: {path}")
-            return
-        self.operations.append(Operation("delete", path, reason, expected=expected))
+        self.operations.append(Operation(path, reason, content, planned))
 
 
 def lexists(path: Path) -> bool:
@@ -217,26 +193,6 @@ def plan_agents(plan: InstallPlan) -> None:
     ):
         plan.conflicts.append(f"Agent directory linked or conflicting: {agents_root}")
         return
-    for filename, known_hashes in contract.RETIRED_AGENT_SHA256.items():
-        target = agents_root / filename
-        if not lexists(target):
-            continue
-        if not regular_target(target, plan.codex_home, "retired Agent path", plan):
-            continue
-        try:
-            retired_content = target.read_bytes()
-        except OSError as error:
-            plan.conflicts.append(f"retired Agent path unreadable: {target}: {error}")
-            continue
-        if sha256_bytes(retired_content) in known_hashes:
-            plan.add_delete(
-                target,
-                "confirmed retired project Agent",
-                expected=retired_content,
-                use_expected=True,
-            )
-        else:
-            plan.conflicts.append(f"retired Agent path ownership conflict: {target}")
     for source in sorted((ROOT / "agents").glob("*.toml")):
         target = agents_root / source.name
         content = read_managed_source(source, "managed Agent source", plan)
@@ -389,368 +345,6 @@ def check_unchanged_global_rules(plan: InstallPlan) -> None:
         plan.current.append((candidate, "current managed global-rules block left unchanged"))
 
 
-def script_basename(path: str, *, windows: bool) -> str:
-    name = path.replace("\\", "/").rsplit("/", 1)[-1]
-    name = name.split("\0", 1)[0]
-    return name.casefold() if windows or sys.platform == "darwin" else name
-
-
-def handler_command_paths(handler: dict[str, object]) -> list[tuple[str | None, bool]]:
-    fields: list[tuple[object, bool]] = []
-    if handler.get("command") is not None:
-        fields.append((handler.get("command"), os.name == "nt"))
-    if handler.get("commandWindows") is not None:
-        fields.append((handler.get("commandWindows"), True))
-    return [
-        (contract.python_hook_script(command, windows=windows), windows)
-        for command, windows in fields
-    ]
-
-
-def handler_noncanonical_python_paths(handler: dict[str, object]) -> list[tuple[str, bool]]:
-    fields: list[tuple[object, bool]] = []
-    if handler.get("command") is not None:
-        fields.append((handler.get("command"), os.name == "nt"))
-    if handler.get("commandWindows") is not None:
-        fields.append((handler.get("commandWindows"), True))
-    paths: list[tuple[str, bool]] = []
-    for command, windows in fields:
-        if contract.python_hook_script(command, windows=windows) is not None:
-            continue
-        paths.extend(
-            (path, windows) for path in contract.command_path_candidates(command, windows=windows)
-        )
-    return paths
-
-
-def handler_candidate_paths(handler: dict[str, object]) -> list[tuple[str, bool]]:
-    fields: list[tuple[object, bool]] = []
-    if handler.get("command") is not None:
-        fields.append((handler.get("command"), os.name == "nt"))
-    if handler.get("commandWindows") is not None:
-        fields.append((handler.get("commandWindows"), True))
-    return [
-        (path, windows)
-        for command, windows in fields
-        for path in contract.command_path_candidates(command, windows=windows)
-    ]
-
-
-def handler_has_unparseable_retired_command(handler: dict[str, object]) -> bool:
-    fields: list[tuple[object, bool]] = []
-    if handler.get("command") is not None:
-        fields.append((handler.get("command"), os.name == "nt"))
-    if handler.get("commandWindows") is not None:
-        fields.append((handler.get("commandWindows"), True))
-    return any(
-        contract.unparseable_command_mentions_retired_hook(command, windows=windows)
-        for command, windows in fields
-    )
-
-
-def same_hook_path(left: str | Path, right: str | Path, *, windows: bool) -> bool:
-    return contract.hook_paths_may_alias(left, right, windows=windows)
-
-
-def authenticated_retired_path(
-    path_value: str, expected_path: Path, filename: str, *, windows: bool
-) -> bool:
-    if script_basename(path_value, windows=windows) != script_basename(filename, windows=windows):
-        return False
-    if not same_hook_path(path_value, expected_path, windows=windows):
-        return False
-    path = Path(path_value)
-    if contract.first_symlink_component(path) is not None or not path.is_file():
-        return False
-    try:
-        digest = contract.file_sha256(path)
-    except OSError:
-        return False
-    if filename == "orchestration_route.py":
-        return digest in contract.RETIRED_ROUTE_SHA256
-    return digest in contract.RETIRED_HOOK_SHA256.get(filename, frozenset())
-
-
-def remove_owned_hook_handlers(
-    data: dict[str, object],
-    plan: InstallPlan,
-) -> tuple[dict[str, object], bool]:
-    if "hooks" not in data:
-        hooks_value: object = {}
-    else:
-        hooks_value = data["hooks"]
-    if not isinstance(hooks_value, dict):
-        plan.conflicts.append("hooks.json must contain an object-valued hooks field")
-        return data, False
-    changed = False
-    rebuilt_events: dict[str, object] = {}
-
-    for event, groups_value in hooks_value.items():
-        if not isinstance(groups_value, list):
-            plan.conflicts.append(f"hooks.json event must be a list: {event}")
-            rebuilt_events[event] = groups_value
-            continue
-        rebuilt_groups: list[object] = []
-        for group_value in groups_value:
-            if not isinstance(group_value, dict):
-                plan.conflicts.append(f"hooks.json group must be an object: {event}")
-                rebuilt_groups.append(group_value)
-                continue
-            if not isinstance(group_value.get("hooks"), list):
-                plan.conflicts.append(f"hooks.json group hooks must be a list: {event}")
-                rebuilt_groups.append(group_value)
-                continue
-            matcher = group_value.get("matcher")
-            rebuilt_handlers: list[object] = []
-            for handler_value in group_value["hooks"]:
-                if not isinstance(handler_value, dict):
-                    rebuilt_handlers.append(handler_value)
-                    continue
-                if handler_value.get("type") != "command":
-                    suspicious = False
-                    for path, windows in handler_candidate_paths(handler_value):
-                        basename = script_basename(path, windows=windows)
-                        retired_names = {
-                            script_basename(name, windows=windows)
-                            for name in (*contract.RETIRED_HOOK_SCRIPTS, "orchestration_route.py")
-                        }
-                        if basename in retired_names:
-                            suspicious = True
-                            break
-                        if contract.hook_path_is_ambiguous(path, windows=windows):
-                            continue
-                        targets = [
-                            plan.codex_home / "hooks" / name
-                            for name in (*contract.RETIRED_HOOK_SCRIPTS, "orchestration_route.py")
-                        ]
-                        if any(same_hook_path(path, target, windows=windows) for target in targets):
-                            suspicious = True
-                            break
-                        if contract.referenced_script_has_retired_hash(path, windows=windows):
-                            suspicious = True
-                            break
-                    if suspicious:
-                        plan.conflicts.append(
-                            f"retired-looking Hook handler has invalid type: {event}"
-                        )
-                    rebuilt_handlers.append(handler_value)
-                    continue
-                present_fields = [
-                    handler_value[field]
-                    for field in ("command", "commandWindows")
-                    if field in handler_value
-                ]
-                if not present_fields or any(
-                    not isinstance(field, str) or not field.strip() for field in present_fields
-                ):
-                    plan.conflicts.append(f"command Hook has invalid command fields: {event}")
-                    rebuilt_handlers.append(handler_value)
-                    continue
-                noncanonical_conflict = handler_has_unparseable_retired_command(handler_value)
-                for path, windows in handler_noncanonical_python_paths(handler_value):
-                    basename = script_basename(path, windows=windows)
-                    route_name = script_basename("orchestration_route.py", windows=windows)
-                    retired_names = {
-                        script_basename(name, windows=windows)
-                        for name in contract.RETIRED_HOOK_SCRIPTS
-                    }
-                    noncanonical_conflict = noncanonical_conflict or (
-                        (
-                            basename in {*retired_names, route_name}
-                            and contract.hook_path_is_ambiguous(path, windows=windows)
-                        )
-                        or same_hook_path(
-                            path,
-                            plan.codex_home / "hooks" / "orchestration_route.py",
-                            windows=windows,
-                        )
-                        or any(
-                            same_hook_path(
-                                path,
-                                plan.codex_home / "hooks" / name,
-                                windows=windows,
-                            )
-                            for name in contract.RETIRED_HOOK_SCRIPTS
-                        )
-                        or contract.referenced_script_has_retired_hash(path, windows=windows)
-                    )
-                if noncanonical_conflict:
-                    plan.conflicts.append(
-                        f"managed-looking Hook registration is not a canonical command: {event}"
-                    )
-                    rebuilt_handlers.append(handler_value)
-                    continue
-                fields = handler_command_paths(handler_value)
-                unsafe_project_fields: list[bool] = []
-                retired_fields: list[bool] = []
-                retired_relevant: list[bool] = []
-                for path, windows in fields:
-                    if path is None:
-                        retired_fields.append(False)
-                        retired_relevant.append(False)
-                        continue
-                    basename = script_basename(path, windows=windows)
-                    route_name = script_basename("orchestration_route.py", windows=windows)
-                    guard_name = script_basename("subagent_guard.py", windows=windows)
-                    scope_name = script_basename("subagent_scope.py", windows=windows)
-                    route_path = plan.codex_home / "hooks" / "orchestration_route.py"
-                    guard_path = plan.codex_home / "hooks" / "subagent_guard.py"
-                    scope_path = plan.codex_home / "hooks" / "subagent_scope.py"
-                    path_is_ambiguous = contract.hook_path_is_ambiguous(path, windows=windows)
-                    if path_is_ambiguous:
-                        aliases_route = aliases_guard = aliases_scope = False
-                        references_retired_code = False
-                    else:
-                        aliases_route = same_hook_path(path, route_path, windows=windows)
-                        aliases_guard = same_hook_path(path, guard_path, windows=windows)
-                        aliases_scope = same_hook_path(path, scope_path, windows=windows)
-                        references_retired_code = contract.referenced_script_has_retired_hash(
-                            path, windows=windows
-                        )
-                    unsafe_project_fields.append(
-                        basename in {scope_name, route_name, guard_name} and path_is_ambiguous
-                    )
-                    is_route_shape = (
-                        event == "UserPromptSubmit" and matcher is None and basename == route_name
-                    )
-                    is_guard_shape = (
-                        isinstance(matcher, str)
-                        and (event, matcher) in contract.LEGACY_HOOK_GROUPS
-                        and basename == guard_name
-                    )
-                    is_scope_shape = (
-                        event == "SubagentStart" and matcher is None and basename == scope_name
-                    )
-                    filename = (
-                        "orchestration_route.py"
-                        if basename == route_name or aliases_route
-                        else (
-                            "subagent_scope.py"
-                            if basename == scope_name or aliases_scope
-                            else "subagent_guard.py"
-                        )
-                    )
-                    expected_path = plan.codex_home / "hooks" / filename
-                    points_to_retired_target = aliases_route or aliases_guard or aliases_scope
-                    retired_shape = is_route_shape or is_guard_shape or is_scope_shape
-                    retired_relevant.append(
-                        retired_shape or points_to_retired_target or references_retired_code
-                    )
-                    retired_fields.append(
-                        retired_shape
-                        and authenticated_retired_path(
-                            path,
-                            expected_path,
-                            filename,
-                            windows=windows,
-                        )
-                    )
-                retired = bool(retired_fields) and all(retired_fields)
-                suspicious_retired = any(retired_relevant) and not retired
-                if any(unsafe_project_fields):
-                    plan.conflicts.append(
-                        f"managed-looking Hook registration has unsafe path: {event}"
-                    )
-                    rebuilt_handlers.append(handler_value)
-                elif suspicious_retired:
-                    plan.conflicts.append(
-                        f"retired-looking Hook registration has unconfirmed ownership: {event}"
-                    )
-                    rebuilt_handlers.append(handler_value)
-                elif retired:
-                    changed = True
-                else:
-                    rebuilt_handlers.append(handler_value)
-            if rebuilt_handlers:
-                rebuilt_group = dict(group_value)
-                rebuilt_group["hooks"] = rebuilt_handlers
-                rebuilt_groups.append(rebuilt_group)
-            elif group_value["hooks"]:
-                changed = True
-            else:
-                rebuilt_groups.append(group_value)
-        rebuilt_events[event] = rebuilt_groups
-    rebuilt = dict(data)
-    rebuilt["hooks"] = rebuilt_events
-    return rebuilt, changed
-
-
-def plan_retired_hook_files(plan: InstallPlan) -> None:
-    hooks_root = plan.codex_home / "hooks"
-    if not lexists(hooks_root):
-        return
-    if contract.path_is_link_like(hooks_root) or not hooks_root.is_dir():
-        plan.conflicts.append(f"Hook directory linked or conflicting: {hooks_root}")
-        return
-    candidates = [*contract.RETIRED_HOOK_SCRIPTS, "orchestration_route.py"]
-    for filename in candidates:
-        target = hooks_root / filename
-        if not lexists(target):
-            continue
-        if not regular_target(target, plan.codex_home, "retired Hook path", plan):
-            continue
-        try:
-            retired_content = target.read_bytes()
-        except OSError as error:
-            plan.conflicts.append(f"retired Hook path unreadable: {target}: {error}")
-            continue
-        digest = sha256_bytes(retired_content)
-        known = (
-            digest in contract.RETIRED_ROUTE_SHA256
-            if filename == "orchestration_route.py"
-            else digest in contract.RETIRED_HOOK_SHA256[filename]
-        )
-        if known:
-            plan.add_delete(
-                target,
-                "confirmed retired project Hook",
-                expected=retired_content,
-                use_expected=True,
-            )
-        else:
-            plan.conflicts.append(f"retired Hook path ownership conflict: {target}")
-
-
-def plan_retired_hooks(plan: InstallPlan) -> None:
-    plan_retired_hook_files(plan)
-    hooks_path = plan.codex_home / "hooks.json"
-    if not lexists(hooks_path):
-        return
-    if not regular_target(hooks_path, plan.codex_home, "hooks config", plan):
-        return
-    if hooks_path.is_file():
-        try:
-            hooks_content = hooks_path.read_bytes()
-            data = contract.strict_json_loads(hooks_content)
-        except (json.JSONDecodeError, OSError, UnicodeError, ValueError) as error:
-            plan.conflicts.append(f"hooks config invalid: {hooks_path}: {error}")
-            return
-        if not isinstance(data, dict):
-            plan.conflicts.append(f"hooks config root must be an object: {hooks_path}")
-            return
-    else:
-        return
-
-    reconciled, changed = remove_owned_hook_handlers(data, plan)
-    hooks_value = reconciled.get("hooks")
-    if not isinstance(hooks_value, dict):
-        return
-    if changed:
-        rendered = (json.dumps(reconciled, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-        plan.add_write(
-            hooks_path,
-            rendered,
-            "owned Hook registration reconciliation",
-            expected=hooks_content,
-            use_expected=True,
-            preconditions=tuple(
-                (operation.path, None)
-                for operation in plan.operations
-                if operation.kind == "delete"
-            ),
-        )
-
-
 def build_plan(
     codex_home: Path,
     skills_root: Path,
@@ -788,7 +382,6 @@ def build_plan(
         plan_global_rules(plan)
     else:
         check_unchanged_global_rules(plan)
-    plan_retired_hooks(plan)
     return plan
 
 
@@ -887,7 +480,7 @@ def rollback(
                 )
                 continue
             current = operation.path.read_bytes() if operation.path.is_file() else None
-            installed = operation.content if operation.kind == "write" else None
+            installed = operation.content
             if current == old_content:
                 continue
             if current != installed:
@@ -945,8 +538,6 @@ def recheck_snapshot(plan: InstallPlan, path: Path, expected: bytes | None, labe
 
 
 def recheck_operation(plan: InstallPlan, operation: Operation) -> None:
-    for path, expected in operation.preconditions:
-        recheck_snapshot(plan, path, expected, "transaction precondition")
     recheck_snapshot(plan, operation.path, operation.expected, "transaction target")
 
 
@@ -962,14 +553,8 @@ def apply_plan(plan: InstallPlan, *, global_rules: bool) -> None:
             previous[operation.path] = operation.expected
             create_parent_directories(operation.path, created_directories)
             completed.append(operation)
-            if operation.kind == "write":
-                if operation.content is None:
-                    raise RuntimeError(f"write operation has no content: {operation.path}")
-                atomic_write(operation.path, operation.content)
-                recheck_snapshot(plan, operation.path, operation.content, "post-write target")
-            else:
-                operation.path.unlink()
-                recheck_snapshot(plan, operation.path, None, "post-delete target")
+            atomic_write(operation.path, operation.content)
+            recheck_snapshot(plan, operation.path, operation.content, "post-write target")
         failures = verification_failures(plan, global_rules=global_rules)
         if failures:
             details = "\n".join(f"- {item}" for item in failures)
@@ -986,14 +571,9 @@ def print_plan(plan: InstallPlan, *, global_rules: bool) -> None:
     print(f"Codex home: {plan.codex_home}")
     print(f"Skill root: {plan.skills_root}")
     print(f"Global rules: {'managed block' if global_rules else 'unchanged'}")
-    print("Retired project assets: reconcile authenticated Agents and Hooks")
     for operation in plan.operations:
-        label = (
-            "REMOVE"
-            if operation.kind == "delete"
-            else ("UPDATE" if operation.path.is_file() else "CREATE")
-        )
-        digest = "" if operation.content is None else f" sha256={sha256_bytes(operation.content)}"
+        label = "UPDATE" if operation.path.is_file() else "CREATE"
+        digest = f" sha256={sha256_bytes(operation.content)}"
         print(f"[{label}] {operation.path} — {operation.reason}{digest}")
     if not plan.operations:
         print("[CURRENT] no managed runtime changes")

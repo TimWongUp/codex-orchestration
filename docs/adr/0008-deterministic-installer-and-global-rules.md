@@ -35,8 +35,9 @@ preserves unrelated Hook handlers, event groups, ordering, and top-level JSON fi
 trust remains host-owned and must be reviewed through `/hooks` after installation.
 
 The optional-Hook portion is superseded by
-[ADR 0010](0010-retire-orchestration-hook-and-rigid-briefs.md); deterministic authenticated
-retirement and preservation of unrelated Hook content remain part of the installer contract.
+[ADR 0010](0010-retire-orchestration-hook-and-rigid-briefs.md). The later
+[ADR 0012](0012-remove-legacy-cleanup-from-installation.md) removes authenticated retirement from
+the installer and keeps all unmanaged Agent and Hook content outside its projection.
 
 Model routing stays local and outside automated setup because availability and service-tier
 enforcement require live host evidence. Symlink cutovers and ambiguous legacy ownership remain

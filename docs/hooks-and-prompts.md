@@ -2,14 +2,14 @@
 
 ## Hooks
 
-This project installs no Hook. The former `subagent_guard.py`, `subagent_scope.py`, and
-`orchestration_route.py` Hooks duplicated policy already carried by the policy Skills, Agent profiles,
-current tool schemas, and main-agent acceptance. Their prompt injection also made natural task
-briefs look like fixed authorization forms without creating an operating-system security boundary.
+This project installs no Hook. Policy Skills, Agent profiles, current tool schemas, and main-agent
+acceptance carry its orchestration and Review contracts without a project Hook.
 
-The deterministic procedure in `INSTALL.md` retires only copies and registrations whose prior
-project ownership can be authenticated. It preserves unrelated Hook groups. Shared context,
-memory-routing, closeout, and Codex-native status behavior remain outside this project's ownership.
+The deterministic procedure in `INSTALL.md` does not inspect `hooks.json` or the Hook directory.
+Every Hook registration and file is outside the managed installation projection, including assets
+left by earlier project versions. Their removal requires a separate user-directed maintenance plan.
+Shared context, memory-routing, closeout, and Codex-native status behavior remain outside this
+project's ownership.
 
 ## Long-lived root-task prompt
 

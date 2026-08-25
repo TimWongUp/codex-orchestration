@@ -40,8 +40,8 @@ py -3 scripts/install.py --codex-home "$HOME\.codex" --skills-root "$HOME\.agent
 ```
 
 The first command is always a dry run. It validates the checkout, classifies every managed target,
-prints every proposed create, update, or authenticated retirement, shows the exact global-rules
-block, and reports conflicts without writing.
+prints every proposed create or update, shows the exact global-rules block, and reports conflicts
+without writing.
 
 Review that output, then repeat the same command with `--apply`. When an Agent performs the
 installation, it shows the dry-run plan and obtains approval before adding `--apply`.
@@ -74,12 +74,12 @@ Every existing parent below the selected roots must be a physical directory. Use
 symlinks, Windows reparse points such as junctions, and paths containing `..` are conflicts. The
 platform-owned `/var`, `/tmp`, and `/etc` aliases on macOS are canonicalized before the displayed
 plan. Managed targets at or beyond the conservative native Windows path limit are conflicts rather
-than partial long-path support. The installer never intentionally traverses, unlinks, or replaces links. It preserves
-unrelated Skills, Agents, local preferences, model routes, configuration keys, and files. A retired
-project Agent is removed only when its bytes match a known prior project version; a different
-same-named file is an ownership conflict. New
-POSIX directories use mode `0700`; replacement preserves an existing POSIX file mode or Windows
-file ACL and attributes.
+than partial long-path support. The installer never intentionally traverses, unlinks, or replaces
+links. Its plan contains no delete operations: it writes only the named current projection and
+preserves every unmanaged Skill, Agent, Hook registration, Hook file, local preference, model route,
+configuration key, and file.
+New POSIX directories use mode `0700`; replacement preserves an existing POSIX file mode or
+Windows file ACL and attributes.
 
 ## 4. Managed global rules
 
@@ -109,51 +109,15 @@ routing.
 ## 5. No project Hook installation
 
 This project installs no Hook. Worker authority, task boundaries, and acceptance live in the policy
-Skills, Agent profiles, current tool schemas, and main-agent diff inspection. Setup preserves unrelated
-context, memory-routing, closeout, and user Hook groups.
+Skills, Agent profiles, current tool schemas, and main-agent diff inspection. Setup does not read
+`hooks.json`, inspect the Hook directory, or classify unmanaged Agent profiles. Existing context,
+memory-routing, closeout, user Hook groups, and files from earlier project versions remain untouched.
 
-Earlier project Hook assets are retired through the authenticated cleanup below. The installer
-reads `hooks.json` only when it already exists and never creates it merely to represent this
-project.
+Removing legacy runtime assets is a separate, user-directed maintenance action. Inspect and approve
+the exact files and registrations outside this installer; installation success makes no claim about
+them.
 
-## 6. Retired project Agent and Hook assets
-
-The former `frontend-design.toml` custom Agent is retired because the suite has no routing path for
-it and the separately installed `frontend-design` Skill remains the appropriate capability entry.
-The installer removes the old Agent profile only when its bytes match a known project version.
-A modified or unrelated same-named profile is an ownership conflict and remains untouched.
-
-Pure v2 verification rejects the former `subagent_guard.py`, `subagent_scope.py`, and project
-`orchestration_route.py` assets.
-
-The installer removes a retired file only when its bytes match a known prior project hash. It
-removes a former registration only when the handler is an exact two-argument Python command, has a
-known project event/matcher shape, and its referenced script has authenticated prior-project bytes.
-The recognized shapes include the former Guard matchers, the `SubagentStart` Scope registration,
-and the matcher-free project `UserPromptSubmit` Route registration. Both `command` and
-`commandWindows` fields are inspected. An exact reference to a managed retired target outside
-those known shapes blocks retirement so
-setup cannot create a dangling custom registration. Project-shaped Hook command paths containing
-`..`, relative syntax, or shell expansion characters are unsafe and conflict instead of being
-normalized through an unchecked parent. Existing filesystem aliases are compared by file identity;
-macOS case aliases are conservatively case-folded even after the target disappears. Every existing
-physical script referenced by a recognized Python invocation or explicit command path is also
-checked against known retired hashes. This includes statically recognizable absolute paths inside
-environment wrappers or quoted command/code arguments. The installer does not execute or fully
-interpret arbitrary wrapper code, constructed paths, or environment-variable values, so it does
-not claim ownership from those alone. Ambiguous, missing, linked, or different same-named assets
-remain conflicts. An unparseable command that names a retired project script also conflicts;
-otherwise unrelated, well-formed Hook text that merely mentions a retired filename is preserved.
-
-Reconciliation accepts strict UTF-8 JSON with or without a byte-order mark and rejects duplicate
-keys, non-standard constants, non-object Hook maps, non-list events, and malformed group Hook lists.
-It preserves unrelated top-level fields, events, matcher groups, handlers, and order.
-
-Declining or failing authenticated retirement blocks a pure v2 completion claim. Old source
-directories outside Codex home remain untouched; deleting or archiving them is a separate user
-decision.
-
-## 7. Local model routing
+## 6. Local model routing
 
 Setup does not create or change `<codex-home>/codex-orchestration/model-routing.toml`. Available
 models, reasoning levels, and service-tier enforcement are host facts that must be verified live.
@@ -163,7 +127,7 @@ with supported host values, remove unused examples, review the complete file, an
 after explicit approval. An existing route remains local and is preserved by setup. Omitting model
 selection requests inheritance from current Codex settings; it does not confirm the resolved model.
 
-## 8. Transaction and conflicts
+## 7. Transaction and conflicts
 
 Within one running installer process, a caught write or verification failure triggers rollback of
 the displayed managed file operations:
@@ -183,14 +147,13 @@ or replace the selected runtime roots concurrently.
 An abrupt process termination or power loss is not journaled and can leave a partial projection or
 a same-directory installer temporary file. After either event, stop concurrent editors, run a fresh
 dry run, inspect every reported drift or conflict, and apply again only after the plan is understood.
-Rollback restores managed bytes; metadata for a retired file recreated after deletion can inherit
-the destination defaults.
+Rollback restores managed bytes.
 
 A one-time migration from links or a different checkout remains an explicit cutover. The installer
 reports those paths as conflicts; the user first chooses the exact targets to move or unlink, then
 runs a new dry run. Successful installation never implies permission to remove the old source.
 
-## 9. Verification
+## 8. Verification
 
 `--apply` automatically runs source validation and the selected runtime checks. The equivalent
 manual command for a setup with global rules is:
@@ -202,6 +165,5 @@ python3 scripts/validate.py --runtime --codex-home <codex-home> --skills-root <s
 With `--no-global-rules`, omit `--global-rules`.
 
 Installation is complete only when required Skill and Agent copies match, any saved language or
-model route is valid, no authenticated retired project Agent or Hook remains, and no
-unapproved target was changed. Start a new Codex task after success so Skills, Agents, global rules,
-and task instructions reload.
+model route is valid, and no unapproved target was changed. Start a new Codex task after success so
+Skills, Agents, global rules, and task instructions reload.
