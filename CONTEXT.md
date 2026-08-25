@@ -19,3 +19,10 @@ _Avoid_: Worktree Writer, worktree subagent
 **Derived Agent**:
 An agent created inside one root task and governed by that root task's orchestration authority.
 _Avoid_: child root, nested root
+
+**Delivery Review**:
+The mandatory root-task quality gate applied before delivery to a final diff that changes
+repository implementation, tests, dependencies, build/deployment configuration, public contracts, or managed
+runtime policy. It is separate from ordinary delegation admission and may use read-only Reviewer
+Agents as its execution mechanism.
+_Avoid_: implementation delegation, proactive delegation

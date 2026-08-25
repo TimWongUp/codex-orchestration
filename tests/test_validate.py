@@ -65,12 +65,63 @@ class SourceValidationTest(unittest.TestCase):
         self.assertIn("failed or canceled lane blocks successful delivery", contract)
         self.assertIn("Stop convergence", contract)
         self.assertIn("Lane review never substitutes for the integrated review", contract)
-        self.assertIn("R0-R3 review gate against the combined diff", contract)
+        self.assertIn(
+            "Loads `codex-review-gate`, then selects and completes its R0-R3 review gate against "
+            "the combined diff",
+            contract,
+        )
         self.assertIn(
             "neither the Integration Root nor its local workers write the repository",
             global_rules,
         )
         self.assertFalse((ROOT / "agents" / "worktree-root.toml").exists())
+
+    def test_delivery_review_is_independent_from_delegation_admission(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        review = (ROOT / "skills" / "codex-review-gate" / "SKILL.md").read_text(encoding="utf-8")
+        global_rules = (ROOT / "examples" / "global-agents-block.md").read_text(encoding="utf-8")
+
+        self.assertNotIn("## Review gate", skill)
+        self.assertIn("## Review handoff", skill)
+        self.assertIn("delivery control, not an admission test", review)
+        self.assertIn("current user message does not need to name a subagent", review)
+        self.assertIn("Choose the highest matching level", review)
+        self.assertIn("Changed line or file counts never determine a level", review)
+        self.assertIn(
+            "This includes local runtime, test-semantic, dependency, or build changes", review
+        )
+        self.assertIn("repository implementation, tests, dependencies", review)
+        self.assertIn("This fail-closed fallback", review)
+        self.assertIn("## Code review", global_rules)
+        self.assertIn("repository implementation, tests, dependencies", global_rules)
+        self.assertIn("This rule authorizes only those Reviewer calls", global_rules)
+        self.assertNotIn("another applicable Skill", global_rules)
+        self.assertLess(review.index("| R3 |"), review.index("## Execute the gate"))
+
+    def test_review_skill_read_failures_are_bounded(self) -> None:
+        target = ROOT / "skills" / "codex-review-gate" / "SKILL.md"
+        original_read = Path.read_text
+
+        for error in (FileNotFoundError(), UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")):
+            with self.subTest(error=type(error).__name__):
+
+                def unavailable(
+                    path: Path,
+                    encoding: str | None = None,
+                    errors: str | None = None,
+                ) -> str:
+                    if path == target:
+                        raise error
+                    return original_read(path, encoding=encoding, errors=errors)
+
+                with mock.patch.object(Path, "read_text", unavailable):
+                    failures = VALIDATOR.validate_source()
+                expected = (
+                    "Review Skill missing"
+                    if isinstance(error, FileNotFoundError)
+                    else "Review Skill unreadable:"
+                )
+                self.assertTrue(any(item.startswith(expected) for item in failures))
 
     def test_worktree_contract_rejects_limit_and_sequence_drift(self) -> None:
         contract = (ROOT / "references" / "worktree-roots.md").read_text(encoding="utf-8")
@@ -183,18 +234,22 @@ class SourceValidationTest(unittest.TestCase):
     def test_skill_frontmatter_version_matches_project_metadata(self) -> None:
         project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        review_skill = (ROOT / "skills" / "codex-review-gate" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
         self.assertEqual(VALIDATOR.source_version_failures(project, skill), [])
+        self.assertEqual(VALIDATOR.source_version_failures(project, review_skill), [])
 
-        mutated = skill.replace("version: 0.8.0", "version: 0.7.0", 1)
-        mutated += "\nversion: 0.8.0\n"
+        mutated = skill.replace("version: 0.9.0", "version: 0.8.0", 1)
+        mutated += "\nversion: 0.9.0\n"
         self.assertIn(
             "Skill front matter version must match project version",
             VALIDATOR.source_version_failures(project, mutated),
         )
 
         duplicate = skill.replace(
-            "  version: 0.8.0",
-            "  version: 0.8.0\n  version: 0.8.0",
+            "  version: 0.9.0",
+            "  version: 0.9.0\n  version: 0.9.0",
             1,
         )
         self.assertIn(
@@ -203,8 +258,8 @@ class SourceValidationTest(unittest.TestCase):
         )
 
         duplicate_project = project.replace(
-            'version = "0.8.0"',
-            'version = "0.7.0"\nversion = "0.8.0"',
+            'version = "0.9.0"',
+            'version = "0.8.0"\nversion = "0.9.0"',
             1,
         )
         self.assertIn(

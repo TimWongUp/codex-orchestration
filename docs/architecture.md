@@ -1,15 +1,18 @@
 # Architecture
 
-Codex Orchestration separates five concerns:
+Codex Orchestration separates six concerns:
 
-1. `SKILL.md` defines root-task decisions, the collaboration lifecycle, and delegation and handoff
-   contracts.
-2. `agents/*.toml` defines narrow custom-agent behavior and sandbox defaults.
-3. Local preference files select delegation language and models without placing user choices in
+1. `SKILL.md` defines root-task Agent execution, the collaboration lifecycle, and delegation and
+   handoff contracts.
+2. `skills/codex-review-gate/SKILL.md` defines and authorizes the final-diff risk route; the root
+   main agent executes classification, Reviewer selection, remediation, and adversarial
+   verification.
+3. `agents/*.toml` defines narrow custom-agent behavior and sandbox defaults.
+4. Local preference files select delegation language and models without placing user choices in
    the repository.
-4. `examples/global-agents-block.md` is the minimal global pointer injected into the active Codex
+5. `examples/global-agents-block.md` is the minimal global pointer injected into the active Codex
    instruction file.
-5. `INSTALL.md` defines the reviewed installation contract, implemented deterministically by
+6. `INSTALL.md` defines the reviewed installation contract, implemented deterministically by
    `scripts/install.py`.
 
 The repository is the single source of truth for portable runtime behavior. Installed Skill,
@@ -18,9 +21,10 @@ model IDs, unrelated Hook registrations, and other host choices remain local con
 This prevents an installed runtime from becoming a second implementation that drifts
 independently.
 
-The installed runtime is a projection, not a copy of the repository root: the main Skill receives
-only root `SKILL.md` and `references/`; each bundled method Skill has its own Skill destination;
-Agent profiles go to Codex home. Deployment registries may record this
+The installed runtime is a projection, not a copy of the repository root: the main orchestration
+Skill receives only root `SKILL.md` and `references/`; `codex-review-gate` and each bundled method
+Skill have their own Skill destinations; Agent profiles go to Codex home. Deployment registries may
+record this
 repository as authority, but suite installation remains governed by `INSTALL.md` so a generic
 single-Skill linker cannot flatten these components or expose the whole checkout as one Skill.
 
@@ -48,7 +52,7 @@ nonterminal Worktree Roots. Each works in a verified distinct checkout, owns lan
 one candidate handoff branch, and may use the normal explorer, reviewer, specialist, and worker
 roles. While any lane is nonterminal, the Integration Root remains repository-read-only. After the
 complete batch is accepted, it owns the common base, serial merge order, integration branch,
-combined validation, final R0-R3 review, and delivery. During the active batch neither its main
+combined validation, the `codex-review-gate` handoff, and delivery. During the active batch neither its main
 agent nor a local worker may write; no local writable-worker lease remains active. This keeps
 concurrent repository writers at three or fewer without granting orchestration authority to a
 derived worker.
@@ -64,6 +68,25 @@ one such panel with separate specialist workstreams when both independent model 
 non-overlapping risk coverage can change the decision. The ordinary `single` path creates one
 agent and is not an evaluation mode. Only the panel path classifies the parent model; coverage and
 hybrid's specialist workstreams use ordinary role routes.
+
+## Delivery Review boundary
+
+Ordinary delegation is optional execution optimization; Delivery Review is a repository-change
+gate for implementation, tests, dependencies, build/deployment configuration, public contracts, and managed
+runtime policy. `codex-review-gate` defines the R0-R3 route independently of the orchestration
+Skill. An applicable project, user, workflow, or global rule requiring the gate authorizes only the
+read-only Reviewers selected by R1-R3 without a repeated current-turn request; a current explicit
+user prohibition still wins. The root main agent executes classification, role selection,
+remediation, validation, and delivery. When Reviewers are selected, it calls
+`codex-orchestration` for model routing, briefs, lifecycle, and waiting rather than duplicating
+those mechanics.
+
+The gate evaluates the highest-risk property of the final integrated diff: non-behavioral and fully
+verifiable work may be R0; localized, validated, recoverable single-risk changes are R1;
+cross-module, public-contract, sensitive-boundary, multiple-risk, or otherwise unclassified changes
+are R2; changed trust boundaries or high-impact failure are R3. Main-agent validation is required
+at every level but does not count as independent Review. R3 ends with adversarial verification
+after focused Review and remediation.
 
 ## V2 lifecycle
 
@@ -84,7 +107,7 @@ official worktree identities, and waits for the complete accepted batch before s
 Each Worktree Root performs local lane acceptance and validation; the Integration Root separately
 owns handoff and batch acceptance. Independent intermediate review is added only when risk would
 otherwise compound. A failed or canceled declared lane blocks successful delivery unless the user
-explicitly rescopes the outcome. The full review gate runs once against the combined integration
+explicitly rescopes the outcome. `codex-review-gate` runs once against the combined integration
 diff.
 
 An explicit stop freezes new delegation, snapshots the tree, interrupts every active descendant,
@@ -99,7 +122,7 @@ task/thread stop operation or request to every active root, moves submitted `han
 Integration Root neither merges nor reports success while a peer or lane is still nonterminal.
 
 No orchestration Hook is installed. Agent profiles remain the authority for derived-agent identity
-and read-only scope, while the Skill and current tool schemas carry main-agent policy. Worker
+and read-only scope, while the two policy Skills and current tool schemas carry main-agent policy. Worker
 selection establishes the root task's single-writer lease; task messages use natural briefs rather
 than fixed authorization labels, and the main agent accepts work only after inspecting the complete
 diff and validation. Cross-host context injection, memory routing, and closeout behavior belong to

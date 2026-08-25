@@ -14,6 +14,7 @@ configuration, installed Skill listings, and current official locations. It does
 generic Skill root. Managed destinations are:
 
 - `<skills-root>/codex-orchestration` — the main Skill copy.
+- `<skills-root>/codex-review-gate` — the independent delivery Review policy copy.
 - `<skills-root>/diagnosing-bugs` — the bundled complete debugging Skill copy.
 - `<skills-root>/prototype` — the bundled complete prototype Skill copy.
 - `<codex-home>/agents/*.toml` — managed custom-agent copies.
@@ -21,7 +22,7 @@ generic Skill root. Managed destinations are:
   saved.
 - `<codex-home>/codex-orchestration/model-routing.toml` — only when local routing is approved.
 - The active `<codex-home>/AGENTS.override.md` or `<codex-home>/AGENTS.md` — only the canonical
-  marker-delimited orchestration block.
+  marker-delimited orchestration and code Review block.
 
 `INSTALL.md` is the authority for path discovery, planning, conflict handling, optional choices,
 and verification. `scripts/install.py` implements it, prints a dry run by default, and writes only
@@ -36,7 +37,7 @@ states used for managed installation targets.
 
 ## Existing Skill preflight
 
-All three Skill targets are checked before any installation write:
+All four Skill targets are checked before any installation write:
 
 - An exact source copy is `current`.
 - A missing Skill is planned for creation.
@@ -75,13 +76,15 @@ cleanup is declined, the installation remains mixed v1/v2.
 ## V2 collaboration boundary
 
 The model-visible collaboration-tool schemas own call mechanics. This repository does not wrap
-those tools, cache their return shapes, or define a transport fallback. The Skill adds only
-orchestration policy: ordinary delegation uses `fork_turns="none"`, pending results form a
+those tools, cache their return shapes, or define a transport fallback. `codex-orchestration` adds
+only orchestration policy: ordinary delegation uses `fork_turns="none"`, pending results form a
 dependency barrier, a follow-up invalidates earlier completion evidence, an explicit stop converges
 the active tree, and a third worker round starts with a fresh package and lease.
 
-This project installs no Hook. Agent profiles own derived-agent identity and read-only scope; the
-Skill owns root-task policy, and main-agent acceptance checks the complete worker diff and
+This project installs no Hook. Agent profiles own derived-agent identity and read-only scope;
+`codex-orchestration` owns root-task Agent execution, while `codex-review-gate` defines the delivery
+Review route and Reviewer authorization. The root main agent executes classification, remediation,
+verification, and delivery, and main-agent acceptance checks the complete worker diff and
 validation. Delegation uses compact natural-language briefs instead of fixed authorization fields.
 
 ## Concurrency and Worktree Roots
@@ -112,14 +115,36 @@ profile or Hook registration is installed.
 ## Global instructions
 
 `examples/global-agents-block.md` is the single source of truth for the always-loaded orchestration
-pointer. Setup enables it by default and selects the first non-empty global instruction file using
+and code Review pointers. Setup enables it by default and selects the first non-empty global
+instruction file using
 Codex precedence: `AGENTS.override.md`, then `AGENTS.md`. Only the exact marker-delimited block is
 managed. Surrounding content and line endings are preserved, and a change in the active target
 moves the block so two copies cannot load at different times.
 
 Nested, unmatched, duplicated, or non-standalone marker tokens are conflicts.
-`--no-global-rules` leaves existing global files unchanged; it is not an uninstall operation. The
-full workflow stays in the Skill to keep global context small.
+`--no-global-rules` leaves existing global files unchanged; it is not an uninstall operation. A
+managed block that already exists must match the current canonical block, so this option cannot
+silently combine new Skills with stale Review routing. The full workflows stay in their Skills to
+keep global context small. The Review pointer requires `codex-review-gate` after repository
+implementation, test, dependency, build/deployment, public-contract, or managed runtime-policy changes and
+authorizes only its R1-R3 read-only Reviewers. Ordinary proactive-delegation admission cannot
+suppress those Reviewer calls, while implementation and investigation delegation retain their
+normal threshold.
+
+## Delivery review
+
+`codex-review-gate` classifies the final integrated diff before delivery. R0 covers only mechanical,
+non-behavioral, fully verifiable changes; R1 covers one localized, validated, recoverable risk,
+including local runtime, test-semantic, dependency, or build changes; R2 covers cross-module,
+public-contract, sensitive-boundary, multiple independent, or otherwise unclassified risk; R3
+covers changed trust or authorization boundaries and high-impact failure. The highest matching
+level wins, diff size alone never decides the level, and uncertainty fails closed to the higher
+level or R2 fallback.
+
+R0 uses main-agent inspection and validation only. R1 uses one Reviewer for the most material risk,
+R2 uses two non-overlapping Reviewers, and R3 performs focused Review and main-agent remediation
+before an `adversarial-verifier`. Review Agent execution reuses `codex-orchestration`; the Review
+Skill does not duplicate model routing, lifecycle, or waiting policy.
 
 ## Task-package language
 

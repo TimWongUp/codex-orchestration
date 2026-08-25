@@ -79,6 +79,7 @@ class InstallerTests(unittest.TestCase):
             hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
             self.assertEqual(hooks["custom"], {"preserve": True})
             self.assertEqual(hooks["hooks"]["SessionStart"], [unrelated_group])
+            self.assertTrue((skills_root / "codex-review-gate" / "SKILL.md").is_file())
             self.assertEqual(INSTALL.contract.validate_runtime(codex_home, skills_root), [])
             self.assertEqual(INSTALL.contract.validate_global_rules(codex_home), [])
 
@@ -151,6 +152,28 @@ class InstallerTests(unittest.TestCase):
                     operation.kind == "delete" and operation.path == target
                     for operation in plan.operations
                 )
+            )
+
+    def test_no_global_rules_rejects_a_stale_managed_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.paths(temporary)
+            codex_home.mkdir()
+            skills_root.mkdir()
+            stale = b"\n".join(
+                (
+                    INSTALL.contract.GLOBAL_RULES_START,
+                    b"## Agent orchestration",
+                    b"- Load the old built-in Review gate.",
+                    INSTALL.contract.GLOBAL_RULES_END,
+                    b"",
+                )
+            )
+            (codex_home / "AGENTS.md").write_bytes(stale)
+
+            plan = self.build(codex_home, skills_root, global_rules=False)
+
+            self.assertTrue(
+                any("managed global-rules block is stale" in item for item in plan.conflicts)
             )
 
     def test_global_rules_move_to_new_active_override(self) -> None:
@@ -1466,6 +1489,7 @@ class InstallerTests(unittest.TestCase):
             effective_skills = INSTALL.contract.canonical_selected_root(skills_root)
             self.assertTrue((effective_home / "AGENTS.md").is_file())
             self.assertTrue((effective_skills / "codex-orchestration" / "SKILL.md").is_file())
+            self.assertTrue((effective_skills / "codex-review-gate" / "SKILL.md").is_file())
             if os.name != "nt":
                 self.assertEqual(stat.S_IMODE(effective_home.stat().st_mode), 0o700)
                 self.assertEqual(stat.S_IMODE(effective_skills.stat().st_mode), 0o700)

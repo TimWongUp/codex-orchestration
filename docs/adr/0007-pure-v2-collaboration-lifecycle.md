@@ -31,6 +31,10 @@ this decision, `subagent_scope.py` remained as an optional writer-lease Hook. Ro
 coverage/panel/hybrid modes, method Skills, the R0–R3 review gate, and installation safety
 boundaries remain unchanged.
 
+The Review ownership and authorization portion of that statement is superseded by
+[ADR 0011](0011-separate-delivery-review-from-orchestration.md); lifecycle and installation-safety
+claims remain historical context for this decision.
+
 The remaining Hook and rigid task-package portion is superseded by
 [ADR 0010](0010-retire-orchestration-hook-and-rigid-briefs.md).
 

@@ -49,9 +49,12 @@ documented recovery is a fresh dry run followed by an explicitly reviewed apply.
 ## Consequences
 
 Installation and update now have one testable implementation shared by macOS and native Windows.
-The global orchestration pointer loads consistently without replacing personal instructions, while
-the full policy remains in the Skill. The repository gains installer and prompt-injection tests and
-must keep `INSTALL.md`, both READMEs, runtime validation, and the canonical block synchronized.
+The managed policy pointers load consistently without replacing personal instructions, while the
+full policies remain in their Skills. The repository gains installer and prompt-injection tests
+and must keep `INSTALL.md`, both READMEs, runtime validation, and the canonical block synchronized.
+
+The later split from one orchestration pointer to separate orchestration and Review pointers is
+defined by [ADR 0011](0011-separate-delivery-review-from-orchestration.md).
 
 This supersedes the former no-write-installer implementation choice while preserving ADR 0001's
 repository authority and runtime-projection boundary.

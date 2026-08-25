@@ -55,8 +55,8 @@ Use serialized stages inside one root task when any condition fails.
   normal root, it may use short-lived stage or prototype branches, but it returns one candidate lane
   branch for handoff acceptance.
 - The Integration Root owns the common base, lane contracts, batch lifecycle, handoff and batch
-  acceptance across lanes, merge order, integration fixes, final review, publishing, and final
-  delivery.
+  acceptance across lanes, merge order, integration fixes, the final `codex-review-gate` handoff,
+  publishing, and final delivery.
 - While any lane is nonterminal, the Integration Root remains repository-read-only and does not
   modify its integration checkout. It neither creates nor retains a local writable-worker lease;
   neither its main agent nor any local worker writes the repository. It may activate one local
@@ -131,7 +131,7 @@ For a successful batch, it then:
    main branch.
 4. Resolves or returns merge conflicts and reruns affected lane validation after each correction.
 5. Runs the combined validation after all accepted branches are present.
-6. Selects and completes the R0-R3 review gate against the combined diff.
+6. Loads `codex-review-gate`, then selects and completes its R0-R3 review gate against the combined diff.
 
 Lane review never substitutes for the integrated review.
 
