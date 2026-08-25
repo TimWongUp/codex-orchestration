@@ -290,11 +290,11 @@ class SourceValidationTest(unittest.TestCase):
             1,
         )
         contradicted_r1_default = (
-            review + "\nFor R1, never use `correctness-reviewer` as a default; always select two "
+            review + "\nFor R1, never use correctness-reviewer as a default; always select two "
             "Reviewers.\n"
         )
         contradicted_r1_specialist = (
-            review + "\nFor a specialist-only R1, retain `correctness-reviewer` and add the "
+            review + "\nFor a specialist-only R1, retain correctness-reviewer and add the "
             "specialist.\n"
         )
         contradicted_r2 = review.replace(

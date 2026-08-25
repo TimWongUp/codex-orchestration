@@ -836,6 +836,8 @@ def validate_source() -> list[str]:
         "The specialist replaces the default; it does not\ncreate a second seat",
         "At least one matching Reviewer",
         "At least one focused Reviewer, main-agent remediation, then an `adversarial-verifier`",
+        "send the original Reviewer a\n   same-thread targeted follow-up",
+        "it is not a new full Review",
         "current user message does not need to name a subagent or\nReviewer again",
         "classify it as\nR2. This fail-closed fallback",
         "explicit user prohibition on subagents or Reviewers still takes priority",
@@ -855,10 +857,20 @@ def validate_source() -> list[str]:
             f"Review Skill {level} independent-review route drifted",
             failures,
         )
+    r1_role_rule_removed = review_skill.replace(R1_REVIEWER_SELECTION_CONTRACT, "", 1).lower()
     require(
         review_skill.count(R1_REVIEWER_SELECTION_CONTRACT) == 1
-        and review_skill.count("`correctness-reviewer`") == 1
-        and f"{R1_REVIEWER_SELECTION_CONTRACT}\n\n## Execute the gate" in review_skill,
+        and f"{R1_REVIEWER_SELECTION_CONTRACT}\n\n## Execute the gate" in review_skill
+        and all(
+            phrase not in r1_role_rule_removed
+            for phrase in (
+                "correctness-reviewer",
+                "correctness reviewer",
+                "correctness review",
+                "default",
+                "specialist",
+            )
+        ),
         "Review Skill R1 role-selection contract drifted",
         failures,
     )

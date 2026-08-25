@@ -155,6 +155,10 @@ the evidence class without starting a generic Standards/Spec pass. Labelled judg
 distinct, and Reviewers omit checks conclusively covered by current passing tooling unless the
 tool's coverage or evidence is itself part of the assigned risk.
 
+After the main agent fixes an accepted finding and reruns affected validation, the original
+Reviewer receives a same-thread targeted follow-up to verify that finding against the final diff.
+This closes the assigned finding without restarting a full Review merely to obtain a clean report.
+
 ## Task-package language
 
 An explicit language request wins. Otherwise the main Skill reads

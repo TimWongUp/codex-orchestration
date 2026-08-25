@@ -60,7 +60,10 @@ create a second seat for the same hypothesis.
    for every result that can affect delivery.
 3. Treat Reviewer output as a hypothesis. Reconcile every finding against the actual diff and its
    cited evidence. The main agent fixes accepted findings or records evidence for rejecting them,
-   then reruns affected validation. Do not repeat Review merely to obtain a clean report.
+   then reruns affected validation. After fixing an accepted finding, send the original Reviewer a
+   same-thread targeted follow-up to verify that finding against the final diff. This resolves the
+   assigned finding; it is not a new full Review. Do not repeat full Review merely to obtain a clean
+   report.
 4. For R3, run `adversarial-verifier` only after focused review, remediation, and validation are
    complete, or after focused review and validation when no fix was required. Give it the final diff,
    original high-impact hypothesis, earlier findings, remediation, and validation evidence. Treat an
