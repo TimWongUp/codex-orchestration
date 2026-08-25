@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import locale
 import os
 import secrets
 import stat
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GLOBAL_RULES_CANDIDATES = ("AGENTS.md", "AGENTS.override.md")
 WINDOWS_CONSERVATIVE_PATH_LIMIT = 248
 TEMPORARY_TOKEN_LENGTH = 24
+DEFAULT_SKILLS_ROOT = Path.home() / ".agents" / "skills"
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,50 @@ def lexists(path: Path) -> bool:
 
 def sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def interactive_terminal() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def detected_task_package_language() -> str:
+    locale_name = next(
+        (value for name in ("LC_ALL", "LC_MESSAGES", "LANG") if (value := os.environ.get(name))),
+        None,
+    )
+    if locale_name is None:
+        locale_name = locale.getlocale()[0] or ""
+    normalized = locale_name.lower().replace("_", "-")
+    is_chinese = (
+        normalized == "zh" or normalized.startswith("zh-") or normalized.startswith("chinese")
+    )
+    return "zh-CN" if is_chinese else "en"
+
+
+def prompt_task_package_language(default: str) -> str | None:
+    while True:
+        try:
+            answer = input(f"Task package language [en/zh-CN] (default: {default}): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if not answer:
+            return default
+        normalized = answer.lower().replace("_", "-")
+        if normalized == "en":
+            return "en"
+        if normalized == "zh-cn":
+            return "zh-CN"
+        print("Choose en or zh-CN.")
+
+
+def confirm_apply() -> bool:
+    try:
+        answer = input("Apply this installation plan? [y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return answer in {"y", "yes"}
 
 
 def ensure_physical_root(path: Path, label: str, plan: InstallPlan) -> bool:
@@ -584,27 +631,41 @@ def print_plan(plan: InstallPlan, *, global_rules: bool) -> None:
         print(f"[CONFLICT] {conflict}")
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--codex-home",
         type=Path,
         default=Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")),
+        help="active Codex home (default: CODEX_HOME or ~/.codex)",
     )
-    parser.add_argument("--skills-root", type=Path, required=True)
-    parser.add_argument("--language", choices=sorted(contract.TASK_PACKAGE_LANGUAGES))
+    parser.add_argument(
+        "--skills-root",
+        type=Path,
+        default=DEFAULT_SKILLS_ROOT,
+        help="Codex user Skill root (default: ~/.agents/skills)",
+    )
+    parser.add_argument(
+        "--language",
+        choices=sorted(contract.TASK_PACKAGE_LANGUAGES),
+        help="task-package language; prompted on an interactive first install",
+    )
     parser.add_argument(
         "--global-rules",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="inject the managed global AGENTS block (default: enabled)",
     )
-    parser.add_argument("--apply", action="store_true", help="apply the displayed plan")
-    return parser.parse_args()
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="apply the displayed plan without an interactive confirmation",
+    )
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None, *, interactive: bool | None = None) -> int:
+    args = parse_args(argv)
     source_failures = contract.validate_source()
     if source_failures:
         for failure in source_failures:
@@ -612,6 +673,14 @@ def main() -> int:
         return 1
     codex_home = args.codex_home.expanduser().absolute()
     skills_root = args.skills_root.expanduser().absolute()
+    if interactive is None:
+        interactive = interactive_terminal()
+    preferences_path = codex_home / "codex-orchestration" / "preferences.toml"
+    if args.language is None and interactive and not lexists(preferences_path):
+        args.language = prompt_task_package_language(detected_task_package_language())
+        if args.language is None:
+            print("Installation cancelled; no files changed.")
+            return 0
     plan = build_plan(
         codex_home,
         skills_root,
@@ -623,8 +692,15 @@ def main() -> int:
         print("Refusing installation because the plan contains conflicts.")
         return 2
     if not args.apply:
-        print("Dry run only. Re-run the same command with --apply to write these changes.")
-        return 0
+        if not plan.operations:
+            print("OK: managed runtime is already current")
+            return 0
+        if not interactive:
+            print("Dry run only. Re-run the same command with --apply to write these changes.")
+            return 0
+        if not confirm_apply():
+            print("Installation cancelled; no files changed.")
+            return 0
     try:
         apply_plan(plan, global_rules=args.global_rules)
     except (OSError, RuntimeError) as error:
