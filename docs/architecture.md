@@ -111,6 +111,8 @@ Risk level and Reviewer count are separate decisions. The level expresses impact
 recoverability; R1-R3 always select at least one matching Reviewer, and additional seats correspond
 only to additional material failure hypotheses for which independent judgment can change delivery.
 Mechanical validation, an absent evidence axis, and a desired panel size do not create extra seats.
+R1 defaults to `correctness-reviewer`; a matching specialist replaces that default when the sole
+material hypothesis belongs to its domain, rather than adding another Reviewer for the same risk.
 Reviewer findings remain hypotheses until the main agent checks their cited evidence against the
 pinned final diff, and Review is not repeated solely to obtain a clean report.
 
