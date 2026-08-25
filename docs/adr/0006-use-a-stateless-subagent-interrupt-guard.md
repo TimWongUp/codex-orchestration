@@ -8,8 +8,9 @@ guard still coupled installation and validation to a lifecycle API that is no lo
 
 **Decision:** retain this document as historical context only. The guard source, installation
 projection, registrations, and active validation were removed during the pure v2 migration. The
-current lifecycle contract is expressed by the Skill, the routing and scope Hooks, and the
-model-visible v2 tools.
+current lifecycle contract is expressed by the Skill and model-visible v2 tools. The routing and
+scope Hooks that still existed when ADR 0007 was accepted were later retired by
+[ADR 0010](0010-retire-orchestration-hook-and-rigid-briefs.md).
 
 **Consequences:** historical compatibility details are not an active fallback. New orchestration
 must use the v2 tool responsibilities and mailbox convergence described in ADR 0007.

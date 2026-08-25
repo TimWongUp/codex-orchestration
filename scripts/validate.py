@@ -28,7 +28,6 @@ READERS = {
     "explorer",
     "reference-researcher",
     "web-researcher",
-    "frontend-design",
     "correctness-reviewer",
     "architecture-reviewer",
     "security-reviewer",
@@ -41,17 +40,54 @@ READERS = {
 FORBIDDEN_KEYS = {"model", "model_reasoning_effort", "service_tier"}
 TASK_PACKAGE_LANGUAGES = {"en", "zh-CN"}
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
-WORKER_PACKAGE_FIELDS = (
-    "GOAL",
-    "SCOPE",
-    "CONSTRAINTS",
-    "DONE WHEN",
-    "RETURN",
-    "WRITE LEASE: granted",
-    "ALLOWED PATHS",
-    "BRANCH",
-    "ROUND",
-    "VALIDATION",
+WORKTREE_CONTRACT_PHRASES = (
+    "independent Codex task and session",
+    "user explicitly requested official Codex worktrees",
+    "at most three nonterminal Worktree Roots",
+    "at most eight spawned-agent threads",
+    "host-enforced limit of eight or fewer",
+    "same `explorer`, reviewer, worker, and specialist roles",
+    "batch roles, not different agent types",
+    "distinct official worktree",
+    "`pending`, `running`, `handoff_ready`, `accepted`, `failed`, or `canceled`",
+    "The Integration Root alone moves a handoff",
+    "cannot confirm the host cap",
+    "fails closed and does not spawn",
+    "This keeps the batch at no more than three concurrent repository writers",
+    "neither its main agent nor any local worker writes the repository",
+    "moves every unlaunched `pending` reservation and every `handoff_ready` lane",
+    "user's explicit rescoping",
+    "prototype lane",
+    "complete batch",
+    "dedicated integration branch",
+    "R0-R3 review gate against the combined diff",
+    "Lane review never substitutes for the integrated review",
+    "Stop convergence",
+    "A stopped batch is not",
+)
+WORKTREE_INTEGRATION_SEQUENCE = (
+    "The Integration Root waits for the complete batch",
+    "Serially merges accepted branches into a dedicated integration branch",
+    "Runs the combined validation after all accepted branches are present",
+    "Selects and completes the R0-R3 review gate against the combined diff",
+)
+WORKTREE_ADR_PHRASES = (
+    "at most three nonterminal Worktree Roots",
+    "normal local orchestration authority",
+    "verified distinct official",
+    "Failed or canceled lanes",
+    "user's explicit rescoping",
+    "Prototype lanes",
+    "final R0-R3 review gate",
+    "at most eight spawned-agent threads",
+    "Explicit stop freezes",
+    "no batch has more than three concurrent repository writers",
+)
+WORKTREE_ADR_SEQUENCE = (
+    "waits for every declared handoff to reach `accepted`",
+    "serially merges lanes into a dedicated integration branch",
+    "runs combined validation",
+    "applies the final R0-R3 review gate",
 )
 FORBIDDEN_PUBLIC_PATTERNS = {
     "/" + "Users/": "absolute macOS user path",
@@ -61,16 +97,37 @@ FORBIDDEN_PUBLIC_PATTERNS = {
     "gpt-" + "5.6": "machine-specific model route",
     "deepseek-" + "v4": "machine-specific model route",
 }
-HOOK_REGISTRATIONS = (("SubagentStart", "subagent_scope.py", None),)
 GLOBAL_RULES_START = b"<!-- CODEX-ORCHESTRATION:GLOBAL-RULES:START -->"
 GLOBAL_RULES_END = b"<!-- CODEX-ORCHESTRATION:GLOBAL-RULES:END -->"
 GLOBAL_RULES_TEMPLATE = ROOT / "examples" / "global-agents-block.md"
-RETIRED_HOOK_SCRIPTS = ("subagent_guard.py",)
+RETIRED_HOOK_SCRIPTS = ("subagent_guard.py", "subagent_scope.py")
+RETIRED_AGENT_SHA256 = {
+    "frontend-design.toml": frozenset(
+        {
+            "2187c665f79641d5c2fcc7bf9e6ebe1ae779546b725bfc49de38e544ceb65b56",
+            "4a944a23e66c4237e4925c3961727db3cc1fe62fbc4ba8cadd8900875b867192",
+            "c1ffa1f1dd435f6936314c18710ff8266ed6df4d6b00b18c1564f6253b039c06",
+            "c8d6537150fca80f825469e2821d30bb9109ac68f8746db2127e012f94c30080",
+        }
+    )
+}
 RETIRED_HOOK_SHA256 = {
     "subagent_guard.py": frozenset(
         {
             "c9f1b1cc9ee7a1bfb7db5320a1e76e9378948c5e6cba414b8408dcbaa84527fb",
             "d375ee6b67a85891765bf0c839d6616b828278e35394fc2a69cba250ea3180b1",
+        }
+    ),
+    "subagent_scope.py": frozenset(
+        {
+            "390c3066a1caa60068b14fba1f67bc5c7854aa0fa4a1b017538deac9c070faad",
+            "458600a69747d6394103190e0b560e4cc82dfcca191e03ca1aa96afab72702ca",
+            "486165ed2b326497f7785a0bc2cd05d537d5e8e2129f76ade784e4ed69635b7c",
+            "760a2f2e9562a7cb10ae9838391ed114e8a60423b06aaeb96792034ac0603727",
+            "9a14a6bf39dcf0d44edc6f6946a74094febd1db6f9a41c7ea2da108582c96d9b",
+            "c1ce7dbae26be92ba359a52082e94d1041625cc79cc0c3c4a9070e55b0ba71aa",
+            "fa82cf03d992b374cf21e323e3d1f42326995b2fae8941fa10c8e0645091a2ce",
+            "ff3ef1b1f18f5e1b99712c8fde518c343b920abf4f68ba0569f4fb7e1f4b9930",
         }
     ),
 }
@@ -362,6 +419,103 @@ def top_level_values(source: str) -> dict[str, str]:
     return values
 
 
+def markdown_frontmatter_values(source: str) -> dict[str, str]:
+    lines = source.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    values: dict[str, str] = {}
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return values
+        match = re.fullmatch(r"([A-Za-z0-9_-]+):\s*(.*?)\s*", line.strip())
+        if match:
+            values[match.group(1)] = match.group(2).strip("'\"")
+    return {}
+
+
+def source_version_failures(project: str, skill: str) -> list[str]:
+    failures: list[str] = []
+    project_version = top_level_values(project).get("version")
+    skill_version = markdown_frontmatter_values(skill).get("version")
+    frontmatter_end = skill.find("\n---", 3) if skill.startswith("---\n") else -1
+    frontmatter = skill[4:frontmatter_end] if frontmatter_end >= 0 else ""
+    version_fields = re.findall(r"^\s*version:\s*.+$", frontmatter, re.MULTILINE)
+    project_version_fields = re.findall(r"^version\s*=\s*.+$", project, re.MULTILINE)
+    require(project_version == "0.8.0", "project version must be 0.8.0", failures)
+    require(
+        len(project_version_fields) == 1,
+        "project version must appear exactly once",
+        failures,
+    )
+    require(
+        len(version_fields) == 1,
+        "Skill front matter version must appear exactly once",
+        failures,
+    )
+    require(
+        skill_version == project_version,
+        "Skill front matter version must match project version",
+        failures,
+    )
+    return failures
+
+
+def read_required_text(path: Path, label: str, failures: list[str]) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        failures.append(f"{label} missing")
+    except (OSError, UnicodeError) as error:
+        failures.append(f"{label} unreadable: {error}")
+    return ""
+
+
+def worktree_contract_failures(source: str) -> list[str]:
+    failures: list[str] = []
+    normalized = re.sub(r"\s+", " ", source)
+    for phrase in WORKTREE_CONTRACT_PHRASES:
+        require(phrase in normalized, f"worktree-root contract missing: {phrase}", failures)
+
+    barrier_match = re.search(
+        r"^## Integration barrier\s*$([\s\S]*?)(?=^## |\Z)", source, re.MULTILINE
+    )
+    require(barrier_match is not None, "worktree-root integration barrier missing", failures)
+    barrier = re.sub(r"\s+", " ", barrier_match.group(1)) if barrier_match is not None else ""
+    positions = [barrier.find(marker) for marker in WORKTREE_INTEGRATION_SEQUENCE]
+    for marker, position in zip(WORKTREE_INTEGRATION_SEQUENCE, positions):
+        require(
+            position >= 0,
+            f"worktree-root integration step missing: {marker}",
+            failures,
+        )
+    if all(position >= 0 for position in positions):
+        require(
+            positions == sorted(set(positions)),
+            "worktree-root integration sequence must be complete batch, serial merge, "
+            "combined validation, then R0-R3 review",
+            failures,
+        )
+    return failures
+
+
+def worktree_adr_failures(source: str) -> list[str]:
+    failures: list[str] = []
+    normalized = re.sub(r"\s+", " ", source)
+    for phrase in WORKTREE_ADR_PHRASES:
+        require(phrase in normalized, f"worktree-root ADR missing decision: {phrase}", failures)
+    positions = [normalized.find(marker) for marker in WORKTREE_ADR_SEQUENCE]
+    for marker, position in zip(WORKTREE_ADR_SEQUENCE, positions):
+        require(position >= 0, f"worktree-root ADR missing sequence: {marker}", failures)
+    if all(position >= 0 for position in positions):
+        require(
+            positions == sorted(set(positions)),
+            "worktree-root ADR sequence must be accepted batch, serial merge, combined "
+            "validation, then final R0-R3 review",
+            failures,
+        )
+    return failures
+
+
 def path_is_link_like(path: Path) -> bool:
     """Reject symlinks and Windows reparse points such as NTFS junctions."""
     if path.is_symlink():
@@ -439,28 +593,18 @@ def expected_hook_command(target: Path, *, windows: bool | None = None) -> str:
     return shlex.join(arguments)
 
 
-def unsafe_windows_hook_path(path: str | Path) -> bool:
-    return any(character in str(path) for character in '%!\r\n"')
-
-
-def hook_command_matches(command: object, target: Path, *, windows: bool | None = None) -> bool:
-    if not isinstance(command, str):
-        return False
-    use_windows = windows if windows is not None else os.name == "nt"
-    if use_windows:
-        return command == expected_hook_command(target, windows=True)
-    try:
-        arguments = shlex.split(command, posix=True)
-    except ValueError:
-        return False
-    return arguments == [str(Path(sys.executable).absolute()), str(target.absolute())]
-
-
 def hook_command_arguments(command: object, *, windows: bool) -> list[str] | None:
     if not isinstance(command, str):
         return None
+    if windows:
+        command = re.sub(r"\^(?:\r\n|\n|\r)", "", command)
+    else:
+        command = re.sub(r"\\(?:\r\n|\n|\r)", "", command)
     try:
-        arguments = shlex.split(command, posix=not windows)
+        lexer = shlex.shlex(command, posix=not windows, punctuation_chars=";&|<>()")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        arguments = list(lexer)
     except ValueError:
         return None
     if windows:
@@ -473,12 +617,23 @@ def hook_command_arguments(command: object, *, windows: bool) -> list[str] | Non
     return arguments
 
 
+def unparseable_command_mentions_retired_hook(command: object, *, windows: bool) -> bool:
+    if not isinstance(command, str) or hook_command_arguments(command, windows=windows) is not None:
+        return False
+    value = command.casefold() if windows or sys.platform == "darwin" else command
+    names = {
+        name.casefold() if windows or sys.platform == "darwin" else name
+        for name in (*RETIRED_HOOK_SCRIPTS, "orchestration_route.py")
+    }
+    return any(name in value for name in names)
+
+
 def command_invokes_retired_hook(command: object, *, windows: bool) -> bool:
     """Recognize the former exact two-argument Python Hook command shape."""
     script_path = python_hook_script(command, windows=windows)
     if script_path is None:
         return False
-    script = script_path.replace("\\", "/").rsplit("/", 1)[-1]
+    script = script_path.replace("\\", "/").rsplit("/", 1)[-1].split("\0", 1)[0]
     if windows:
         script = script.casefold()
         retired = {name.casefold() for name in RETIRED_HOOK_SCRIPTS}
@@ -569,6 +724,10 @@ def command_path_candidates(command: object, *, windows: bool) -> list[str]:
     for argument in arguments:
         if path_module.isabs(argument):
             add(argument)
+        for quoted in re.findall(r"(['\"])(.*?)\1", argument):
+            candidate = quoted[1]
+            if path_module.isabs(candidate):
+                add(candidate)
         if not windows and any(character.isspace() for character in argument):
             nested = hook_command_arguments(argument, windows=False)
             if nested is None or nested == [argument]:
@@ -746,7 +905,8 @@ def hook_path_is_ambiguous(path: str | Path, *, windows: bool) -> bool:
     path_module = ntpath if windows else posixpath
     expansion_characters = "%!^&|<>" if windows else "$`*?[{}"
     return (
-        hook_path_has_parent_traversal(value)
+        "\0" in value
+        or hook_path_has_parent_traversal(value)
         or not path_module.isabs(value)
         or any(character in value for character in expansion_characters)
     )
@@ -788,7 +948,7 @@ def referenced_script_has_retired_hash(path: str | Path, *, windows: bool) -> bo
         return False
     try:
         candidate = Path(path).resolve(strict=True)
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
         return False
     if not candidate.is_file():
         return False
@@ -867,26 +1027,50 @@ def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> l
         return failures
 
     seen_managed_retired_references: set[tuple[str, str]] = set()
-    retired_targets = (
-        hooks_root / "subagent_guard.py",
-        route_target,
-    )
+    retired_targets = tuple(hooks_root / name for name in RETIRED_HOOK_SCRIPTS) + (route_target,)
     for event, groups in hooks_value.items():
         if not isinstance(groups, list):
+            failures.append(f"runtime hooks config event must be a list: {event}: {hooks_path}")
             continue
         for group in groups:
-            if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+            if not isinstance(group, dict):
+                failures.append(
+                    f"runtime hooks config group must be an object: {event}: {hooks_path}"
+                )
+                continue
+            if not isinstance(group.get("hooks"), list):
+                failures.append(
+                    f"runtime hooks config group hooks must be a list: {event}: {hooks_path}"
+                )
                 continue
 
             for hook in group["hooks"]:
-                if not isinstance(hook, dict) or hook.get("type") != "command":
+                if not isinstance(hook, dict):
                     continue
+                present_fields = [
+                    hook[field] for field in ("command", "commandWindows") if field in hook
+                ]
+                if hook.get("type") == "command" and (
+                    not present_fields
+                    or any(
+                        not isinstance(field, str) or not field.strip() for field in present_fields
+                    )
+                ):
+                    failures.append(
+                        f"runtime command Hook has invalid command fields: {event}: {hooks_path}"
+                    )
                 command_fields = ((hook.get("command"), use_windows),)
                 if hook.get("commandWindows") is not None:
                     command_fields += ((hook.get("commandWindows"), True),)
                 for command, command_windows in command_fields:
+                    if unparseable_command_mentions_retired_hook(command, windows=command_windows):
+                        failures.append(
+                            f"retired-looking Hook registration has unparseable command: "
+                            f"{event}: {hooks_path}"
+                        )
+                        continue
                     for script in command_path_candidates(command, windows=command_windows):
-                        script_name = script.replace("\\", "/").rsplit("/", 1)[-1]
+                        script_name = script.replace("\\", "/").rsplit("/", 1)[-1].split("\0", 1)[0]
                         if command_windows or sys.platform == "darwin":
                             script_name = script_name.casefold()
                         retired_names = {
@@ -922,10 +1106,10 @@ def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> l
                             f"{hooks_path}: {script}"
                         )
 
-            if event == "UserPromptSubmit":
-                seen_route_paths: set[str] = set()
+            if event == "SubagentStart" and group.get("matcher") is None:
+                seen_scope_paths: set[str] = set()
                 for hook in group["hooks"]:
-                    if not isinstance(hook, dict) or hook.get("type") != "command":
+                    if not isinstance(hook, dict):
                         continue
                     command_fields = ((hook.get("command"), use_windows),)
                     if hook.get("commandWindows") is not None:
@@ -934,7 +1118,42 @@ def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> l
                         script = python_hook_script(command, windows=command_windows)
                         if script is None:
                             continue
-                        script_name = script.replace("\\", "/").rsplit("/", 1)[-1]
+                        script_name = script.replace("\\", "/").rsplit("/", 1)[-1].split("\0", 1)[0]
+                        expected_name = "subagent_scope.py"
+                        if command_windows or sys.platform == "darwin":
+                            script_name = script_name.casefold()
+                            expected_name = expected_name.casefold()
+                        if script_name != expected_name:
+                            continue
+                        script_key = hook_path_key(script, windows=command_windows)
+                        if script_key in seen_scope_paths:
+                            continue
+                        seen_scope_paths.add(script_key)
+                        scope_target = hooks_root / "subagent_scope.py"
+                        if hook_paths_may_alias(script, scope_target, windows=command_windows):
+                            failures.append(
+                                f"retired scope registration remains: {event}: {hooks_path}: "
+                                f"{script}"
+                            )
+                            continue
+                        failures.append(
+                            f"retired scope registration ownership conflicts: {event}: "
+                            f"{hooks_path}: {script}"
+                        )
+
+            if event == "UserPromptSubmit" and group.get("matcher") is None:
+                seen_route_paths: set[str] = set()
+                for hook in group["hooks"]:
+                    if not isinstance(hook, dict):
+                        continue
+                    command_fields = ((hook.get("command"), use_windows),)
+                    if hook.get("commandWindows") is not None:
+                        command_fields += ((hook.get("commandWindows"), True),)
+                    for command, command_windows in command_fields:
+                        script = python_hook_script(command, windows=command_windows)
+                        if script is None:
+                            continue
+                        script_name = script.replace("\\", "/").rsplit("/", 1)[-1].split("\0", 1)[0]
                         if (script_name.casefold() if command_windows else script_name) != (
                             "orchestration_route.py"
                         ):
@@ -959,7 +1178,7 @@ def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> l
             if not isinstance(matcher, str) or (event, matcher) not in LEGACY_HOOK_GROUPS:
                 continue
             for hook in group["hooks"]:
-                if not isinstance(hook, dict) or hook.get("type") != "command":
+                if not isinstance(hook, dict):
                     continue
                 if command_invokes_retired_hook(
                     hook.get("command"), windows=use_windows
@@ -1000,27 +1219,31 @@ def validate_source() -> list[str]:
     skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
     install_contract = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
     worker_contract = (ROOT / "references" / "worker-writing.md").read_text(encoding="utf-8")
+    worktree_contract = read_required_text(
+        ROOT / "references" / "worktree-roots.md", "worktree-root contract", failures
+    )
+    worktree_adr = read_required_text(
+        ROOT / "docs" / "adr" / "0009-coordinate-independent-worktree-roots.md",
+        "worktree-root ADR",
+        failures,
+    )
     model_routing = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
 
-    require(
-        top_level_values(project).get("version") == "0.7.0",
-        "project version must be 0.7.0",
-        failures,
-    )
+    failures.extend(source_version_failures(project, skill))
 
     for phrase in (
-        "version: 0.7.0",
         "references/model-routing.md",
         "references/worker-writing.md",
+        "references/worktree-roots.md",
         "task_package_language",
         "coverage",
         "panel",
         "hybrid",
-        "Use this required core",
-        "Add only the extensions that materially change the work",
-        "FOCUS",
-        "DELTA",
+        "compact brief usually",
+        "headings are optional",
+        "temporary handoff document",
+        "same-thread follow-up",
         "No prior lease is extended",
         "Single writer",
         "Do not create a worktree unless the user explicitly requests one",
@@ -1032,14 +1255,21 @@ def validate_source() -> list[str]:
         "earlier final notification",
         "fresh agent-tree snapshot",
         "Do not send guidance, interrupt, replace, or switch the model",
-        "WORKSTREAM: panel | specialist",
+        "semantic instructions, not required labels",
         "Before selecting a model for any delegation",
-        "`WORKSTREAM: panel` in `hybrid` use parent-aware panel routes",
+        "panel workstream in `hybrid` use parent-aware panel routes",
         "unisolated prompt injection",
         "Do not load or execute this Skill",
-        "writable-worker lease check",
+        "Missing labels never make an",
+        "Independent Worktree Roots",
+        "at most three nonterminal lane slots",
+        "same local orchestration authority as any other",
+        "Integration Root remains\nrepository-read-only",
     ):
         require(phrase in skill, f"missing Skill contract: {phrase}", failures)
+
+    failures.extend(worktree_contract_failures(worktree_contract))
+    failures.extend(worktree_adr_failures(worktree_adr))
 
     for phrase in (
         "latest host-generated system or developer model binding",
@@ -1047,8 +1277,8 @@ def validate_source() -> list[str]:
         "panel_routes.gpt",
         "panel_routes.third_party",
         "fails closed to `panel_routes.gpt`",
-        "WORKSTREAM: panel | specialist",
-        "specialist workstreams use ordinary role routes",
+        "brief makes\nthe workstream clear",
+        "Specialist workstreams use ordinary role routes",
         "host precondition",
         "at least two distinct usable models",
         "ordinary task overrides do not",
@@ -1102,44 +1332,22 @@ def validate_source() -> list[str]:
         pinned = pinned_model_keys(source)
         require(not pinned, f"agent pins model settings: {path.name}: {sorted(pinned)}", failures)
     require(set(profiles) == WRITERS | READERS, "agent role set does not match contract", failures)
-    hook_source = (ROOT / "hooks" / "subagent_scope.py").read_text(encoding="utf-8")
-    hook_roles_match = re.search(
-        r"^WRITER_ROLES = frozenset\((\{[^\n]+\})\)$", hook_source, re.MULTILINE
-    )
-    hook_writer_roles = None
-    if hook_roles_match is not None:
-        try:
-            hook_writer_roles = ast.literal_eval(hook_roles_match.group(1))
-        except (SyntaxError, ValueError):
-            pass
-    require(
-        hook_writer_roles == WRITERS,
-        "SubagentStart Hook writer roles do not match agent contract",
-        failures,
-    )
     for name in WRITERS:
         require(
             profiles.get(name, {}).get("sandbox_mode") == "workspace-write",
             f"{name} must be writable",
             failures,
         )
-        for field in WORKER_PACKAGE_FIELDS:
-            require(
-                field in profile_sources.get(name, ""),
-                f"{name} does not expose worker package field: {field}",
-                failures,
-            )
-    for field in WORKER_PACKAGE_FIELDS:
         require(
-            field in hook_source,
-            f"SubagentStart Hook does not expose worker package field: {field}",
+            "labels and fixed fields are not required" in profile_sources.get(name, ""),
+            f"{name} does not accept natural-language briefs",
             failures,
         )
-    require(
-        "WRITER LEASE CHECK (HIGH PRIORITY)" in hook_source,
-        "SubagentStart Hook lease check is not high priority",
-        failures,
-    )
+        require(
+            "necessary adjacent files" in profile_sources.get(name, ""),
+            f"{name} does not permit the smallest complete adjacent change",
+            failures,
+        )
     for name in READERS:
         require(
             profiles.get(name, {}).get("sandbox_mode") == "read-only",
@@ -1171,9 +1379,9 @@ def validate_source() -> list[str]:
         failures,
     )
     for phrase in (
-        "Method-worker boundaries",
-        "returns a checkpoint to the main agent",
-        "never turns a prototype into production architecture",
+        "Method workers",
+        "returns a checkpoint instead of guessing",
+        "without turning it into production architecture",
     ):
         require(
             phrase in worker_contract,
@@ -1187,25 +1395,21 @@ def validate_source() -> list[str]:
         failures,
     )
 
-    grant = "WRITE LEASE" + ": " + "granted"
-    require(
-        worker_contract.count(grant) == 1,
-        "canonical grant literal must appear exactly once",
-        failures,
-    )
-    for field in WORKER_PACKAGE_FIELDS:
-        require(field in worker_contract, f"worker contract missing field: {field}", failures)
-    require(
-        "Reusing a worker thread does not extend or recreate the previous lease" in worker_contract,
-        "worker contract permits implicit lease reuse",
-        failures,
-    )
+    for phrase in (
+        "compact natural-language brief, not a required form",
+        "Optional headings",
+        "recover ordinary implementation context",
+        "necessary adjacent files",
+        "Do not create a temporary handoff file",
+        "follow-up to the same worker thread may contain only",
+        "complete diff",
+    ):
+        require(
+            phrase in worker_contract,
+            f"worker contract missing flexible brief: {phrase}",
+            failures,
+        )
 
-    for hook in sorted((ROOT / "hooks").glob("*.py")):
-        try:
-            compile(hook.read_text(encoding="utf-8"), str(hook), "exec")
-        except SyntaxError as error:
-            failures.append(f"hook syntax error: {hook.name}: {error}")
     require(
         (ROOT / "skills" / "diagnosing-bugs" / "scripts" / "hitl-loop.template.ps1").is_file(),
         "Windows HITL template missing",
@@ -1222,17 +1426,15 @@ def validate_source() -> list[str]:
         "AGENTS.override.md",
         "byte-for-byte",
         "commandWindows",
-        "Preserves unrelated top-level fields, events, matcher groups, handlers, and order",
+        "preserves unrelated top-level fields, events, matcher groups, handlers, and order",
         "Do not register the repository root as one Skill",
         "one-time migration from links or a different checkout",
         "examples/preferences.toml",
         "--skills-root",
-        "subagent_scope.py",
-        "Retired project Hook assets",
+        "Retired project Agent and Hook assets",
         "Pure v2 verification",
         "caught write or verification failure",
         "abrupt process termination",
-        "/hooks",
         "does not confirm the resolved model",
     ):
         require(phrase in install_contract, f"missing install contract: {phrase}", failures)
@@ -1265,8 +1467,9 @@ def validate_source() -> list[str]:
         )
 
     for path in public_text_files():
-        text = path.read_text(encoding="utf-8")
-        failures.extend(public_pattern_failures(str(path.relative_to(ROOT)), text))
+        relative = str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
+        text = read_required_text(path, f"public source {relative}", failures)
+        failures.extend(public_pattern_failures(relative, text))
 
     require(
         (ROOT / "docs" / "adr" / "0007-pure-v2-collaboration-lifecycle.md").is_file(),
@@ -1278,14 +1481,19 @@ def validate_source() -> list[str]:
         "deterministic installer ADR missing",
         failures,
     )
+    require(
+        (ROOT / "docs" / "adr" / "0010-retire-orchestration-hook-and-rigid-briefs.md").is_file(),
+        "Hook and rigid-brief retirement ADR missing",
+        failures,
+    )
     for script in RETIRED_HOOK_SCRIPTS:
         require(
-            not (ROOT / "hooks" / script).exists(),
+            not os.path.lexists(ROOT / "hooks" / script),
             f"retired lifecycle Hook remains in source: {script}",
             failures,
         )
     require(
-        not (ROOT / "hooks" / "orchestration_route.py").exists(),
+        not os.path.lexists(ROOT / "hooks" / "orchestration_route.py"),
         "retired main-agent Route Hook remains in source",
         failures,
     )
@@ -1314,6 +1522,19 @@ def validate_source() -> list[str]:
             "Hook documentation does not contain the canonical global rules block",
             failures,
         )
+        decoded_global_rules = global_rules.decode("utf-8")
+        for phrase in (
+            "independent Worktree Roots",
+            "neither the Integration Root nor its local workers write the repository",
+            "at most three nonterminal lanes",
+            "Each root task has one active writer",
+            "derived agents never orchestrate descendants",
+        ):
+            require(
+                phrase in decoded_global_rules,
+                f"global rules missing worktree-root contract: {phrase}",
+                failures,
+            )
     routing_example = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
     failures.extend(routing_example_failures(routing_example))
     preferences_example = (ROOT / "examples" / "preferences.toml").read_text(encoding="utf-8")
@@ -1378,6 +1599,23 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
     if path_is_link_like(agents_root) or not agents_root.is_dir():
         failures.append(f"runtime Agent directory missing, linked, or conflicting: {agents_root}")
     else:
+        for filename, known_hashes in RETIRED_AGENT_SHA256.items():
+            target = agents_root / filename
+            if not os.path.lexists(target):
+                continue
+            if path_is_link_like(target) or not target.is_file():
+                failures.append(f"runtime retired Agent linked or conflicting: {target}")
+                continue
+            try:
+                digest = file_sha256(target)
+            except OSError as error:
+                failures.append(f"runtime retired Agent unreadable: {target}: {error}")
+            else:
+                require(
+                    digest not in known_hashes,
+                    f"runtime retired project Agent remains: {target}",
+                    failures,
+                )
         for source in sorted((ROOT / "agents").glob("*.toml")):
             target = agents_root / source.name
             require(
@@ -1419,84 +1657,11 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
     return failures
 
 
-def validate_hooks(codex_home: Path, *, windows: bool | None = None) -> list[str]:
-    failures: list[str] = []
-    use_windows = windows if windows is not None else os.name == "nt"
-    if path_is_link_like(codex_home):
-        return [f"runtime Codex home linked or conflicting: {codex_home}"]
-    linked = first_symlink_component(codex_home)
-    if linked is not None:
-        return [f"runtime Codex home has linked path component: {linked}"]
-    codex_home = canonical_selected_root(codex_home)
-    hooks_root = codex_home / "hooks"
-    if path_is_link_like(hooks_root) or not hooks_root.is_dir():
-        return [f"runtime Hook directory missing, linked, or conflicting: {hooks_root}"]
-    failures.extend(retired_hook_failures(codex_home, windows=use_windows))
-
-    targets: list[tuple[str, Path, str | None]] = []
-    for event, script, matcher in HOOK_REGISTRATIONS:
-        source = ROOT / "hooks" / script
-        target = hooks_root / script
-        if use_windows and (
-            unsafe_windows_hook_path(Path(sys.executable).absolute())
-            or unsafe_windows_hook_path(target.absolute())
-        ):
-            failures.append(f"runtime Hook command path is unsafe for cmd.exe: {target}")
-        require(
-            not path_is_link_like(target) and target.is_file() and files_equal(target, source),
-            f"runtime hook differs: {target}",
-            failures,
-        )
-        targets.append((event, target, matcher))
-
-    hooks_path = codex_home / "hooks.json"
-    if path_is_link_like(hooks_path) or not hooks_path.is_file():
-        failures.append(f"runtime hooks config missing, linked, or conflicting: {hooks_path}")
-        return failures
-    try:
-        data = strict_json_loads(hooks_path.read_bytes())
-    except (json.JSONDecodeError, OSError, UnicodeError, ValueError) as error:
-        failures.append(f"runtime hooks config invalid: {hooks_path}: {error}")
-        return failures
-    if not isinstance(data, dict) or not isinstance(data.get("hooks"), dict):
-        failures.append(f"runtime hooks config has invalid root: {hooks_path}")
-        return failures
-
-    for event, target, expected_matcher in targets:
-        groups = data["hooks"].get(event, [])
-        count = 0
-        if isinstance(groups, list):
-            for group in groups:
-                if not isinstance(group, dict) or group.get("matcher") != expected_matcher:
-                    continue
-                hooks = group.get("hooks", []) if isinstance(group, dict) else []
-                if not isinstance(hooks, list):
-                    continue
-                for hook in hooks:
-                    if not isinstance(hook, dict) or hook.get("type") != "command":
-                        continue
-                    command = hook.get("commandWindows" if use_windows else "command")
-                    if not hook_command_matches(command, target, windows=use_windows):
-                        continue
-                    if use_windows and not hook_command_matches(
-                        hook.get("command"), target, windows=True
-                    ):
-                        continue
-                    count += 1
-        require(
-            count == 1,
-            f"runtime Hook registration count is {count}, expected 1: {event}: {target}",
-            failures,
-        )
-    return failures
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", action="store_true")
     parser.add_argument("--codex-home", type=Path)
     parser.add_argument("--skills-root", type=Path)
-    parser.add_argument("--hooks", action="store_true")
     parser.add_argument("--global-rules", action="store_true")
     args = parser.parse_args()
 
@@ -1513,12 +1678,10 @@ def main() -> int:
                 skills_root,
             )
         )
-        if args.hooks:
-            failures.extend(validate_hooks(codex_home))
         if args.global_rules:
             failures.extend(validate_global_rules(codex_home))
-    elif args.hooks or args.global_rules:
-        parser.error("--hooks and --global-rules require --runtime")
+    elif args.global_rules:
+        parser.error("--global-rules requires --runtime")
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")

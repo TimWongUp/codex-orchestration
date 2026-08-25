@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -49,6 +50,168 @@ class SourceValidationTest(unittest.TestCase):
     def test_source_contract(self) -> None:
         self.assertEqual(VALIDATOR.validate_source(), [])
 
+    def test_worktree_roots_are_peer_tasks_with_integrated_review(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        contract = (ROOT / "references" / "worktree-roots.md").read_text(encoding="utf-8")
+        global_rules = (ROOT / "examples" / "global-agents-block.md").read_text(encoding="utf-8")
+
+        self.assertIn("independent task and session", skill)
+        self.assertIn("A Worktree Root is a normal root task", skill)
+        self.assertIn("at most three nonterminal lane slots", skill)
+        self.assertIn("at most eight spawned-agent threads", contract)
+        self.assertIn("same `explorer`, reviewer, worker, and specialist roles", contract)
+        self.assertIn("batch roles, not different agent types", contract)
+        self.assertIn("distinct official worktree", contract)
+        self.assertIn("failed or canceled lane blocks successful delivery", contract)
+        self.assertIn("Stop convergence", contract)
+        self.assertIn("Lane review never substitutes for the integrated review", contract)
+        self.assertIn("R0-R3 review gate against the combined diff", contract)
+        self.assertIn(
+            "neither the Integration Root nor its local workers write the repository",
+            global_rules,
+        )
+        self.assertFalse((ROOT / "agents" / "worktree-root.toml").exists())
+
+    def test_worktree_contract_rejects_limit_and_sequence_drift(self) -> None:
+        contract = (ROOT / "references" / "worktree-roots.md").read_text(encoding="utf-8")
+        self.assertEqual(VALIDATOR.worktree_contract_failures(contract), [])
+
+        mutations = (
+            (
+                "independent Codex task and session",
+                "derived Codex task and session",
+            ),
+            (
+                "at most three nonterminal Worktree Roots",
+                "at most four nonterminal Worktree Roots",
+            ),
+            (
+                "at most eight spawned-agent threads",
+                "at most nine spawned-agent threads",
+            ),
+            (
+                "fails closed and does not spawn",
+                "warns and continues to spawn",
+            ),
+        )
+        for old, new in mutations:
+            with self.subTest(old=old):
+                mutated = contract.replace(old, new, 1)
+                self.assertTrue(VALIDATOR.worktree_contract_failures(mutated))
+
+        first, second, *_ = VALIDATOR.WORKTREE_INTEGRATION_SEQUENCE
+        reordered = contract.replace(first, "__FIRST__", 1)
+        reordered = reordered.replace(second, first, 1).replace("__FIRST__", second, 1)
+        self.assertIn(
+            "worktree-root integration sequence must be complete batch, serial merge, "
+            "combined validation, then R0-R3 review",
+            VALIDATOR.worktree_contract_failures(reordered),
+        )
+        for marker in VALIDATOR.WORKTREE_INTEGRATION_SEQUENCE:
+            with self.subTest(missing_marker=marker):
+                missing = contract.replace(marker, "", 1)
+                self.assertIn(
+                    f"worktree-root integration step missing: {marker}",
+                    VALIDATOR.worktree_contract_failures(missing),
+                )
+
+        self.assertTrue(VALIDATOR.worktree_contract_failures("   \n"))
+
+    def test_worktree_contract_missing_path_has_actionable_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            failures: list[str] = []
+            source = VALIDATOR.read_required_text(
+                Path(temporary_directory) / "worktree-roots.md",
+                "worktree-root contract",
+                failures,
+            )
+        self.assertEqual(source, "")
+        self.assertEqual(failures, ["worktree-root contract missing"])
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            invalid_path = Path(temporary_directory) / "worktree-roots.md"
+            invalid_path.write_bytes(b"\xff")
+            failures = []
+            source = VALIDATOR.read_required_text(
+                invalid_path,
+                "worktree-root contract",
+                failures,
+            )
+        self.assertEqual(source, "")
+        self.assertEqual(len(failures), 1)
+        self.assertTrue(failures[0].startswith("worktree-root contract unreadable:"))
+
+    def test_public_source_scan_reports_invalid_utf8(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            invalid_path = Path(temporary_directory) / "invalid.md"
+            invalid_path.write_bytes(b"\xff")
+            with mock.patch.object(VALIDATOR, "public_text_files", return_value=[invalid_path]):
+                failures = VALIDATOR.validate_source()
+        self.assertTrue(
+            any(
+                failure.startswith("public source ") and " unreadable:" in failure
+                for failure in failures
+            )
+        )
+
+    def test_worktree_adr_decisions_are_validated(self) -> None:
+        adr = (ROOT / "docs" / "adr" / "0009-coordinate-independent-worktree-roots.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(VALIDATOR.worktree_adr_failures(adr), [])
+        normalized_adr = " ".join(adr.split())
+        mutated = normalized_adr.replace("Failed or canceled lanes", "Incomplete lanes", 1)
+        self.assertIn(
+            "worktree-root ADR missing decision: Failed or canceled lanes",
+            VALIDATOR.worktree_adr_failures(mutated),
+        )
+        too_many = normalized_adr.replace("at most three", "at most four", 1)
+        self.assertIn(
+            "worktree-root ADR missing decision: at most three nonterminal Worktree Roots",
+            VALIDATOR.worktree_adr_failures(too_many),
+        )
+        first, second, *_ = VALIDATOR.WORKTREE_ADR_SEQUENCE
+        reordered = normalized_adr.replace(first, "__FIRST__", 1)
+        reordered = reordered.replace(second, first, 1).replace("__FIRST__", second, 1)
+        self.assertIn(
+            "worktree-root ADR sequence must be accepted batch, serial merge, combined "
+            "validation, then final R0-R3 review",
+            VALIDATOR.worktree_adr_failures(reordered),
+        )
+        self.assertTrue(VALIDATOR.worktree_adr_failures("\n"))
+
+    def test_skill_frontmatter_version_matches_project_metadata(self) -> None:
+        project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertEqual(VALIDATOR.source_version_failures(project, skill), [])
+
+        mutated = skill.replace("version: 0.8.0", "version: 0.7.0", 1)
+        mutated += "\nversion: 0.8.0\n"
+        self.assertIn(
+            "Skill front matter version must match project version",
+            VALIDATOR.source_version_failures(project, mutated),
+        )
+
+        duplicate = skill.replace(
+            "  version: 0.8.0",
+            "  version: 0.8.0\n  version: 0.8.0",
+            1,
+        )
+        self.assertIn(
+            "Skill front matter version must appear exactly once",
+            VALIDATOR.source_version_failures(project, duplicate),
+        )
+
+        duplicate_project = project.replace(
+            'version = "0.8.0"',
+            'version = "0.7.0"\nversion = "0.8.0"',
+            1,
+        )
+        self.assertIn(
+            "project version must appear exactly once",
+            VALIDATOR.source_version_failures(duplicate_project, skill),
+        )
+
     def test_v2_policy_does_not_use_a_main_agent_route_hook(self) -> None:
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         self.assertFalse((ROOT / "hooks" / "orchestration_route.py").exists())
@@ -61,16 +224,19 @@ class SourceValidationTest(unittest.TestCase):
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         routing = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
 
-        self.assertIn("`WORKSTREAM: panel` in `hybrid` use parent-aware panel routes", skill)
-        self.assertIn("delegation never inspect the\nparent model identity", routing)
+        self.assertIn("panel workstream in `hybrid` use parent-aware panel routes", skill)
+        self.assertIn(
+            "hybrid specialist delegation never inspect the parent\nmodel identity", routing
+        )
         self.assertIn("latest host-generated system or developer model binding", routing)
         self.assertIn("explicit `model_switch`", routing)
         self.assertIn("uses `panel_routes.gpt`", routing)
         self.assertIn("uses `panel_routes.third_party`", routing)
         self.assertIn("fails closed to `panel_routes.gpt`", routing)
-        self.assertIn("specialist workstreams use ordinary role routes", routing)
-        self.assertIn("WORKSTREAM: panel | specialist", skill)
-        self.assertIn("WORKSTREAM: panel | specialist", routing)
+        self.assertIn("Specialist workstreams use ordinary role routes", routing)
+        self.assertIn("semantic instructions, not required labels", skill)
+        self.assertIn("brief makes\nthe workstream clear", routing)
+        self.assertNotIn("WORKSTREAM: panel | specialist", skill)
 
     def test_routing_example_schema_validates_panel_and_service_requirements(self) -> None:
         source = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
@@ -177,24 +343,26 @@ class SourceValidationTest(unittest.TestCase):
             VALIDATOR.preferences_failures(unsupported),
         )
 
-    def test_scope_hook_exposes_lease_only_for_writers(self) -> None:
-        def run_scope(payload: str) -> dict[str, object]:
-            result = subprocess.run(
-                [sys.executable, str(ROOT / "hooks" / "subagent_scope.py")],
-                input=payload,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            return cast(dict[str, object], json.loads(result.stdout)["hookSpecificOutput"])
+    def test_worker_profiles_accept_natural_briefs_without_scope_hook(self) -> None:
+        self.assertFalse(os.path.lexists(ROOT / "hooks" / "subagent_scope.py"))
+        for name in VALIDATOR.WRITERS:
+            source = (ROOT / "agents" / f"{name}.toml").read_text(encoding="utf-8")
+            self.assertIn("labels and fixed fields are not required", source)
+            self.assertIn("necessary adjacent files", source)
+            self.assertNotIn("WRITE LEASE: granted", source)
+            self.assertNotIn("ALLOWED PATHS", source)
 
-        worker = cast(str, run_scope('{"agent_type":"worker"}')["additionalContext"])
-        reader = cast(str, run_scope('{"agent_type":"explorer"}')["additionalContext"])
-        self.assertIn("WRITE LEASE: granted", worker)
-        self.assertIn("GOAL", worker)
-        self.assertIn("WRITER LEASE CHECK (HIGH PRIORITY)", worker)
-        self.assertEqual(reader, "")
+    def test_source_contract_rejects_broken_retired_hook_symlink(self) -> None:
+        target = ROOT / "hooks" / "subagent_scope.py"
+        original_lexists = os.path.lexists
+
+        def fake_lexists(path: str | Path) -> bool:
+            return Path(path) == target or original_lexists(path)
+
+        with mock.patch.object(VALIDATOR.os.path, "lexists", side_effect=fake_lexists):
+            failures = VALIDATOR.validate_source()
+
+        self.assertTrue(any("retired lifecycle Hook remains" in item for item in failures))
 
     def test_runtime_validation_accepts_copied_install(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -367,7 +535,7 @@ class SourceValidationTest(unittest.TestCase):
         self.assertTrue(any("linked" in failure for failure in skill_failures))
         self.assertTrue(any("linked" in failure for failure in home_failures))
 
-    def test_runtime_validation_ignores_unselected_hooks(self) -> None:
+    def test_runtime_validation_preserves_unrelated_hooks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
             hooks_root = codex_home / "hooks"
@@ -376,84 +544,30 @@ class SourceValidationTest(unittest.TestCase):
 
             self.assertEqual(VALIDATOR.validate_runtime(codex_home, skills_root), [])
 
-    def test_hook_registration_contract_has_one_hook(self) -> None:
-        self.assertEqual(
-            VALIDATOR.HOOK_REGISTRATIONS,
-            (("SubagentStart", "subagent_scope.py", None),),
-        )
-
-    def test_hook_validation_accepts_one_registration_per_event(self) -> None:
-        for windows in (False, True):
-            with self.subTest(windows=windows), tempfile.TemporaryDirectory() as temporary:
-                codex_home = Path(temporary).resolve() / "codex-home"
-                hooks_root = codex_home / "hooks"
-                hooks_root.mkdir(parents=True)
-                hooks: dict[str, list[dict[str, object]]] = {}
-                for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                    target = hooks_root / script
-                    shutil.copy2(ROOT / "hooks" / script, target)
-                    command = VALIDATOR.expected_hook_command(target, windows=windows)
-                    hook: dict[str, object] = {"type": "command", "command": command}
-                    if windows:
-                        hook["commandWindows"] = command
-                    group: dict[str, object] = {"hooks": [hook]}
-                    if matcher is not None:
-                        group["matcher"] = matcher
-                    hooks[event] = [group]
-                hooks["SessionStart"] = [{"hooks": [{"type": "command", "command": "foreign"}]}]
-                hooks.setdefault("PreToolUse", []).append(
+    def test_runtime_validation_rejects_retired_scope_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
+            hooks_root = codex_home / "hooks"
+            hooks_root.mkdir()
+            target = hooks_root / "subagent_scope.py"
+            target.write_text("retired scope\n", encoding="utf-8")
+            command = VALIDATOR.expected_hook_command(target, windows=VALIDATOR.os.name == "nt")
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
                     {
-                        "matcher": "bash$",
-                        "hooks": [{"type": "command", "command": "foreign"}],
+                        "hooks": {
+                            "SubagentStart": [{"hooks": [{"type": "command", "command": command}]}]
+                        }
                     }
-                )
-                (codex_home / "hooks.json").write_text(
-                    json.dumps({"hooks": hooks}), encoding="utf-8"
-                )
+                ),
+                encoding="utf-8",
+            )
 
-                self.assertEqual(VALIDATOR.validate_hooks(codex_home, windows=windows), [])
+            failures = VALIDATOR.validate_runtime(codex_home, skills_root)
 
-    def test_hook_validation_rejects_duplicate_or_misplaced_registration(self) -> None:
-        for windows in (False, True):
-            for mutation in ("duplicate", "wrong-event", "wrong-matcher"):
-                with (
-                    self.subTest(windows=windows, mutation=mutation),
-                    tempfile.TemporaryDirectory() as temporary,
-                ):
-                    codex_home = Path(temporary).resolve() / "codex-home"
-                    hooks_root = codex_home / "hooks"
-                    hooks_root.mkdir(parents=True)
-                    hooks: dict[str, list[dict[str, object]]] = {}
-                    for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                        target = hooks_root / script
-                        shutil.copy2(ROOT / "hooks" / script, target)
-                        command = VALIDATOR.expected_hook_command(target, windows=windows)
-                        hook: dict[str, object] = {"type": "command", "command": command}
-                        if windows:
-                            hook["commandWindows"] = command
-                        group: dict[str, object] = {"hooks": [hook]}
-                        if matcher is not None:
-                            group["matcher"] = matcher
-                        hooks[event] = [group]
+        self.assertTrue(any("subagent_scope.py" in failure for failure in failures))
 
-                    event = VALIDATOR.HOOK_REGISTRATIONS[0][0]
-                    group = hooks[event][0]
-                    if mutation == "duplicate":
-                        hooks[event].append(group.copy())
-                    elif mutation == "wrong-event":
-                        hooks["PreToolUse"] = hooks.pop(event)
-                    else:
-                        group["matcher"] = "wrong$"
-                    (codex_home / "hooks.json").write_text(
-                        json.dumps({"hooks": hooks}), encoding="utf-8"
-                    )
-
-                    failures = VALIDATOR.validate_hooks(codex_home, windows=windows)
-
-                expected_count = "count is 2" if mutation == "duplicate" else "count is 0"
-                self.assertTrue(any(expected_count in failure for failure in failures))
-
-    def test_runtime_validation_rejects_retired_guard_without_hooks_opt_in(self) -> None:
+    def test_runtime_validation_rejects_retired_guard(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary).resolve()
             codex_home, skills_root = self.copy_runtime(temporary_path)
@@ -490,7 +604,7 @@ class SourceValidationTest(unittest.TestCase):
             any("retired v1-shaped hook registration remains" in failure for failure in failures)
         )
 
-    def test_hook_validation_rejects_legacy_guard_variants(self) -> None:
+    def test_retired_scan_rejects_legacy_guard_variants(self) -> None:
         legacy_groups = (
             ("PostToolUse", r"(?:functions[._]?exec|wait_agent)$"),
             ("PostToolUse", r"wait_agent$"),
@@ -512,18 +626,6 @@ class SourceValidationTest(unittest.TestCase):
                     hooks_root = codex_home / "hooks"
                     hooks_root.mkdir(parents=True)
                     hooks: dict[str, list[dict[str, object]]] = {}
-                    for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                        target = hooks_root / script
-                        shutil.copy2(ROOT / "hooks" / script, target)
-                        command = VALIDATOR.expected_hook_command(target, windows=windows)
-                        hook: dict[str, object] = {"type": "command", "command": command}
-                        if windows:
-                            hook["commandWindows"] = command
-                        group: dict[str, object] = {"hooks": [hook]}
-                        if matcher is not None:
-                            group["matcher"] = matcher
-                        hooks[event] = [group]
-
                     external_guard = temporary_path / "old-codex" / "hooks" / "subagent_guard.py"
                     external_guard.parent.mkdir(parents=True)
                     external_guard.write_text("retired\n", encoding="utf-8")
@@ -546,7 +648,7 @@ class SourceValidationTest(unittest.TestCase):
                         json.dumps({"hooks": hooks}), encoding="utf-8"
                     )
 
-                    failures = VALIDATOR.validate_hooks(codex_home, windows=windows)
+                    failures = VALIDATOR.retired_hook_failures(codex_home, windows=windows)
 
                 self.assertTrue(
                     any(
@@ -568,38 +670,6 @@ class SourceValidationTest(unittest.TestCase):
         self.assertTrue(
             any("retired Hook path ownership conflicts" in failure for failure in failures)
         )
-
-    def test_hook_validation_reports_unreadable_selected_hook(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home = Path(temporary).resolve() / "codex-home"
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            hooks: dict[str, list[dict[str, object]]] = {}
-            windows = VALIDATOR.os.name == "nt"
-            for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                target = hooks_root / script
-                shutil.copy2(ROOT / "hooks" / script, target)
-                command = VALIDATOR.expected_hook_command(target, windows=windows)
-                hook: dict[str, object] = {"type": "command", "command": command}
-                if windows:
-                    hook["commandWindows"] = command
-                group: dict[str, object] = {"hooks": [hook]}
-                if matcher is not None:
-                    group["matcher"] = matcher
-                hooks[event] = [group]
-            (codex_home / "hooks.json").write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
-            unreadable = hooks_root / "subagent_scope.py"
-            original_read = VALIDATOR.Path.read_bytes
-
-            def guarded_read(path: Path) -> bytes:
-                if path == unreadable:
-                    raise PermissionError("denied")
-                return original_read(path)
-
-            with mock.patch.object(VALIDATOR.Path, "read_bytes", guarded_read):
-                failures = VALIDATOR.validate_hooks(codex_home, windows=windows)
-
-        self.assertTrue(any(f"runtime hook differs: {unreadable}" in item for item in failures))
 
     def test_retired_scan_accepts_unhashable_foreign_matchers(self) -> None:
         for matcher in ([], {}):
@@ -808,7 +878,7 @@ class SourceValidationTest(unittest.TestCase):
 
         self.assertTrue(any("retired managed hook remains" in failure for failure in failures))
 
-    def test_runtime_validation_rejects_legacy_v1_route_without_hooks_opt_in(self) -> None:
+    def test_runtime_validation_rejects_legacy_v1_route(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
             hooks_root = codex_home / "hooks"
@@ -896,6 +966,95 @@ class SourceValidationTest(unittest.TestCase):
         self.assertTrue(
             any("retired route registration ownership conflicts" in item for item in failures)
         )
+
+    def test_retired_scan_preserves_external_route_with_custom_matcher(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            external_route = root / "user" / "orchestration_route.py"
+            external_route.parent.mkdir()
+            external_route.write_text("user route\n", encoding="utf-8")
+            command = VALIDATOR.expected_hook_command(
+                external_route, windows=VALIDATOR.os.name == "nt"
+            )
+            handler: dict[str, object] = {"type": "command", "command": command}
+            if VALIDATOR.os.name == "nt":
+                handler["commandWindows"] = command
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {"hooks": {"UserPromptSubmit": [{"matcher": "custom", "hooks": [handler]}]}}
+                ),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertEqual(failures, [])
+
+    def test_retired_scan_rejects_external_scope_registration_as_ownership_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            external_scope = root / "user" / "subagent_scope.py"
+            external_scope.parent.mkdir()
+            external_scope.write_text("user copy\n", encoding="utf-8")
+            command = VALIDATOR.expected_hook_command(
+                external_scope, windows=VALIDATOR.os.name == "nt"
+            )
+            handler: dict[str, object] = {"type": "command", "command": command}
+            if VALIDATOR.os.name == "nt":
+                handler["commandWindows"] = command
+            (codex_home / "hooks.json").write_text(
+                json.dumps({"hooks": {"SubagentStart": [{"hooks": [handler]}]}}),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(
+            any("retired scope registration ownership conflicts" in item for item in failures)
+        )
+
+    def test_retired_scan_checks_guard_and_route_shapes_with_wrong_handler_type(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            external_guard = root / "user" / "subagent_guard.py"
+            external_route = root / "user" / "orchestration_route.py"
+            external_guard.parent.mkdir()
+            external_guard.write_text("user guard\n", encoding="utf-8")
+            external_route.write_text("user route\n", encoding="utf-8")
+            windows = VALIDATOR.os.name == "nt"
+            guard_handler = {
+                "type": "shell",
+                "command": VALIDATOR.expected_hook_command(external_guard, windows=windows),
+            }
+            route_handler = {
+                "type": "shell",
+                "command": VALIDATOR.expected_hook_command(external_route, windows=windows),
+            }
+            if windows:
+                guard_handler["commandWindows"] = guard_handler["command"]
+                route_handler["commandWindows"] = route_handler["command"]
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "PreToolUse": [{"matcher": r"send_input$", "hooks": [guard_handler]}],
+                            "UserPromptSubmit": [{"hooks": [route_handler]}],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("retired v1-shaped hook registration" in item for item in failures))
+        self.assertTrue(any("retired route registration ownership" in item for item in failures))
 
     def test_retired_scan_rejects_missing_route_registration_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -990,26 +1149,10 @@ class SourceValidationTest(unittest.TestCase):
         self.assertEqual(len(failures), 1)
         self.assertIn("Hook directory linked or conflicting", failures[0])
 
-    def test_runtime_cli_validates_selected_hooks_and_global_rules(self) -> None:
+    def test_runtime_cli_validates_global_rules_without_project_hooks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
             (codex_home / "AGENTS.md").write_bytes(VALIDATOR.GLOBAL_RULES_TEMPLATE.read_bytes())
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir()
-            hooks: dict[str, list[dict[str, object]]] = {}
-            windows = VALIDATOR.os.name == "nt"
-            for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                target = hooks_root / script
-                shutil.copy2(ROOT / "hooks" / script, target)
-                command = VALIDATOR.expected_hook_command(target, windows=windows)
-                hook: dict[str, object] = {"type": "command", "command": command}
-                if windows:
-                    hook["commandWindows"] = command
-                group: dict[str, object] = {"hooks": [hook]}
-                if matcher is not None:
-                    group["matcher"] = matcher
-                hooks[event] = [group]
-            (codex_home / "hooks.json").write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
 
             result = subprocess.run(
                 [
@@ -1020,7 +1163,6 @@ class SourceValidationTest(unittest.TestCase):
                     str(codex_home),
                     "--skills-root",
                     str(skills_root),
-                    "--hooks",
                     "--global-rules",
                 ],
                 text=True,
@@ -1030,45 +1172,6 @@ class SourceValidationTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("OK: runtime skill and agents match source", result.stdout)
-
-    def test_hook_validation_rejects_non_exact_commands(self) -> None:
-        for windows in (False, True):
-            for command_kind in ("path-substring", "path-suffix", "extra-argument"):
-                with (
-                    self.subTest(windows=windows, command_kind=command_kind),
-                    tempfile.TemporaryDirectory() as temporary,
-                ):
-                    codex_home = Path(temporary).resolve() / "codex-home"
-                    hooks_root = codex_home / "hooks"
-                    hooks_root.mkdir(parents=True)
-                    hooks: dict[str, list[dict[str, object]]] = {}
-                    for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                        target = hooks_root / script
-                        shutil.copy2(ROOT / "hooks" / script, target)
-                        if command_kind == "path-substring":
-                            command = f'echo "{target}"'
-                        elif command_kind == "path-suffix":
-                            command = VALIDATOR.expected_hook_command(
-                                Path(f"{target}.disabled"), windows=windows
-                            )
-                        else:
-                            command = (
-                                f"{VALIDATOR.expected_hook_command(target, windows=windows)} extra"
-                            )
-                        hook: dict[str, object] = {"type": "command", "command": command}
-                        if windows:
-                            hook["commandWindows"] = command
-                        group: dict[str, object] = {"hooks": [hook]}
-                        if matcher is not None:
-                            group["matcher"] = matcher
-                        hooks[event] = [group]
-                    (codex_home / "hooks.json").write_text(
-                        json.dumps({"hooks": hooks}), encoding="utf-8"
-                    )
-
-                    failures = VALIDATOR.validate_hooks(codex_home, windows=windows)
-
-                self.assertTrue(any("registration count is 0" in failure for failure in failures))
 
     def test_expected_hook_command_uses_platform_quoting(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1096,64 +1199,231 @@ class SourceValidationTest(unittest.TestCase):
             str(target.absolute()),
         )
 
-    def test_hook_validation_rejects_missing_or_invalid_windows_fields(self) -> None:
-        for invalid_field in (
-            "missing-command",
-            "invalid-command",
-            "missing-commandWindows",
-            "invalid-commandWindows",
-            "mismatched-valid-fields",
-        ):
-            with (
-                self.subTest(invalid_field=invalid_field),
-                tempfile.TemporaryDirectory() as temporary,
-            ):
-                codex_home = Path(temporary).resolve() / "codex-home"
-                hooks_root = codex_home / "hooks"
-                hooks_root.mkdir(parents=True)
-                hooks: dict[str, list[dict[str, object]]] = {}
-                for event, script, matcher in VALIDATOR.HOOK_REGISTRATIONS:
-                    target = hooks_root / script
-                    shutil.copy2(ROOT / "hooks" / script, target)
-                    hook: dict[str, object] = {
-                        "type": "command",
-                        "command": VALIDATOR.expected_hook_command(target, windows=True),
-                        "commandWindows": VALIDATOR.expected_hook_command(target, windows=True),
-                    }
-                    if invalid_field == "missing-command":
-                        del hook["command"]
-                    elif invalid_field == "invalid-command":
-                        hook["command"] = "invalid"
-                    elif invalid_field == "missing-commandWindows":
-                        del hook["commandWindows"]
-                    elif invalid_field == "invalid-commandWindows":
-                        hook["commandWindows"] = "invalid"
-                    else:
-                        hook["command"] = f"{hook['command']} "
-                    group: dict[str, object] = {"hooks": [hook]}
-                    if matcher is not None:
-                        group["matcher"] = matcher
-                    hooks[event] = [group]
-                (codex_home / "hooks.json").write_text(
-                    json.dumps({"hooks": hooks}), encoding="utf-8"
-                )
-
-                failures = VALIDATOR.validate_hooks(codex_home, windows=True)
-
-            self.assertTrue(any("registration count is 0" in failure for failure in failures))
-
-    def test_hook_validation_rejects_invalid_json(self) -> None:
+    def test_retired_scan_rejects_invalid_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home = Path(temporary).resolve() / "codex-home"
             hooks_root = codex_home / "hooks"
             hooks_root.mkdir(parents=True)
-            for source in (ROOT / "hooks").glob("*.py"):
-                shutil.copy2(source, hooks_root / source.name)
             (codex_home / "hooks.json").write_text("{invalid", encoding="utf-8")
 
-            failures = VALIDATOR.validate_hooks(codex_home)
+            failures = VALIDATOR.retired_hook_failures(codex_home)
 
         self.assertTrue(any("hooks config invalid" in failure for failure in failures))
+
+    def test_retired_scan_rejects_non_list_event(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary).resolve() / "codex-home"
+            codex_home.mkdir()
+            target = codex_home / "hooks" / "subagent_scope.py"
+            command = VALIDATOR.expected_hook_command(target, windows=VALIDATOR.os.name == "nt")
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "SubagentStart": {"hooks": [{"type": "command", "command": command}]}
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("event must be a list: SubagentStart" in item for item in failures))
+
+    def test_retired_scan_rejects_non_list_group_hooks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary).resolve() / "codex-home"
+            codex_home.mkdir()
+            target = codex_home / "hooks" / "subagent_scope.py"
+            command = VALIDATOR.expected_hook_command(target, windows=VALIDATOR.os.name == "nt")
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "SubagentStart": [{"hooks": {"type": "command", "command": command}}]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("group hooks must be a list" in item for item in failures))
+
+    def test_retired_scan_rejects_shell_operator_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            retired = root / "old" / "subagent_scope.py"
+            retired.parent.mkdir()
+            retired.write_bytes(b"known retired scope fixture\n")
+            windows = VALIDATOR.os.name == "nt"
+            separator = "&" if windows else ";"
+            command = (
+                f"{VALIDATOR.expected_hook_command(retired, windows=windows)} {separator} echo x"
+            )
+            handler: dict[str, object] = {"type": "command", "command": command}
+            if windows:
+                handler["commandWindows"] = command
+            (codex_home / "hooks.json").write_text(
+                json.dumps({"hooks": {"SessionStart": [{"hooks": [handler]}]}}),
+                encoding="utf-8",
+            )
+            known_digest = next(iter(VALIDATOR.RETIRED_HOOK_SHA256["subagent_scope.py"]))
+
+            with mock.patch.object(VALIDATOR, "file_sha256", return_value=known_digest):
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("retired project Hook code" in item for item in failures))
+
+    def test_retired_scan_rejects_grouped_command_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            retired = root / "old" / "subagent_scope.py"
+            retired.parent.mkdir()
+            retired.write_bytes(b"known retired scope fixture\n")
+            windows = VALIDATOR.os.name == "nt"
+            command = f"({VALIDATOR.expected_hook_command(retired, windows=windows)})"
+            handler: dict[str, object] = {"type": "command", "command": command}
+            if windows:
+                handler["commandWindows"] = command
+            (codex_home / "hooks.json").write_text(
+                json.dumps({"hooks": {"SessionStart": [{"hooks": [handler]}]}}),
+                encoding="utf-8",
+            )
+            known_digest = next(iter(VALIDATOR.RETIRED_HOOK_SHA256["subagent_scope.py"]))
+
+            with mock.patch.object(VALIDATOR, "file_sha256", return_value=known_digest):
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("retired project Hook code" in item for item in failures))
+
+    @unittest.skipIf(VALIDATOR.os.name == "nt", "POSIX line-continuation syntax only")
+    def test_retired_scan_rejects_unparseable_retired_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            retired = root / "old" / "subagent_scope.py"
+            retired.parent.mkdir()
+            retired.write_bytes(b"known retired scope fixture\n")
+            command = f"{VALIDATOR.expected_hook_command(retired, windows=False)}\\"
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "SessionStart": [{"hooks": [{"type": "command", "command": command}]}]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("unparseable command" in item for item in failures))
+
+    @unittest.skipIf(VALIDATOR.os.name == "nt", "POSIX line-continuation syntax only")
+    def test_retired_scan_rejects_line_continuation_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            retired = root / "old" / "subagent_scope.py"
+            retired.parent.mkdir()
+            retired.write_bytes(b"known retired scope fixture\n")
+            command = VALIDATOR.expected_hook_command(retired, windows=False).replace(
+                "subagent_scope.py", "subagent_\\\nscope.py"
+            )
+            (codex_home / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "SessionStart": [{"hooks": [{"type": "command", "command": command}]}]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            known_digest = next(iter(VALIDATOR.RETIRED_HOOK_SHA256["subagent_scope.py"]))
+
+            with mock.patch.object(VALIDATOR, "file_sha256", return_value=known_digest):
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("retired project Hook code" in item for item in failures))
+
+    def test_retired_scan_rejects_nul_in_project_hook_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary).resolve() / "codex-home"
+            codex_home.mkdir()
+            target = Path(f"{codex_home / 'hooks' / 'subagent_scope.py'}\0")
+            command = VALIDATOR.expected_hook_command(target, windows=VALIDATOR.os.name == "nt")
+            handler: dict[str, object] = {"type": "command", "command": command}
+            if VALIDATOR.os.name == "nt":
+                handler["commandWindows"] = command
+            (codex_home / "hooks.json").write_text(
+                json.dumps({"hooks": {"SubagentStart": [{"hooks": [handler]}]}}),
+                encoding="utf-8",
+            )
+
+            failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(
+            any("retired-looking Hook registration has unsafe path" in item for item in failures)
+        )
+
+    def test_retired_scan_rejects_malformed_retired_handlers(self) -> None:
+        for label in ("missing-type", "wrong-type", "non-string-command"):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                codex_home = Path(temporary).resolve() / "codex-home"
+                codex_home.mkdir()
+                target = codex_home / "hooks" / "subagent_scope.py"
+                command = VALIDATOR.expected_hook_command(target, windows=VALIDATOR.os.name == "nt")
+                if label == "missing-type":
+                    handler: dict[str, object] = {"command": command}
+                elif label == "wrong-type":
+                    handler = {"type": "shell", "command": command}
+                else:
+                    handler = {"type": "command", "command": 123}
+                (codex_home / "hooks.json").write_text(
+                    json.dumps({"hooks": {"SubagentStart": [{"hooks": [handler]}]}}),
+                    encoding="utf-8",
+                )
+
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+            self.assertTrue(failures)
+
+    def test_retired_scan_rejects_python_code_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            retired = root / "old" / "subagent_scope.py"
+            retired.parent.mkdir()
+            retired.write_bytes(b"known retired scope fixture\n")
+            code = f"exec(open({str(retired)!r}).read())"
+            arguments = [sys.executable, "-c", code]
+            windows = VALIDATOR.os.name == "nt"
+            command = subprocess.list2cmdline(arguments) if windows else shlex.join(arguments)
+            handler: dict[str, object] = {"type": "command", "command": command}
+            if windows:
+                handler["commandWindows"] = command
+            (codex_home / "hooks.json").write_text(
+                json.dumps({"hooks": {"SessionStart": [{"hooks": [handler]}]}}),
+                encoding="utf-8",
+            )
+            known_digest = next(iter(VALIDATOR.RETIRED_HOOK_SHA256["subagent_scope.py"]))
+
+            with mock.patch.object(VALIDATOR, "file_sha256", return_value=known_digest):
+                failures = VALIDATOR.retired_hook_failures(codex_home)
+
+        self.assertTrue(any("retired project Hook code" in item for item in failures))
 
     def test_hook_validation_rejects_duplicate_json_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -3,9 +3,9 @@
 ## Scope
 
 - `README.md` and `README.zh-CN.md` are human-facing. Read them only when changing public usage or installation behavior.
-- Runtime behavior is defined by `SKILL.md`, `skills/`, `agents/`, `hooks/`, `references/`, and `scripts/`.
+- Runtime behavior is defined by `SKILL.md`, `skills/`, `agents/`, `references/`, and `scripts/`.
 - This repository is the source of truth for portable runtime behavior. Installed Skills, Agents,
-  and Hooks are deployment artifacts; task-package language, machine-specific routing, and registration stay outside the repository.
+  and global rules are deployment artifacts; task-package language, machine-specific routing, and unrelated Hook registration stay outside the repository.
 - The target local platforms are macOS and native Windows. Claim support only after both CI
   runners pass for the release candidate.
 - When asked to install, update, repair, or verify this project, read `INSTALL.md` completely
@@ -22,23 +22,23 @@
 - Format check: `ruff format --check .`
 - Type check: `pyright`
 - Runtime validation: `<python> scripts/validate.py --runtime --codex-home <path> --skills-root <path>`
-- Install dry run: `<python> scripts/install.py --codex-home <path> --skills-root <path> --language <en|zh-CN> [--hooks]`
+- Install dry run: `<python> scripts/install.py --codex-home <path> --skills-root <path> --language <en|zh-CN>`
 
 ## Constraints
 
 - Keep agent profiles model-neutral. User model routes live outside the repository.
-- Keep task-package prose language local while canonical field names and control literals remain portable.
+- Keep delegation prose language local while role names, paths, and external protocol literals remain portable.
 - Preserve unrelated files and Hook registrations during deterministic installation.
 - Keep the managed global-rules block canonical in `examples/global-agents-block.md`; installation
   injects it into the active global `AGENTS.md` or `AGENTS.override.md` without owning surrounding
   user content.
-- Pure v2 verification rejects the retired Guard, known prior Route projections, and unresolved
-  project-shaped registrations even when the current optional Hook is not selected.
-- Keep `subagent_scope.py` with this repository's writer-lease contract; main-agent orchestration
-  policy stays in the Skill and current tool schemas, while shared context, memory-routing, and
-  closeout Hooks remain external runtimes.
+- Runtime verification rejects the authenticated retired `frontend-design` Agent, prior Guard,
+  Scope, and Route projections, plus unresolved project-shaped registrations. This repository
+  installs no Hook; shared context, memory-routing, and closeout Hooks remain external runtimes.
 - Preserve author, source, revision, license metadata, and `THIRD_PARTY_NOTICES.md` when updating bundled third-party Skills.
-- The main agent owns orchestration and Git; writable workers require the canonical lease in `references/worker-writing.md`.
+- Each root task owns orchestration and its local Git; writable workers require the canonical lease
+  in `references/worker-writing.md`. The Integration Root alone owns cross-worktree integration and
+  final delivery under `references/worktree-roots.md`.
 - Public files must not contain personal paths, private endpoints, credentials, or machine-specific model IDs.
 - Do not back-port edits from an installed runtime wholesale. Classify drift, preserve portable behavior here,
   and move host-specific choices into local configuration.
@@ -48,8 +48,9 @@
 - Architecture: `docs/architecture.md`
 - Configuration: `docs/configuration.md`
 - Hooks and prompt integration: `docs/hooks-and-prompts.md`
-- Hook ownership decision: `docs/adr/0002-keep-orchestration-hooks-with-contract.md`
+- Hook and brief-format decision: `docs/adr/0010-retire-orchestration-hook-and-rigid-briefs.md`
 - Installation ownership decision: `docs/adr/0008-deterministic-installer-and-global-rules.md`
+- Worktree-root decision: `docs/adr/0009-coordinate-independent-worktree-roots.md`
 - Decisions: create `docs/adr/` only when a hard-to-reverse choice needs a durable record.
 
 ## Update gate

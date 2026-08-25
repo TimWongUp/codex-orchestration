@@ -10,7 +10,7 @@ arrive through the Skill, repository instructions, and current model-visible col
 schemas; injecting them again on every user prompt added context load and duplicated authorities.
 Codex-native agent status and notification behavior remains host-owned.
 
-**Status:** accepted
+**Status:** superseded by ADR 0010
 
 **Supersedes:** the retired lifecycle guard portion of the original decision; the pure v2 lifecycle
 boundary is recorded in [ADR 0007](0007-pure-v2-collaboration-lifecycle.md).

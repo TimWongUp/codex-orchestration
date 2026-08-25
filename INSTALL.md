@@ -6,8 +6,8 @@ Codex environment. Read it completely before changing user configuration.
 `scripts/install.py` is the only write implementation of this contract. It plans by default and
 writes only with `--apply`. Do not reproduce its projection with ad hoc copy commands. The checkout
 remains the source of truth for portable Skills, Agents, the managed global-rules block, and the
-writer-lease Hook. Installed files are runtime artifacts; task-package language, model routes,
-executable paths, Hook trust, and unrelated user configuration stay local.
+deterministic installer. Installed files are runtime artifacts; task-package language, model
+routes, unrelated Hook registrations, and unrelated user configuration stay local.
 
 ## 1. Choose the runtime targets
 
@@ -27,21 +27,21 @@ they must mark its members as externally installed and leave runtime writes to t
 
 ## 2. Plan before applying
 
-On macOS, a typical Simplified Chinese setup with the optional Hook is:
+On macOS, a typical Simplified Chinese setup is:
 
 ```text
-python3 scripts/install.py --codex-home ~/.codex --skills-root ~/.agents/skills --language zh-CN --hooks
+python3 scripts/install.py --codex-home ~/.codex --skills-root ~/.agents/skills --language zh-CN
 ```
 
 On native Windows PowerShell:
 
 ```text
-py -3 scripts/install.py --codex-home "$HOME\.codex" --skills-root "$HOME\.agents\skills" --language zh-CN --hooks
+py -3 scripts/install.py --codex-home "$HOME\.codex" --skills-root "$HOME\.agents\skills" --language zh-CN
 ```
 
 The first command is always a dry run. It validates the checkout, classifies every managed target,
 prints every proposed create, update, or authenticated retirement, shows the exact global-rules
-block and managed Hook group, and reports conflicts without writing.
+block, and reports conflicts without writing.
 
 Review that output, then repeat the same command with `--apply`. When an Agent performs the
 installation, it shows the dry-run plan and obtains approval before adding `--apply`.
@@ -74,7 +74,9 @@ symlinks, Windows reparse points such as junctions, and paths containing `..` ar
 platform-owned `/var`, `/tmp`, and `/etc` aliases on macOS are canonicalized before the displayed
 plan. Managed targets at or beyond the conservative native Windows path limit are conflicts rather
 than partial long-path support. The installer never intentionally traverses, unlinks, or replaces links. It preserves
-unrelated Skills, Agents, local preferences, model routes, configuration keys, and files. New
+unrelated Skills, Agents, local preferences, model routes, configuration keys, and files. A retired
+project Agent is removed only when its bytes match a known prior project version; a different
+same-named file is an ownership conflict. New
 POSIX directories use mode `0700`; replacement preserves an existing POSIX file mode or Windows
 file ACL and attributes.
 
@@ -100,52 +102,48 @@ block the complete transaction. Any marker token outside an exact standalone mar
 malformed and conflicts. Use `--no-global-rules` to leave both global instruction files unchanged;
 that option does not uninstall an existing block.
 
-## 5. Optional writer-lease Hook
+## 5. No project Hook installation
 
-Pass `--hooks` to install the Hook. Without it, the current writer-lease script and registration are
-left unchanged.
+This project installs no Hook. Worker authority, task boundaries, and acceptance live in the Skill,
+Agent profiles, current tool schemas, and main-agent diff inspection. Setup preserves unrelated
+context, memory-routing, closeout, and user Hook groups.
 
-When selected, setup:
+Earlier project Hook assets are retired through the authenticated cleanup below. The installer
+reads `hooks.json` only when it already exists and never creates it merely to represent this
+project.
 
-1. Copies `hooks/subagent_scope.py` to `<codex-home>/hooks/subagent_scope.py`.
-2. Reads `<codex-home>/hooks.json`, or starts a new object when the file is absent.
-3. Removes current registrations only when an exact two-argument Python command invokes that
-   managed target, then appends one `SubagentStart` group.
-4. Preserves unrelated top-level fields, events, matcher groups, handlers, and order.
-5. Uses the absolute current Python executable and managed script path. On Windows, `command` and
-   `commandWindows` contain the same canonical Windows-quoted two-argument command.
+## 6. Retired project Agent and Hook assets
 
-An existing object without a `hooks` field is treated as an empty Hook map; a non-object `hooks`
-value is a conflict. UTF-8 JSON with or without a byte-order mark is accepted. Duplicate keys and
-non-standard constants are conflicts. On Windows, executable or managed-script paths containing
-`%`, `!`, a double quote, or a newline are rejected because `cmd.exe` can reinterpret them.
+The former `frontend-design.toml` custom Agent is retired because the suite has no routing path for
+it and the separately installed `frontend-design` Skill remains the appropriate capability entry.
+The installer removes the old Agent profile only when its bytes match a known project version.
+A modified or unrelated same-named profile is an ownership conflict and remains untouched.
 
-Codex treats user Hooks as non-managed code. After installation, start a new task, open `/hooks`,
-review the exact definition, and trust it before expecting it to run. A changed Hook hash requires
-review again.
-
-The Hook reinforces only the writable-worker lease check. It does not grant a lease, narrow the
-sandbox, replace the task package, or implement main-agent routing. Shared context, memory-routing,
-and closeout Hooks remain owned by their source runtime.
-
-## 6. Retired project Hook assets
-
-Pure v2 verification rejects the former `subagent_guard.py` and project
-`orchestration_route.py` assets even when `--hooks` is not selected.
+Pure v2 verification rejects the former `subagent_guard.py`, `subagent_scope.py`, and project
+`orchestration_route.py` assets.
 
 The installer removes a retired file only when its bytes match a known prior project hash. It
 removes a former registration only when the handler is an exact two-argument Python command, has a
-known legacy event/matcher shape, and its referenced script has authenticated prior-project bytes.
-An exact reference to the managed retired target outside those known shapes blocks retirement so
+known project event/matcher shape, and its referenced script has authenticated prior-project bytes.
+The recognized shapes include the former Guard matchers, the `SubagentStart` Scope registration,
+and the matcher-free project `UserPromptSubmit` Route registration. Both `command` and
+`commandWindows` fields are inspected. An exact reference to a managed retired target outside
+those known shapes blocks retirement so
 setup cannot create a dangling custom registration. Project-shaped Hook command paths containing
 `..`, relative syntax, or shell expansion characters are unsafe and conflict instead of being
 normalized through an unchecked parent. Existing filesystem aliases are compared by file identity;
 macOS case aliases are conservatively case-folded even after the target disappears. Every existing
 physical script referenced by a recognized Python invocation or explicit command path is also
-checked against known retired hashes, so environment wrappers, renamed hardlinks, and nested
-commands cannot retain retired project code. Ambiguous, missing, linked, or
-different same-named assets remain conflicts. Unrelated Hook text that merely mentions a retired
-filename is preserved.
+checked against known retired hashes. This includes statically recognizable absolute paths inside
+environment wrappers or quoted command/code arguments. The installer does not execute or fully
+interpret arbitrary wrapper code, constructed paths, or environment-variable values, so it does
+not claim ownership from those alone. Ambiguous, missing, linked, or different same-named assets
+remain conflicts. An unparseable command that names a retired project script also conflicts;
+otherwise unrelated, well-formed Hook text that merely mentions a retired filename is preserved.
+
+Reconciliation accepts strict UTF-8 JSON with or without a byte-order mark and rejects duplicate
+keys, non-standard constants, non-object Hook maps, non-list events, and malformed group Hook lists.
+It preserves unrelated top-level fields, events, matcher groups, handlers, and order.
 
 Declining or failing authenticated retirement blocks a pure v2 completion claim. Old source
 directories outside Codex home remain untouched; deleting or archiving them is a separate user
@@ -191,15 +189,15 @@ runs a new dry run. Successful installation never implies permission to remove t
 ## 9. Verification
 
 `--apply` automatically runs source validation and the selected runtime checks. The equivalent
-manual command for a setup with global rules and Hook is:
+manual command for a setup with global rules is:
 
 ```text
-python3 scripts/validate.py --runtime --codex-home <codex-home> --skills-root <skills-root> --global-rules --hooks
+python3 scripts/validate.py --runtime --codex-home <codex-home> --skills-root <skills-root> --global-rules
 ```
 
-Without the optional Hook, omit `--hooks`. With `--no-global-rules`, omit `--global-rules`.
+With `--no-global-rules`, omit `--global-rules`.
 
 Installation is complete only when required Skill and Agent copies match, any saved language or
-model route is valid, selected optional components match, no retired project Hook remains, and no
+model route is valid, no authenticated retired project Agent or Hook remains, and no
 unapproved target was changed. Start a new Codex task after success so Skills, Agents, global rules,
-and Hooks reload.
+and task instructions reload.

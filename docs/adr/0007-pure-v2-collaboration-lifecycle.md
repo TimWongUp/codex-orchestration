@@ -26,10 +26,13 @@ stop freezes new delegation, interrupts every active descendant, and waits for t
 with no running agent before releasing any active write lease.
 
 The former lifecycle guard and main-agent Route Hook are retired from source, installation
-projections, Hook registrations, validation, tests, and active public documentation. Only
-`subagent_scope.py` remains as an optional writer-lease Hook. Roles, task packages, the single-writer lease,
+projections, Hook registrations, validation, tests, and active public documentation. At the time of
+this decision, `subagent_scope.py` remained as an optional writer-lease Hook. Roles, task packages, the single-writer lease,
 coverage/panel/hybrid modes, method Skills, the R0–R3 review gate, and installation safety
 boundaries remain unchanged.
+
+The remaining Hook and rigid task-package portion is superseded by
+[ADR 0010](0010-retire-orchestration-hook-and-rigid-briefs.md).
 
 ## Consequences
 

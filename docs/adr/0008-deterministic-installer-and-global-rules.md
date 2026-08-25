@@ -29,10 +29,14 @@ and owns only the exact marker-delimited block in the active global instruction 
 bytes remain user-owned. Corrupt or duplicated markers fail closed, and a change in the active
 override moves the managed block instead of leaving two copies.
 
-The writer-lease Hook remains optional. When selected, the installer replaces only registrations
+At the time of this decision, the writer-lease Hook remained optional. When selected, the installer replaced only registrations
 that invoke its exact managed script path, removes authenticated retired project registrations, and
 preserves unrelated Hook handlers, event groups, ordering, and top-level JSON fields. Codex Hook
 trust remains host-owned and must be reviewed through `/hooks` after installation.
+
+The optional-Hook portion is superseded by
+[ADR 0010](0010-retire-orchestration-hook-and-rigid-briefs.md); deterministic authenticated
+retirement and preservation of unrelated Hook content remain part of the installer contract.
 
 Model routing stays local and outside automated setup because availability and service-tier
 enforcement require live host evidence. Symlink cutovers and ambiguous legacy ownership remain
