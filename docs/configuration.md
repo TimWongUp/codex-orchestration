@@ -9,9 +9,9 @@ can serve different machines without publishing private paths or model identifie
 
 ## Install scope
 
-The user's Agent resolves the active paths before installation by inspecting the current runtime,
-configuration, installed Skill listings, and current official locations. It does not assume one
-generic Skill root. Managed destinations are:
+Interactive user installation defaults to `~/.codex` and the documented user Skill root
+`~/.agents/skills`. Non-standard runtimes pass explicit targets after inspecting their current
+configuration and installed Skill listings. Managed destinations are:
 
 - `<skills-root>/codex-orchestration` — the main Skill copy.
 - `<skills-root>/codex-review-gate` — the independent delivery Review policy copy.
@@ -25,11 +25,11 @@ generic Skill root. Managed destinations are:
   marker-delimited orchestration and code Review block.
 
 `INSTALL.md` is the authority for path discovery, planning, conflict handling, optional choices,
-and verification. `scripts/install.py` implements it, prints a dry run by default, and writes only
-with `--apply`. Installation creates copies rather than links so the same contract works on macOS
-and native Windows. Existing symlinks and non-directory parents are conflicts: setup does not
-traverse, unlink, replace, or write through them. Unrelated files and Hook registrations are
-preserved.
+and verification. `scripts/install.py` implements it and always prints the complete plan before a
+write. Interactive terminals require confirmation; non-interactive runs write only with
+`--apply`. Installation creates copies rather than links so the same contract works on macOS and
+native Windows. Existing symlinks and non-directory parents are conflicts: setup does not traverse,
+unlink, replace, or write through them. Unrelated files and Hook registrations are preserved.
 
 Externally owned registrations and deployment metadata are reported with their owning runtime or
 registry and left untouched. They are outside the `current`, `missing`, `drift`, and `conflict`

@@ -3,51 +3,58 @@
 Use this contract when installing, updating, repairing, or verifying this checkout for a local
 Codex environment. Read it completely before changing user configuration.
 
-`scripts/install.py` is the only write implementation of this contract. It plans by default and
-writes only with `--apply`. Do not reproduce its projection with ad hoc copy commands. The checkout
-remains the source of truth for portable Skills, Agents, the managed global-rules block, and the
-deterministic installer. Installed files are runtime artifacts; task-package language, model
-routes, unrelated Hook registrations, and unrelated user configuration stay local.
+`scripts/install.py` is the only write implementation of this contract. In an interactive terminal,
+it prints the complete plan and writes only after confirmation. In non-interactive use, it plans by
+default and writes only with `--apply`. Do not reproduce its projection with ad hoc copy commands.
+The checkout remains the source of truth for portable Skills, Agents, the managed global-rules
+block, and the deterministic installer. Installed files are runtime artifacts; task-package
+language, model routes, unrelated Hook registrations, and unrelated user configuration stay local.
 
 ## 1. Choose the runtime targets
 
 Use the Python interpreter available on the host (`python3`, `py -3`, or `python`). Python 3.9 or
 newer is required.
 
-Resolve these paths before running the installer:
+The standard user targets require no path arguments:
 
 - `--codex-home`: the active Codex home. An explicit value wins, then `CODEX_HOME`, then the
   documented Codex default `~/.codex`.
-- `--skills-root`: the Skill root loaded by the current Codex runtime. This argument is required so
-  the installer never guesses a non-default active root.
+- `--skills-root`: the Skill root loaded by the current Codex runtime. An explicit value wins;
+  otherwise the installer uses the documented user Skill root `~/.agents/skills`.
 
-Inspect current Codex configuration and installed Skill listings when the active Skill root is not
-already known. Existing deployment registries may record this checkout as the suite authority, but
-they must mark its members as externally installed and leave runtime writes to this installer.
+Pass explicit roots only for a non-standard runtime. Inspect current Codex configuration and
+installed Skill listings when its active targets are not the documented defaults. Existing
+deployment registries may record this checkout as the suite authority, but they must mark its
+members as externally installed and leave runtime writes to this installer.
 
 ## 2. Plan before applying
 
-On macOS, a typical Simplified Chinese setup is:
+On macOS, run:
 
 ```text
-python3 scripts/install.py --codex-home ~/.codex --skills-root ~/.agents/skills --language zh-CN
+python3 scripts/install.py
 ```
 
-On native Windows PowerShell:
+On native Windows PowerShell, run:
 
 ```text
-py -3 scripts/install.py --codex-home "$HOME\.codex" --skills-root "$HOME\.agents\skills" --language zh-CN
+py -3 scripts/install.py
 ```
 
-The first command is always a dry run. It validates the checkout, classifies every managed target,
-prints every proposed create or update, shows the exact global-rules block, and reports conflicts
-without writing.
+In an interactive terminal, a first install asks for `en` or `zh-CN` and suggests a default from the
+system locale. It then validates the checkout, classifies every managed target, prints every
+proposed create or update, shows the exact global-rules block, and reports conflicts. Answer `y` to
+apply that exact plan; any other answer leaves the runtime unchanged. A later run preserves the
+saved language and does not ask again. If every managed target is already current, setup exits
+without asking for confirmation.
 
-Review that output, then repeat the same command with `--apply`. When an Agent performs the
-installation, it shows the dry-run plan and obtains approval before adding `--apply`.
+Non-interactive use never prompts and remains a dry run unless `--apply` is present. Its first
+install must pass `--language en` or `--language zh-CN`. When an Agent performs the installation, it
+shows the dry-run plan and obtains approval before adding `--apply`.
 
-The first install requires `--language en` or `--language zh-CN`. A later run preserves an existing
-valid choice when `--language` is omitted; passing a different value explicitly plans that change.
+Explicit `--codex-home`, `--skills-root`, `--language`, and `--no-global-rules` arguments remain
+available for non-standard or automated deployments. Passing a different language explicitly plans
+that change.
 
 ## 3. Required runtime projection
 

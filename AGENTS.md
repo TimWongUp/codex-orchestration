@@ -11,7 +11,8 @@
 - When asked to install, update, repair, or verify this project, read `INSTALL.md` completely
   before changing user configuration. `INSTALL.md` defines the contract and `scripts/install.py`
   is its deterministic implementation for planning, ownership checks, writes, rollback, and
-  verification. Use its dry run before `--apply`; do not reproduce installation with ad hoc copies.
+  verification. Agents use its non-interactive dry run before `--apply`; do not reproduce
+  installation with ad hoc copies.
 
 ## Commands
 
@@ -22,7 +23,8 @@
 - Format check: `ruff format --check .`
 - Type check: `pyright`
 - Runtime validation: `<python> scripts/validate.py --runtime --codex-home <path> --skills-root <path>`
-- Install dry run: `<python> scripts/install.py --codex-home <path> --skills-root <path> --language <en|zh-CN>`
+- Interactive install: `<python> scripts/install.py`
+- Non-interactive install dry run: `<python> scripts/install.py --language <en|zh-CN>`
 
 ## Constraints
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.abc
 import importlib.util
+import io
 import os
 import stat
 import subprocess
@@ -587,6 +589,9 @@ class InstallerTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(dry_run.returncode, 0, dry_run.stdout + dry_run.stderr)
+            self.assertIn("Dry run only.", dry_run.stdout)
+            self.assertNotIn("Apply this installation plan?", dry_run.stdout)
+            self.assertNotIn("Installation cancelled", dry_run.stdout)
             self.assertFalse(runtime_root.exists())
 
             missing_language = subprocess.run(
@@ -602,6 +607,266 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertIn("first install requires --language", missing_language.stdout)
             self.assertFalse(runtime_root.exists())
+
+            missing_language_apply = subprocess.run(
+                [*command, "--apply"],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(
+                missing_language_apply.returncode,
+                2,
+                missing_language_apply.stdout + missing_language_apply.stderr,
+            )
+            self.assertFalse(runtime_root.exists())
+
+    def test_cli_zero_arguments_resolve_documented_noninteractive_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary).resolve()
+            environment = os.environ.copy()
+            environment.pop("CODEX_HOME", None)
+            environment["HOME"] = str(home)
+            environment["USERPROFILE"] = str(home)
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS_ROOT / "install.py")],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=environment,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn(f"Codex home: {home / '.codex'}", result.stdout)
+            self.assertIn(f"Skill root: {home / '.agents' / 'skills'}", result.stdout)
+            self.assertIn("first install requires --language", result.stdout)
+            self.assertFalse((home / ".codex").exists())
+            self.assertFalse((home / ".agents").exists())
+
+    def test_interactive_terminal_requires_input_and_output_ttys(self) -> None:
+        for stdin_isatty, stdout_isatty, expected in (
+            (True, True, True),
+            (True, False, False),
+            (False, True, False),
+            (False, False, False),
+        ):
+            with self.subTest(stdin=stdin_isatty, stdout=stdout_isatty):
+                stdin = mock.Mock()
+                stdin.isatty.return_value = stdin_isatty
+                stdout = mock.Mock()
+                stdout.isatty.return_value = stdout_isatty
+                with (
+                    mock.patch.object(INSTALL.sys, "stdin", stdin),
+                    mock.patch.object(INSTALL.sys, "stdout", stdout),
+                ):
+                    self.assertEqual(INSTALL.interactive_terminal(), expected)
+
+    def test_zero_argument_interactive_install_uses_safe_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary).resolve()
+            codex_home = home / ".codex"
+            skills_root = home / ".agents" / "skills"
+            answers = iter(("", "y"))
+
+            def answer_prompt(prompt: str) -> str:
+                print(prompt, end="")
+                return next(answers)
+
+            expected_plan = INSTALL.build_plan(
+                codex_home,
+                skills_root,
+                language="zh-CN",
+                global_rules=True,
+            )
+            self.assertEqual(expected_plan.conflicts, [])
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}),
+                mock.patch.object(INSTALL, "DEFAULT_SKILLS_ROOT", skills_root),
+                mock.patch.object(INSTALL, "detected_task_package_language", return_value="zh-CN"),
+                mock.patch("builtins.input", side_effect=answer_prompt) as prompt,
+                contextlib.redirect_stdout(output),
+            ):
+                result = INSTALL.main([], interactive=True)
+
+            self.assertEqual(result, 0)
+            self.assertEqual(prompt.call_count, 2)
+            rendered = output.getvalue()
+            self.assertIn("Codex Orchestration installation plan", rendered)
+            self.assertIn(f"Codex home: {codex_home}", rendered)
+            self.assertIn(f"Skill root: {skills_root}", rendered)
+            self.assertIn("CODEX-ORCHESTRATION:GLOBAL-RULES:START", rendered)
+            self.assertIn("CODEX-ORCHESTRATION:GLOBAL-RULES:END", rendered)
+            self.assertEqual(rendered.count("[CREATE]"), len(expected_plan.operations))
+            confirmation_index = rendered.index("Apply this installation plan?")
+            for operation in expected_plan.operations:
+                operation_line = f"[CREATE] {operation.path} — {operation.reason}"
+                digest = f"sha256={INSTALL.sha256_bytes(operation.content)}"
+                self.assertLess(rendered.index(operation_line), confirmation_index)
+                self.assertLess(rendered.index(digest), confirmation_index)
+            self.assertLess(
+                rendered.index("Codex Orchestration installation plan"), confirmation_index
+            )
+            self.assertLess(
+                rendered.index("CODEX-ORCHESTRATION:GLOBAL-RULES:END"), confirmation_index
+            )
+            self.assertTrue((codex_home / "AGENTS.md").is_file())
+            self.assertTrue((skills_root / "codex-orchestration" / "SKILL.md").is_file())
+            preferences = codex_home / "codex-orchestration" / "preferences.toml"
+            self.assertIn(
+                'task_package_language = "zh-CN"', preferences.read_text(encoding="utf-8")
+            )
+
+            current_output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}),
+                mock.patch.object(INSTALL, "DEFAULT_SKILLS_ROOT", skills_root),
+                mock.patch("builtins.input", side_effect=AssertionError("unexpected prompt")),
+                contextlib.redirect_stdout(current_output),
+            ):
+                current = INSTALL.main([], interactive=True)
+
+            self.assertEqual(current, 0)
+            self.assertIn("[CURRENT] no managed runtime changes", current_output.getvalue())
+            self.assertIn("OK: managed runtime is already current", current_output.getvalue())
+
+            managed_agent = codex_home / "agents" / "worker.toml"
+            managed_agent.write_bytes(b"managed Agent drift\n")
+            expected_update = INSTALL.build_plan(
+                codex_home,
+                skills_root,
+                language=None,
+                global_rules=True,
+            )
+            self.assertEqual(expected_update.conflicts, [])
+            update_output = io.StringIO()
+
+            def confirm_update(prompt: str) -> str:
+                print(prompt, end="")
+                return "y"
+
+            with (
+                mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}),
+                mock.patch.object(INSTALL, "DEFAULT_SKILLS_ROOT", skills_root),
+                mock.patch("builtins.input", side_effect=confirm_update) as update_prompt,
+                contextlib.redirect_stdout(update_output),
+            ):
+                second = INSTALL.main([], interactive=True)
+
+            self.assertEqual(second, 0)
+            self.assertEqual(update_prompt.call_count, 1)
+            update_rendered = update_output.getvalue()
+            update_confirmation = update_rendered.index("Apply this installation plan?")
+            self.assertEqual(update_rendered.count("[UPDATE]"), len(expected_update.operations))
+            for operation in expected_update.operations:
+                operation_line = f"[UPDATE] {operation.path} — {operation.reason}"
+                digest = f"sha256={INSTALL.sha256_bytes(operation.content)}"
+                self.assertLess(update_rendered.index(operation_line), update_confirmation)
+                self.assertLess(update_rendered.index(digest), update_confirmation)
+            self.assertLess(
+                update_rendered.index("CODEX-ORCHESTRATION:GLOBAL-RULES:END"),
+                update_confirmation,
+            )
+            self.assertTrue(managed_agent.is_file())
+            self.assertIn(
+                'task_package_language = "zh-CN"', preferences.read_text(encoding="utf-8")
+            )
+
+    def test_interactive_install_can_be_cancelled_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.paths(temporary)
+            codex_home.mkdir()
+            skills_root.mkdir()
+            personal_rules = b"# Personal rules\n"
+            (codex_home / "AGENTS.md").write_bytes(personal_rules)
+            agents_root = codex_home / "agents"
+            agents_root.mkdir()
+            (agents_root / "worker.toml").write_bytes(b"user-owned Agent drift\n")
+            preferences_root = codex_home / "codex-orchestration"
+            preferences_root.mkdir()
+            (preferences_root / "preferences.toml").write_text(
+                'schema_version = 1\ntask_package_language = "en"\n',
+                encoding="utf-8",
+            )
+            managed_skill = skills_root / "codex-orchestration"
+            managed_skill.mkdir()
+            (managed_skill / "SKILL.md").write_text(
+                "---\nname: codex-orchestration\ndescription: local drift\n---\n",
+                encoding="utf-8",
+            )
+            (skills_root / "user-owned.txt").write_bytes(b"preserve me\n")
+
+            def snapshot(root: Path) -> dict[Path, bytes | None]:
+                return {
+                    path.relative_to(root): None if path.is_dir() else path.read_bytes()
+                    for path in root.rglob("*")
+                }
+
+            codex_before = snapshot(codex_home)
+            skills_before = snapshot(skills_root)
+            output = io.StringIO()
+            with (
+                mock.patch("builtins.input", return_value="n"),
+                contextlib.redirect_stdout(output),
+            ):
+                result = INSTALL.main(
+                    [
+                        "--codex-home",
+                        str(codex_home),
+                        "--skills-root",
+                        str(skills_root),
+                        "--language",
+                        "zh-CN",
+                    ],
+                    interactive=True,
+                )
+
+            self.assertEqual(result, 0)
+            self.assertEqual(snapshot(codex_home), codex_before)
+            self.assertEqual(snapshot(skills_root), skills_before)
+            self.assertIn("Installation cancelled; no files changed.", output.getvalue())
+
+    def test_interactive_apply_skips_plan_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.paths(temporary)
+            with (
+                mock.patch("builtins.input", side_effect=AssertionError("unexpected prompt")),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                result = INSTALL.main(
+                    [
+                        "--codex-home",
+                        str(codex_home),
+                        "--skills-root",
+                        str(skills_root),
+                        "--language",
+                        "en",
+                        "--apply",
+                    ],
+                    interactive=True,
+                )
+
+            self.assertEqual(result, 0)
+            self.assertTrue((codex_home / "AGENTS.md").is_file())
+            self.assertTrue((skills_root / "codex-orchestration" / "SKILL.md").is_file())
+
+    def test_detected_task_package_language_uses_chinese_locale_family(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"LC_ALL": "zh_TW.UTF-8", "LC_MESSAGES": "en_US.UTF-8", "LANG": "en_US.UTF-8"},
+        ):
+            self.assertEqual(INSTALL.detected_task_package_language(), "zh-CN")
+
+        with (
+            mock.patch.dict(os.environ, {"LC_ALL": "", "LC_MESSAGES": "", "LANG": ""}),
+            mock.patch.object(
+                INSTALL.locale,
+                "getlocale",
+                return_value=("Chinese (Simplified)_China", "936"),
+            ),
+        ):
+            self.assertEqual(INSTALL.detected_task_package_language(), "zh-CN")
 
     def test_cli_installs_missing_roots_with_spaces_and_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -12,17 +12,19 @@ Codex Orchestration 刻意不追求“Agent 越多越好”。简单任务仍由
 
 要求：macOS 或原生 Windows、已启用自定义子代理的 Codex，以及 Python 3.9 或更高版本。
 
-在已审查的仓库副本中，先输出完整计划：
+下载或克隆仓库后，在项目目录运行：
 
 ```text
-python3 scripts/install.py --codex-home ~/.codex --skills-root ~/.agents/skills --language zh-CN
+python3 scripts/install.py
 ```
 
-检查 dry run 后，用完全相同的命令追加 `--apply`。`--skills-root` 必须填写当前 Codex 真正加载的 Skill 根目录；原生 Windows 需要时把 `python3` 换成 `py -3`。
+首次安装会根据系统语言建议 `zh-CN` 或 `en`，输出完整计划，再询问一次是否应用；以后更新直接复用已有语言。默认目标是 `~/.codex` 和 Codex 官方用户 Skill 目录 `~/.agents/skills`。原生 Windows 只需把 `python3` 换成 `py -3`。
+
+非交互环境不会询问并默认只做 dry run；首次运行须传入 `--language zh-CN` 或 `--language en`，确认计划后追加 `--apply`。非标准运行时仍可通过 `--codex-home` 和 `--skills-root` 覆盖默认路径。
 
 Setup 会复制必需的 Skills 和 Agent 配置，并在当前生效的全局 `AGENTS.md` 或 `AGENTS.override.md` 中注入一个带归属标记的编排与代码 Review 规则块。它只写入这份现行投影，保留所有未托管的 Agent 配置、Hook 注册与文件、规则块外的个人指令、本机模型路由和其他用户文件。托管目标上的符号链接、归属冲突或标记损坏会阻止整批写入；运行中的安装器捕获到应用或验证失败时会回滚已完成变更。清理旧版本资产属于另行由用户指定目标的维护动作。
 
-使用 `--no-global-rules` 可保持全局指令不变；若已有本项目规则块，它必须已是当前版本，旧 Review 路由会阻止计划。首次安装的 `--language` 支持 `en` 与 `zh-CN`，以后省略该参数会保留已有合法选择。
+使用 `--no-global-rules` 可保持全局指令不变；若已有本项目规则块，它必须已是当前版本，旧 Review 路由会阻止计划。
 
 完整且唯一权威的安装流程位于 [INSTALL.md](INSTALL.md)，其中也定义了冲突处理与运行时验证标准。
 

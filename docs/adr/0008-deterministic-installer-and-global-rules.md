@@ -18,11 +18,15 @@ a second installation path.
 
 ## Decision
 
-Ship `scripts/install.py` as the deterministic implementation of `INSTALL.md`. It is dry-run by
-default and writes only with `--apply`. The caller supplies the active Skill root; Codex home follows
-the explicit argument, `CODEX_HOME`, or the documented Codex default. The installer classifies every
-managed path, refuses linked or ambiguous targets, applies file changes atomically, and rolls the
-completed transaction back when the running process catches a write or verification failure.
+Ship `scripts/install.py` as the deterministic implementation of `INSTALL.md`. An interactive human
+can run it without arguments: Codex home follows `CODEX_HOME` or `~/.codex`, the Skill root defaults
+to the documented user location `~/.agents/skills`, a first install prompts for its task-package
+language with a locale-derived default, and the complete plan requires explicit confirmation before
+writing. Non-interactive use remains dry-run by default, requires an explicit language on first
+install, and writes only with `--apply`. Every default remains overridable for a non-standard
+runtime. The installer classifies every managed path, refuses linked or ambiguous targets, applies
+file changes atomically, and rolls the completed transaction back when the running process catches
+a write or verification failure.
 
 The canonical global prompt is `examples/global-agents-block.md`. Installation enables it by default
 and owns only the exact marker-delimited block in the active global instruction file. Surrounding
@@ -50,9 +54,11 @@ documented recovery is a fresh dry run followed by an explicitly reviewed apply.
 ## Consequences
 
 Installation and update now have one testable implementation shared by macOS and native Windows.
-The managed policy pointers load consistently without replacing personal instructions, while the
-full policies remain in their Skills. The repository gains installer and prompt-injection tests
-and must keep `INSTALL.md`, both READMEs, runtime validation, and the canonical block synchronized.
+The ordinary user path is one command and one confirmation, while automation retains an explicit,
+reviewable plan/apply boundary. The managed policy pointers load consistently without replacing
+personal instructions, while the full policies remain in their Skills. The repository gains
+installer and prompt-injection tests and must keep `INSTALL.md`, both READMEs, runtime validation,
+and the canonical block synchronized.
 
 The later split from one orchestration pointer to separate orchestration and Review pointers is
 defined by [ADR 0011](0011-separate-delivery-review-from-orchestration.md).

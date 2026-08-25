@@ -28,11 +28,13 @@ record this
 repository as authority, but suite installation remains governed by `INSTALL.md` so a generic
 single-Skill linker cannot flatten these components or expose the whole checkout as one Skill.
 
-The installer is dry-run by default and treats the selected Codex home and Skill root as explicit
-trust boundaries. It refuses linked or ambiguous managed targets, owns only named current runtime
-files, preserves all unmanaged Agent and Hook assets, and rolls back completed writes when
-verification fails. Legacy cleanup is a separate user-directed maintenance action rather than a
-permanent branch of installation.
+The installer always plans before writing and treats the selected Codex home and Skill root as
+explicit trust boundaries. Standard interactive installation uses documented user defaults and one
+confirmation; non-standard and non-interactive installations retain explicit target and apply
+controls. It refuses linked or ambiguous managed targets, owns only named current runtime files,
+preserves all unmanaged Agent and Hook assets, and rolls back completed writes when verification
+fails. Legacy cleanup is a separate user-directed maintenance action rather than a permanent branch
+of installation.
 Codex plugin packaging is not the suite authority because plugins do not replace the separate
 custom-Agent projection.
 
