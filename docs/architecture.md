@@ -1,33 +1,33 @@
 # Architecture
 
-Codex Orchestration separates six concerns:
+Codex Orchestration separates five concerns:
 
-1. `SKILL.md` defines main-agent decisions, the collaboration lifecycle, and task-package
+1. `SKILL.md` defines root-task decisions, the collaboration lifecycle, and delegation and handoff
    contracts.
 2. `agents/*.toml` defines narrow custom-agent behavior and sandbox defaults.
-3. `hooks/` optionally reinforces the writable-worker lease check.
-4. Local preference files select task-package language and models without placing user choices in
+3. Local preference files select delegation language and models without placing user choices in
    the repository.
-5. `examples/global-agents-block.md` is the minimal global pointer injected into the active Codex
+4. `examples/global-agents-block.md` is the minimal global pointer injected into the active Codex
    instruction file.
-6. `INSTALL.md` defines the reviewed installation contract, implemented deterministically by
+5. `INSTALL.md` defines the reviewed installation contract, implemented deterministically by
    `scripts/install.py`.
 
 The repository is the single source of truth for portable runtime behavior. Installed Skill,
-Agent, and Hook files are replaceable deployment artifacts, while task-package language, model
-IDs, executable paths, Hook registrations, and other host choices remain local configuration.
+Agent, and global-rule files are replaceable deployment artifacts, while delegation language,
+model IDs, unrelated Hook registrations, and other host choices remain local configuration.
 This prevents an installed runtime from becoming a second implementation that drifts
 independently.
 
 The installed runtime is a projection, not a copy of the repository root: the main Skill receives
 only root `SKILL.md` and `references/`; each bundled method Skill has its own Skill destination;
-Agent profiles and optional Hook scripts go to Codex home. Deployment registries may record this
+Agent profiles go to Codex home. Deployment registries may record this
 repository as authority, but suite installation remains governed by `INSTALL.md` so a generic
 single-Skill linker cannot flatten these components or expose the whole checkout as one Skill.
 
 The installer is dry-run by default and treats the selected Codex home and Skill root as explicit
-trust boundaries. It refuses linked or ambiguous targets, owns only named runtime files, merges the
-optional Hook by exact command identity, and rolls back completed writes when verification fails.
+trust boundaries. It refuses linked or ambiguous targets, owns only named runtime files, retires
+authenticated earlier project Agent and Hook assets, and rolls back completed writes when
+verification fails.
 Codex plugin packaging is not the suite authority because plugins do not replace the separate
 custom-Agent projection.
 
@@ -35,9 +35,28 @@ The `skills/diagnosing-bugs` and `skills/prototype` directories contain the comp
 loaded by their corresponding writable workers. The Agent profiles retain lease and orchestration
 boundaries; the method Skills provide the detailed debugging and prototype workflows.
 
-The main agent is the sole orchestrator. Read-only agents may run concurrently. Writable work uses
-a global single-writer lease: either the main agent writes, or one worker writes inside explicit
-allowed paths.
+Every Codex task is a root for its own agent tree. Derived agents remain non-orchestrators, while a
+Worktree Root is an independent task and session with the same local orchestration authority as any
+other root task. Integration Root and Worktree Root are batch roles: only the former manages peer
+lanes and cross-lane state for that batch. Inside each root task, read-only agents may run
+concurrently and writable work uses one local single-writer lease: either the main agent writes, or
+one worker writes toward one bounded outcome.
+
+When the user explicitly requests official Codex worktrees and the admission gate in
+`references/worktree-roots.md` passes, one Integration Root may coordinate at most three
+nonterminal Worktree Roots. Each works in a verified distinct checkout, owns lane-local Git, returns
+one candidate handoff branch, and may use the normal explorer, reviewer, specialist, and worker
+roles. While any lane is nonterminal, the Integration Root remains repository-read-only. After the
+complete batch is accepted, it owns the common base, serial merge order, integration branch,
+combined validation, final R0-R3 review, and delivery. During the active batch neither its main
+agent nor a local worker may write; no local writable-worker lease remains active. This keeps
+concurrent repository writers at three or fewer without granting orchestration authority to a
+derived worker.
+
+Each root session may keep at most eight spawned-agent threads open concurrently, excluding its
+primary agent; a lower host limit wins. The host must enforce and expose a confirmable cap before a
+root spawns derived agents. Worktree Roots are separate sessions, so this is not one machine-wide
+aggregate budget. The separate nonterminal worktree-root limit remains three.
 
 Read-only collaboration has three multi-agent evaluation modes. `coverage` assigns non-overlapping
 evidence or risk areas. `panel` gives the same core question to distinct models. `hybrid` combines
@@ -50,8 +69,8 @@ hybrid's specialist workstreams use ordinary role routes.
 
 The model-visible collaboration-tool schemas own call mechanics. The repository does not wrap the
 tools or cache their API descriptions. Its portable policy starts ordinary delegation with
-`fork_turns="none"` and a self-contained task package; bounded transcript context is an explained
-exception.
+`fork_turns="none"` and a self-contained natural-language brief; bounded transcript context is an
+explained exception.
 
 The main agent waits before any decision, write, or final answer that pending work could change,
 while continuing only independent work. The current tree and final notification are the
@@ -59,18 +78,32 @@ authoritative convergence signals. After a follow-up is accepted, earlier final 
 snapshots for that target are stale, so the main agent waits for a newer final and reconciles it
 with a fresh snapshot. A third writable round creates a new agent with a fresh package and lease.
 
+An Integration Root applies the same dependency barrier to peer Worktree Roots through the current
+task/thread tools. It serially reserves at most three nonterminal lane slots, verifies distinct
+official worktree identities, and waits for the complete accepted batch before serial integration.
+Each Worktree Root performs local lane acceptance and validation; the Integration Root separately
+owns handoff and batch acceptance. Independent intermediate review is added only when risk would
+otherwise compound. A failed or canceled declared lane blocks successful delivery unless the user
+explicitly rescopes the outcome. The full review gate runs once against the combined integration
+diff.
+
 An explicit stop freezes new delegation, snapshots the tree, interrupts every active descendant,
 and waits for final notifications plus a fresh snapshot showing no running agents. A leased worker
 retains its lease until that convergence point. A correction that must prevent further current-turn
 work first interrupts the target and waits for the interruption to become visible, then uses
 `followup_task` to deliver the corrected task.
 
-The `SubagentStart` Hook stays in this repository because it reinforces the writer-lease contract
-and shares its tests and validator. Agent profiles remain the authority for derived-agent identity
-and read-only scope. Main-agent orchestration policy remains in the Skill and current tool schemas,
-so no `UserPromptSubmit` route reminder is installed. Cross-host context injection, memory routing,
-and closeout behavior belong to their shared runtime; Codex-native agent status UI remains
-host-owned.
+For a Worktree batch, stop convergence separately freezes peer dispatch, sends the available
+task/thread stop operation or request to every active root, moves submitted `handoff_ready` lanes to
+`canceled`, cancels unlaunched `pending` reservations, and waits for fresh peer snapshots. The
+Integration Root neither merges nor reports success while a peer or lane is still nonterminal.
+
+No orchestration Hook is installed. Agent profiles remain the authority for derived-agent identity
+and read-only scope, while the Skill and current tool schemas carry main-agent policy. Worker
+selection establishes the root task's single-writer lease; task messages use natural briefs rather
+than fixed authorization labels, and the main agent accepts work only after inspecting the complete
+diff and validation. Cross-host context injection, memory routing, and closeout behavior belong to
+their shared runtime; Codex-native agent status UI remains host-owned.
 
 Installation uses one standard-library Python implementation on macOS and native Windows. The
 canonical global block is inserted into the first non-empty global `AGENTS.override.md` or

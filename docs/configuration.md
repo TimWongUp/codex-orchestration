@@ -3,8 +3,8 @@
 ## Authority boundary
 
 Portable orchestration behavior is edited and reviewed in this repository. Installed Skill,
-Agent, and Hook files are deployment artifacts and should not be edited directly. Host-specific
-task-package language, model routes, and Hook registrations remain outside Git so one repository
+Agent, and global-rule files are deployment artifacts and should not be edited directly. Host-specific
+task-package language, model routes, and unrelated Hook registrations remain outside Git so one repository
 can serve different machines without publishing private paths or model identifiers.
 
 ## Install scope
@@ -17,8 +17,6 @@ generic Skill root. Managed destinations are:
 - `<skills-root>/diagnosing-bugs` — the bundled complete debugging Skill copy.
 - `<skills-root>/prototype` — the bundled complete prototype Skill copy.
 - `<codex-home>/agents/*.toml` — managed custom-agent copies.
-- `<codex-home>/hooks/subagent_scope.py` — only when the writer-lease Hook is approved.
-- `<codex-home>/hooks.json` — merged only when the Hook is approved.
 - `<codex-home>/codex-orchestration/preferences.toml` — only when a task-package language is
   saved.
 - `<codex-home>/codex-orchestration/model-routing.toml` — only when local routing is approved.
@@ -45,7 +43,7 @@ All three Skill targets are checked before any installation write:
 - A same-named but different Skill, a symlink, a non-directory Skill target, or a non-directory
   parent is a conflict and remains untouched.
 
-Managed Agent, Hook, preference, and routing targets are classified the same way. Differing
+Managed Agent, preference, and routing targets are classified the same way. Differing
 managed files are drift. The Agent shows the difference and replaces it only after explicit
 approval; conflicts are left for the user to resolve without deletion.
 
@@ -57,9 +55,9 @@ retirement.
 
 ## Retired lifecycle and Route assets
 
-Pure v2 retirement is required even when the user declines the current optional Hook. The
+Pure v2 retirement is required on every installation. The
 installing Agent inspects the managed Hook directory and Hook configuration, shows any former
-`subagent_guard.py` file, v1-shaped Guard registration, known prior project
+`subagent_guard.py` or `subagent_scope.py` file, recognized Guard or Scope registration, known prior project
 `orchestration_route.py`, or its `UserPromptSubmit` registration in the installation plan. It
 changes only approved assets whose prior project ownership is confirmed. The Hook directory must
 be physical, and known prior copies are recognized with LF or CRLF line endings.
@@ -82,8 +80,34 @@ orchestration policy: ordinary delegation uses `fork_turns="none"`, pending resu
 dependency barrier, a follow-up invalidates earlier completion evidence, an explicit stop converges
 the active tree, and a third worker round starts with a fresh package and lease.
 
-The optional Hook reinforces only the writable-worker lease check. Agent profiles own derived-agent
-identity and read-only scope; no project `UserPromptSubmit` Hook restates main-agent policy.
+This project installs no Hook. Agent profiles own derived-agent identity and read-only scope; the
+Skill owns root-task policy, and main-agent acceptance checks the complete worker diff and
+validation. Delegation uses compact natural-language briefs instead of fixed authorization fields.
+
+## Concurrency and Worktree Roots
+
+The portable policy permits at most eight concurrently open spawned-agent threads in each root
+session, excluding its primary agent. Configure Codex with the corresponding host-enforced session
+cap:
+
+```toml
+[agents]
+max_concurrent_threads_per_session = 8
+```
+
+A lower host or workspace limit wins. Before a spawn, each root confirms the enforced cap, refreshes
+the visible agent tree when available, and never intentionally exceeds the lower limit. If the cap
+cannot be confirmed, the root fails closed and does not spawn; a missing count or rejection is not
+bypassed. Independent Worktree Roots have separate sessions and do not consume the Integration
+Root's spawned-agent slots, so this setting is not a machine-wide global cap.
+
+Official Worktree Roots are a separate task-level feature. They require the user's current explicit
+request, a Git repository, the admission gate in `references/worktree-roots.md`, and current
+task/thread tools that can create a worktree environment and expose enough identity to verify
+distinct checkouts. One Integration Root serially reserves at most three nonterminal lane slots;
+pending and running tasks consume a slot until terminal. Each Worktree Root runs the ordinary
+root-task contract and may use the installed custom Agent profiles; no special Worktree Agent
+profile or Hook registration is installed.
 
 ## Global instructions
 
@@ -103,10 +127,10 @@ An explicit language request wins. Otherwise the main Skill reads
 `<codex-home>/codex-orchestration/preferences.toml` when present. Supported persisted values are
 `en` and `zh-CN`; without the file, task-package prose follows the current user's language.
 
-The preference changes natural-language descriptions and the requested return language only.
-Canonical field names such as `GOAL`, `SCOPE`, and `RETURN`, plus fixed lease and control literals,
-remain unchanged. Installation starts from `examples/preferences.toml`, shows the selected file,
-and preserves an existing valid preference unless the user approves a change.
+The preference changes delegation prose and the requested return language only. Role names, paths,
+and literals defined by external tools or protocols remain unchanged. Installation starts from
+`examples/preferences.toml`, shows the selected file, and preserves an existing valid preference
+unless the user approves a change.
 
 ## Model routes
 
@@ -123,8 +147,8 @@ inspect the parent model. A `worker-round-three` override may cover every writab
 usable match, round three takes the next distinct available entry after round one's model. If none
 exists, the main agent takes over, decomposes again, or reports the blocker.
 
-`panel_routes.gpt` and `panel_routes.third_party` are used only by `panel` and
-`WORKSTREAM: panel` in `hybrid`; every Hybrid task also declares `WORKSTREAM: panel | specialist`.
+`panel_routes.gpt` and `panel_routes.third_party` are used only by `panel` and the panel workstream
+in `hybrid`; a Hybrid brief makes the panel/specialist distinction clear when routing needs it.
 The latest host-generated system or developer model binding selects the family; missing or
 ambiguous identity fails closed to the GPT family. Each family marks entries as `primary` or
 `fallback`. An explicit user model may occupy one seat, while ordinary task overrides do not apply
@@ -147,14 +171,11 @@ two distinct primaries.
 python scripts/validate.py
 python scripts/validate.py --runtime --codex-home <codex-home> --skills-root <skills-root>
 python scripts/validate.py --runtime --global-rules --codex-home <codex-home> --skills-root <skills-root>
-python scripts/validate.py --runtime --hooks --codex-home <codex-home> --skills-root <skills-root>
 ```
 
 Use the interpreter command available on the host. `--skills-root` is required so validation
 cannot guess a non-active location. Runtime validation checks exact bundled Skill and Agent copies,
 validates any saved task-package language and model route, rejects linked managed targets, and
-rejects retired Guard or Route files and registrations. Add `--hooks` only when the current Hook
-was approved; it then checks the exact script, parses `hooks.json`, and requires one effective
-`SubagentStart` registration. Add `--global-rules` when the managed block was selected; it checks
+rejects retired Guard, Scope, or Route files and registrations. Add `--global-rules` when the managed block was selected; it checks
 the active Codex global instruction file and rejects stale copies in the inactive file. The
 installing Agent separately verifies that the host can enforce each approved model route entry.

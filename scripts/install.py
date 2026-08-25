@@ -39,7 +39,6 @@ class InstallPlan:
     current: list[tuple[Path, str]] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     global_rules_target: Path | None = None
-    hook_registration: dict[str, object] | None = None
 
     def add_write(
         self,
@@ -218,6 +217,26 @@ def plan_agents(plan: InstallPlan) -> None:
     ):
         plan.conflicts.append(f"Agent directory linked or conflicting: {agents_root}")
         return
+    for filename, known_hashes in contract.RETIRED_AGENT_SHA256.items():
+        target = agents_root / filename
+        if not lexists(target):
+            continue
+        if not regular_target(target, plan.codex_home, "retired Agent path", plan):
+            continue
+        try:
+            retired_content = target.read_bytes()
+        except OSError as error:
+            plan.conflicts.append(f"retired Agent path unreadable: {target}: {error}")
+            continue
+        if sha256_bytes(retired_content) in known_hashes:
+            plan.add_delete(
+                target,
+                "confirmed retired project Agent",
+                expected=retired_content,
+                use_expected=True,
+            )
+        else:
+            plan.conflicts.append(f"retired Agent path ownership conflict: {target}")
     for source in sorted((ROOT / "agents").glob("*.toml")):
         target = agents_root / source.name
         content = read_managed_source(source, "managed Agent source", plan)
@@ -340,6 +359,7 @@ def plan_global_rules(plan: InstallPlan) -> None:
 
 def script_basename(path: str, *, windows: bool) -> str:
     name = path.replace("\\", "/").rsplit("/", 1)[-1]
+    name = name.split("\0", 1)[0]
     return name.casefold() if windows or sys.platform == "darwin" else name
 
 
@@ -371,6 +391,31 @@ def handler_noncanonical_python_paths(handler: dict[str, object]) -> list[tuple[
     return paths
 
 
+def handler_candidate_paths(handler: dict[str, object]) -> list[tuple[str, bool]]:
+    fields: list[tuple[object, bool]] = []
+    if handler.get("command") is not None:
+        fields.append((handler.get("command"), os.name == "nt"))
+    if handler.get("commandWindows") is not None:
+        fields.append((handler.get("commandWindows"), True))
+    return [
+        (path, windows)
+        for command, windows in fields
+        for path in contract.command_path_candidates(command, windows=windows)
+    ]
+
+
+def handler_has_unparseable_retired_command(handler: dict[str, object]) -> bool:
+    fields: list[tuple[object, bool]] = []
+    if handler.get("command") is not None:
+        fields.append((handler.get("command"), os.name == "nt"))
+    if handler.get("commandWindows") is not None:
+        fields.append((handler.get("commandWindows"), True))
+    return any(
+        contract.unparseable_command_mentions_retired_hook(command, windows=windows)
+        for command, windows in fields
+    )
+
+
 def same_hook_path(left: str | Path, right: str | Path, *, windows: bool) -> bool:
     return contract.hook_paths_may_alias(left, right, windows=windows)
 
@@ -396,10 +441,7 @@ def authenticated_retired_path(
 
 def remove_owned_hook_handlers(
     data: dict[str, object],
-    managed_target: Path,
     plan: InstallPlan,
-    *,
-    replace_current: bool,
 ) -> tuple[dict[str, object], bool]:
     if "hooks" not in data:
         hooks_value: object = {}
@@ -418,36 +460,85 @@ def remove_owned_hook_handlers(
             continue
         rebuilt_groups: list[object] = []
         for group_value in groups_value:
-            if not isinstance(group_value, dict) or not isinstance(group_value.get("hooks"), list):
+            if not isinstance(group_value, dict):
+                plan.conflicts.append(f"hooks.json group must be an object: {event}")
+                rebuilt_groups.append(group_value)
+                continue
+            if not isinstance(group_value.get("hooks"), list):
+                plan.conflicts.append(f"hooks.json group hooks must be a list: {event}")
                 rebuilt_groups.append(group_value)
                 continue
             matcher = group_value.get("matcher")
             rebuilt_handlers: list[object] = []
             for handler_value in group_value["hooks"]:
-                if not isinstance(handler_value, dict) or handler_value.get("type") != "command":
+                if not isinstance(handler_value, dict):
                     rebuilt_handlers.append(handler_value)
                     continue
-                noncanonical_conflict = False
+                if handler_value.get("type") != "command":
+                    suspicious = False
+                    for path, windows in handler_candidate_paths(handler_value):
+                        basename = script_basename(path, windows=windows)
+                        retired_names = {
+                            script_basename(name, windows=windows)
+                            for name in (*contract.RETIRED_HOOK_SCRIPTS, "orchestration_route.py")
+                        }
+                        if basename in retired_names:
+                            suspicious = True
+                            break
+                        if contract.hook_path_is_ambiguous(path, windows=windows):
+                            continue
+                        targets = [
+                            plan.codex_home / "hooks" / name
+                            for name in (*contract.RETIRED_HOOK_SCRIPTS, "orchestration_route.py")
+                        ]
+                        if any(same_hook_path(path, target, windows=windows) for target in targets):
+                            suspicious = True
+                            break
+                        if contract.referenced_script_has_retired_hash(path, windows=windows):
+                            suspicious = True
+                            break
+                    if suspicious:
+                        plan.conflicts.append(
+                            f"retired-looking Hook handler has invalid type: {event}"
+                        )
+                    rebuilt_handlers.append(handler_value)
+                    continue
+                present_fields = [
+                    handler_value[field]
+                    for field in ("command", "commandWindows")
+                    if field in handler_value
+                ]
+                if not present_fields or any(
+                    not isinstance(field, str) or not field.strip() for field in present_fields
+                ):
+                    plan.conflicts.append(f"command Hook has invalid command fields: {event}")
+                    rebuilt_handlers.append(handler_value)
+                    continue
+                noncanonical_conflict = handler_has_unparseable_retired_command(handler_value)
                 for path, windows in handler_noncanonical_python_paths(handler_value):
                     basename = script_basename(path, windows=windows)
-                    managed_name = script_basename("subagent_scope.py", windows=windows)
                     route_name = script_basename("orchestration_route.py", windows=windows)
-                    guard_name = script_basename("subagent_guard.py", windows=windows)
+                    retired_names = {
+                        script_basename(name, windows=windows)
+                        for name in contract.RETIRED_HOOK_SCRIPTS
+                    }
                     noncanonical_conflict = noncanonical_conflict or (
                         (
-                            basename in {managed_name, route_name, guard_name}
+                            basename in {*retired_names, route_name}
                             and contract.hook_path_is_ambiguous(path, windows=windows)
                         )
-                        or same_hook_path(path, managed_target, windows=windows)
                         or same_hook_path(
                             path,
                             plan.codex_home / "hooks" / "orchestration_route.py",
                             windows=windows,
                         )
-                        or same_hook_path(
-                            path,
-                            plan.codex_home / "hooks" / "subagent_guard.py",
-                            windows=windows,
+                        or any(
+                            same_hook_path(
+                                path,
+                                plan.codex_home / "hooks" / name,
+                                windows=windows,
+                            )
+                            for name in contract.RETIRED_HOOK_SCRIPTS
                         )
                         or contract.referenced_script_has_retired_hash(path, windows=windows)
                     )
@@ -459,12 +550,6 @@ def remove_owned_hook_handlers(
                     continue
                 fields = handler_command_paths(handler_value)
                 unsafe_project_fields: list[bool] = []
-                current_fields = [
-                    path is not None and same_hook_path(path, managed_target, windows=windows)
-                    for path, windows in fields
-                ]
-                owned_current = bool(current_fields) and all(current_fields)
-                mixed_current = any(current_fields) and not owned_current
                 retired_fields: list[bool] = []
                 retired_relevant: list[bool] = []
                 for path, windows in fields:
@@ -473,34 +558,49 @@ def remove_owned_hook_handlers(
                         retired_relevant.append(False)
                         continue
                     basename = script_basename(path, windows=windows)
-                    managed_name = script_basename("subagent_scope.py", windows=windows)
                     route_name = script_basename("orchestration_route.py", windows=windows)
                     guard_name = script_basename("subagent_guard.py", windows=windows)
+                    scope_name = script_basename("subagent_scope.py", windows=windows)
                     route_path = plan.codex_home / "hooks" / "orchestration_route.py"
                     guard_path = plan.codex_home / "hooks" / "subagent_guard.py"
-                    aliases_route = same_hook_path(path, route_path, windows=windows)
-                    aliases_guard = same_hook_path(path, guard_path, windows=windows)
-                    references_retired_code = contract.referenced_script_has_retired_hash(
-                        path, windows=windows
-                    )
+                    scope_path = plan.codex_home / "hooks" / "subagent_scope.py"
+                    path_is_ambiguous = contract.hook_path_is_ambiguous(path, windows=windows)
+                    if path_is_ambiguous:
+                        aliases_route = aliases_guard = aliases_scope = False
+                        references_retired_code = False
+                    else:
+                        aliases_route = same_hook_path(path, route_path, windows=windows)
+                        aliases_guard = same_hook_path(path, guard_path, windows=windows)
+                        aliases_scope = same_hook_path(path, scope_path, windows=windows)
+                        references_retired_code = contract.referenced_script_has_retired_hash(
+                            path, windows=windows
+                        )
                     unsafe_project_fields.append(
-                        basename in {managed_name, route_name, guard_name}
-                        and contract.hook_path_is_ambiguous(path, windows=windows)
+                        basename in {scope_name, route_name, guard_name} and path_is_ambiguous
                     )
-                    is_route_shape = event == "UserPromptSubmit" and basename == route_name
+                    is_route_shape = (
+                        event == "UserPromptSubmit" and matcher is None and basename == route_name
+                    )
                     is_guard_shape = (
                         isinstance(matcher, str)
                         and (event, matcher) in contract.LEGACY_HOOK_GROUPS
                         and basename == guard_name
                     )
+                    is_scope_shape = (
+                        event == "SubagentStart" and matcher is None and basename == scope_name
+                    )
                     filename = (
                         "orchestration_route.py"
                         if basename == route_name or aliases_route
-                        else "subagent_guard.py"
+                        else (
+                            "subagent_scope.py"
+                            if basename == scope_name or aliases_scope
+                            else "subagent_guard.py"
+                        )
                     )
                     expected_path = plan.codex_home / "hooks" / filename
-                    points_to_retired_target = aliases_route or aliases_guard
-                    retired_shape = is_route_shape or is_guard_shape
+                    points_to_retired_target = aliases_route or aliases_guard or aliases_scope
+                    retired_shape = is_route_shape or is_guard_shape or is_scope_shape
                     retired_relevant.append(
                         retired_shape or points_to_retired_target or references_retired_code
                     )
@@ -520,17 +620,12 @@ def remove_owned_hook_handlers(
                         f"managed-looking Hook registration has unsafe path: {event}"
                     )
                     rebuilt_handlers.append(handler_value)
-                elif mixed_current:
-                    plan.conflicts.append(
-                        f"managed-looking Hook registration has mixed ownership: {event}"
-                    )
-                    rebuilt_handlers.append(handler_value)
                 elif suspicious_retired:
                     plan.conflicts.append(
                         f"retired-looking Hook registration has unconfirmed ownership: {event}"
                     )
                     rebuilt_handlers.append(handler_value)
-                elif (replace_current and owned_current) or retired:
+                elif retired:
                     changed = True
                 else:
                     rebuilt_handlers.append(handler_value)
@@ -546,20 +641,6 @@ def remove_owned_hook_handlers(
     rebuilt = dict(data)
     rebuilt["hooks"] = rebuilt_events
     return rebuilt, changed
-
-
-def desired_hook_registration(target: Path) -> dict[str, object]:
-    use_windows = os.name == "nt"
-    command = contract.expected_hook_command(target, windows=use_windows)
-    handler: dict[str, object] = {
-        "type": "command",
-        "command": command,
-        "timeout": 5,
-        "statusMessage": "Checking worker write lease",
-    }
-    if use_windows:
-        handler["commandWindows"] = command
-    return {"hooks": [handler]}
 
 
 def plan_retired_hook_files(plan: InstallPlan) -> None:
@@ -598,10 +679,11 @@ def plan_retired_hook_files(plan: InstallPlan) -> None:
             plan.conflicts.append(f"retired Hook path ownership conflict: {target}")
 
 
-def plan_hooks(plan: InstallPlan, install_hook: bool) -> None:
+def plan_retired_hooks(plan: InstallPlan) -> None:
     plan_retired_hook_files(plan)
     hooks_path = plan.codex_home / "hooks.json"
-    managed_target = plan.codex_home / "hooks" / "subagent_scope.py"
+    if not lexists(hooks_path):
+        return
     if not regular_target(hooks_path, plan.codex_home, "hooks config", plan):
         return
     if hooks_path.is_file():
@@ -615,42 +697,12 @@ def plan_hooks(plan: InstallPlan, install_hook: bool) -> None:
             plan.conflicts.append(f"hooks config root must be an object: {hooks_path}")
             return
     else:
-        hooks_content = None
-        data = {"description": "Codex Orchestration lifecycle hooks.", "hooks": {}}
+        return
 
-    reconciled, changed = remove_owned_hook_handlers(
-        data, managed_target, plan, replace_current=install_hook
-    )
+    reconciled, changed = remove_owned_hook_handlers(data, plan)
     hooks_value = reconciled.get("hooks")
     if not isinstance(hooks_value, dict):
         return
-    if install_hook:
-        if os.name == "nt" and (
-            contract.unsafe_windows_hook_path(Path(sys.executable).absolute())
-            or contract.unsafe_windows_hook_path(managed_target.absolute())
-        ):
-            plan.conflicts.append(
-                f"Hook command path contains unsafe Windows expansion characters: {managed_target}"
-            )
-            return
-        if not regular_target(managed_target, plan.codex_home, "Hook script", plan):
-            return
-        hook_source = read_managed_source(
-            ROOT / "hooks" / "subagent_scope.py", "writer-lease Hook source", plan
-        )
-        if hook_source is None:
-            return
-        plan.add_write(managed_target, hook_source, "writer-lease Hook")
-        registration = desired_hook_registration(managed_target)
-        plan.hook_registration = registration
-        current_groups = hooks_value.get("SubagentStart")
-        if current_groups is None:
-            current_groups = []
-        if not isinstance(current_groups, list):
-            plan.conflicts.append("hooks.json SubagentStart event must be a list")
-            return
-        hooks_value["SubagentStart"] = [*current_groups, registration]
-        changed = True
     if changed:
         rendered = (json.dumps(reconciled, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         plan.add_write(
@@ -672,7 +724,6 @@ def build_plan(
     skills_root: Path,
     *,
     language: str | None,
-    install_hook: bool,
     global_rules: bool,
 ) -> InstallPlan:
     raw_codex_home = codex_home.absolute()
@@ -703,7 +754,7 @@ def build_plan(
     plan_preferences(plan, language)
     if global_rules:
         plan_global_rules(plan)
-    plan_hooks(plan, install_hook)
+    plan_retired_hooks(plan)
     return plan
 
 
@@ -823,13 +874,9 @@ def rollback(
     return failures
 
 
-def verification_failures(
-    plan: InstallPlan, *, install_hook: bool, global_rules: bool
-) -> list[str]:
+def verification_failures(plan: InstallPlan, *, global_rules: bool) -> list[str]:
     failures = contract.validate_source()
     failures.extend(contract.validate_runtime(plan.codex_home, plan.skills_root))
-    if install_hook:
-        failures.extend(contract.validate_hooks(plan.codex_home))
     if global_rules:
         failures.extend(contract.validate_global_rules(plan.codex_home))
     return failures
@@ -869,7 +916,7 @@ def recheck_operation(plan: InstallPlan, operation: Operation) -> None:
     recheck_snapshot(plan, operation.path, operation.expected, "transaction target")
 
 
-def apply_plan(plan: InstallPlan, *, install_hook: bool, global_rules: bool) -> None:
+def apply_plan(plan: InstallPlan, *, global_rules: bool) -> None:
     if plan.conflicts:
         raise RuntimeError("installation plan has conflicts")
     previous: dict[Path, bytes | None] = {}
@@ -889,7 +936,7 @@ def apply_plan(plan: InstallPlan, *, install_hook: bool, global_rules: bool) -> 
             else:
                 operation.path.unlink()
                 recheck_snapshot(plan, operation.path, None, "post-delete target")
-        failures = verification_failures(plan, install_hook=install_hook, global_rules=global_rules)
+        failures = verification_failures(plan, global_rules=global_rules)
         if failures:
             details = "\n".join(f"- {item}" for item in failures)
             raise RuntimeError(f"verification failed:\n{details}")
@@ -900,12 +947,12 @@ def apply_plan(plan: InstallPlan, *, install_hook: bool, global_rules: bool) -> 
         raise
 
 
-def print_plan(plan: InstallPlan, *, install_hook: bool, global_rules: bool) -> None:
+def print_plan(plan: InstallPlan, *, global_rules: bool) -> None:
     print("Codex Orchestration installation plan")
     print(f"Codex home: {plan.codex_home}")
     print(f"Skill root: {plan.skills_root}")
     print(f"Global rules: {'managed block' if global_rules else 'unchanged'}")
-    print(f"Writer-lease Hook: {'install/update' if install_hook else 'unchanged'}")
+    print("Retired project assets: reconcile authenticated Agents and Hooks")
     for operation in plan.operations:
         label = (
             "REMOVE"
@@ -919,9 +966,6 @@ def print_plan(plan: InstallPlan, *, install_hook: bool, global_rules: bool) -> 
     if global_rules and plan.global_rules_target is not None:
         print(f"Active global instructions: {plan.global_rules_target}")
         print(contract.GLOBAL_RULES_TEMPLATE.read_text(encoding="utf-8").rstrip())
-    if install_hook and plan.hook_registration is not None:
-        print("Managed SubagentStart group:")
-        print(json.dumps(plan.hook_registration, ensure_ascii=False, indent=2))
     for conflict in plan.conflicts:
         print(f"[CONFLICT] {conflict}")
 
@@ -935,7 +979,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--skills-root", type=Path, required=True)
     parser.add_argument("--language", choices=sorted(contract.TASK_PACKAGE_LANGUAGES))
-    parser.add_argument("--hooks", action="store_true", help="install the writer-lease Hook")
     parser.add_argument(
         "--global-rules",
         action=argparse.BooleanOptionalAction,
@@ -959,10 +1002,9 @@ def main() -> int:
         codex_home,
         skills_root,
         language=args.language,
-        install_hook=args.hooks,
         global_rules=args.global_rules,
     )
-    print_plan(plan, install_hook=args.hooks, global_rules=args.global_rules)
+    print_plan(plan, global_rules=args.global_rules)
     if plan.conflicts:
         print("Refusing installation because the plan contains conflicts.")
         return 2
@@ -970,14 +1012,12 @@ def main() -> int:
         print("Dry run only. Re-run the same command with --apply to write these changes.")
         return 0
     try:
-        apply_plan(plan, install_hook=args.hooks, global_rules=args.global_rules)
+        apply_plan(plan, global_rules=args.global_rules)
     except (OSError, RuntimeError) as error:
         print(f"FAIL: {error}")
         return 1
     print("OK: installation applied and runtime verification passed")
-    print("Start a new Codex task so Skills, Agents, global rules, and Hooks reload.")
-    if args.hooks:
-        print("Review and trust the installed Hook with /hooks before expecting it to run.")
+    print("Start a new Codex task so Skills, Agents, and global rules reload.")
     return 0
 
 

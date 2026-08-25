@@ -11,6 +11,6 @@ irrelevant.
 
 **Status:** accepted
 
-**Consequences:** The Skill, routing Hook, public documentation, and tests use the same short
+**Consequences:** The Skill, public documentation, and tests use the same short
 dependency rule and mailbox semantics. Lifecycle calls remain separate model-visible operations;
 there is no cross-call status map to cache or reuse.

@@ -1,14 +1,14 @@
 # Model routing
 
 Model identifiers, reasoning levels, service tiers, and route order are local configuration.
-Ordinary delegation uses `fork_turns="none"` and a self-contained task package. Carry bounded
-transcript context only when it is indispensable and record the reason in the package; the current
+Ordinary delegation uses `fork_turns="none"` and a self-contained brief. Carry bounded transcript
+context only when it is indispensable and record the reason in the brief; the current
 `spawn_agent` schema defines the supported parameter combinations.
 
 ## Ordinary selection order
 
-Ordinary `single`, `coverage`, worker, and `WORKSTREAM: specialist` delegation never inspect the
-parent model identity.
+Ordinary `single`, `coverage`, worker, and hybrid specialist delegation never inspect the parent
+model identity.
 
 1. Follow an explicit user model request when the host permits it. When the spawn tool supports
    model selection, pass the requested model as an explicit override; do not treat an omitted
@@ -32,8 +32,9 @@ completion condition.
 
 ## Panel routing
 
-Only `panel` and `WORKSTREAM: panel` in `hybrid` classify the parent model family. Every hybrid task
-package declares `WORKSTREAM: panel | specialist`; specialist workstreams use ordinary role routes.
+Only `panel` and the panel workstream in `hybrid` classify the parent model family. The brief makes
+the workstream clear when hybrid routing needs the distinction.
+Specialist workstreams use ordinary role routes.
 
 Use the latest host-generated system or developer model binding. An explicit `model_switch` or
 equivalent host binding is authoritative; when multiple bindings exist, the latest one wins. User
@@ -67,7 +68,7 @@ Round three creates a new agent and first uses a matching `worker-round-three` t
 none is usable, it selects the next distinct available model after the round-one model in the same
 effective route. Apply this override to all writable roles it names, including method workers. If
 no distinct model remains, do not start round three: the main agent takes over, decomposes the work
-again, or reports the blocker. The new agent receives a fresh complete task package; no previous
+again, or reports the blocker. The new agent receives a fresh standalone brief; no previous
 thread is closed or reused for the lease.
 
 ## Resolution evidence

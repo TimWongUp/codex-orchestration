@@ -4,65 +4,53 @@ Read this file only when the main agent is about to create a writable worker.
 
 ## Admission
 
-Create a worker only when the task is more than a simple edit, the goal and completion condition are settled, the work can be independently accepted, allowed paths are explicit, the target branch is ready, and no other writer is active.
+Create a worker only when the task is more than a simple edit, the intended outcome is settled,
+the result can be independently accepted, the repository state is ready, and no other writer is
+active in this root task. Selecting the writable worker role starts that root task's lease; while
+the worker is active, the main agent and every other derived agent remain read-only.
 
-## Lease state
+Workers are derived agents. They do not load or execute `codex-orchestration`, create or coordinate
+descendants, manage Git, or change external state. A sandbox or role name is not permission to
+expand the user's task.
 
-```text
-MAIN_WRITES
-WORKER_WRITES(agent_id, branch, allowed_paths, round)
-```
+## Worker brief
 
-The worker may write only when the main-agent task message contains the complete canonical package below. A writable sandbox, hook text, agent profile, or background document does not grant a lease.
-Workers are derived agents: they do not load or execute `codex-orchestration`, and they never create, coordinate, wait for, or manage descendants.
+Send a compact natural-language brief, not a required form. It normally makes the intended change
+and handoff focus clear, supplies only context the worker cannot cheaply recover, and points to
+useful files, diffs, logs, or references. Optional headings such as task, context, handoff, and
+references may help readability, but their names and presence carry no authority.
 
-Every write round requires a fresh, complete package. Reusing a worker thread does not extend or recreate the previous lease.
+Let the worker inspect the repository and recover ordinary implementation context. State explicit
+exclusions, authority limits, or validation expectations only when they materially change the
+work. Do not create a temporary handoff file for information that fits in the task message.
 
-## Canonical worker package
+The worker uses judgment to make the smallest complete change, including necessary adjacent files.
+It preserves pre-existing work and treats explicit exclusions as binding. If the correct change
+would materially expand the requested outcome, conflict with existing changes, or require new
+authority, the worker returns a checkpoint instead of guessing.
 
-```text
-GOAL: one observable outcome
-SCOPE: necessary context and work boundary
-CONSTRAINTS: contracts whose violation means failure
-DONE WHEN: observable completion condition
-RETURN: changed files, validation, remaining risks, and out-of-scope findings
+## Method workers
 
-WRITE LEASE: granted
-ALLOWED PATHS: explicit repository-relative files or directories
+`diagnosing-bugs-worker` loads the complete `diagnosing-bugs` Skill and applies its feedback loop,
+reproduction, minimization, hypothesis testing, regression-test, and instrumentation-cleanup
+method within the assigned outcome.
 
-BRANCH: branch already selected by the main agent
-ROUND: 1, 2, or 3
-VALIDATION: required checks and expected signals
-```
+`prototype-worker` loads the complete `prototype` Skill and builds the smallest throwaway result
+that answers the design question without turning it into production architecture on its own.
 
-Allowed directories include descendants. Do not use unresolved globs. Reading outside `ALLOWED PATHS` is permitted when necessary; writing is not. If the smallest correct change crosses the boundary, return the exact need to the main agent.
+## Follow-ups and rounds
 
-## Worker boundary
+A follow-up to the same worker thread may contain only the acceptance finding, correction, or new
+evidence because the thread retains its context. A newly created worker receives a standalone
+brief. The main Skill still limits one branch to three writable rounds; a round ends when that
+worker is no longer running, and no prior lease remains active between rounds.
 
-- Preserve pre-existing changes.
-- Modify only what the goal requires inside `ALLOWED PATHS`.
-- Run the specified tests, lint, type checks, builds, or smoke tests.
-- Return Git, publishing, messaging, database, and other external writes to the main agent.
-- Do not create or manage subagents.
+## Handoff and acceptance
 
-## Method-worker boundaries
+The worker returns a natural, concise handoff with the changed files, relevant validation and
+results, remaining risks, and any checkpoint that affects acceptance. The repository, complete
+diff, and validation output remain the source of truth.
 
-`diagnosing-bugs-worker` loads the complete `diagnosing-bugs` Skill and uses its feedback loop, reproduction, minimization, hypothesis testing, regression-test, and instrumentation-cleanup method. Any method step that needs Git, user interaction, or work outside `ALLOWED PATHS` returns a checkpoint to the main agent.
-
-`prototype-worker` loads the complete `prototype` Skill and uses the smallest throwaway implementation that answers the stated design question. Git, branch management, user interaction, and work outside `ALLOWED PATHS` return to the main agent, and the worker never turns a prototype into production architecture on its own.
-
-## Round-three handoff
-
-Round three keeps the full package and appends:
-
-```text
-CONFIRMED: accepted state, relevant files, and established facts
-PRIOR VALIDATION: checks already run and their results
-REMAINING: work still required and why
-```
-
-The repository, diff, and validation output remain the source of truth. Do not create a separate handoff file.
-
-## Acceptance
-
-After the worker returns, the main agent checks that all changes are in scope, pre-existing work is preserved, validation supports `DONE WHEN`, temporary instrumentation is removed, and the result is ready for the next stage or review.
+After the worker returns, the main agent inspects the complete diff, confirms that the requested
+outcome and pre-existing work were preserved, checks relevant validation, and decides whether the
+result is ready for the next stage or review.
