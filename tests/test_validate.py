@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -54,10 +55,11 @@ class SourceValidationTest(unittest.TestCase):
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         contract = (ROOT / "references" / "worktree-roots.md").read_text(encoding="utf-8")
         global_rules = (ROOT / "examples" / "global-agents-block.md").read_text(encoding="utf-8")
+        normalized_contract = re.sub(r"\s+", " ", contract)
 
         self.assertIn("independent task and session", skill)
-        self.assertIn("A Worktree Root is a normal root task", skill)
-        self.assertIn("at most three nonterminal lane slots", skill)
+        self.assertIn("It is a peer root task, not a derived writable agent", normalized_contract)
+        self.assertIn("at most three nonterminal Worktree Roots", normalized_contract)
         self.assertIn("at most eight spawned-agent threads", contract)
         self.assertIn("same `explorer`, reviewer, worker, and specialist roles", contract)
         self.assertIn("batch roles, not different agent types", contract)
@@ -81,8 +83,10 @@ class SourceValidationTest(unittest.TestCase):
         review = (ROOT / "skills" / "codex-review-gate" / "SKILL.md").read_text(encoding="utf-8")
         global_rules = (ROOT / "examples" / "global-agents-block.md").read_text(encoding="utf-8")
 
-        self.assertNotIn("## Review gate", skill)
-        self.assertIn("## Review handoff", skill)
+        self.assertIsNone(
+            re.search(r"^#{1,6}\s+Review gate\b.*$", skill, re.IGNORECASE | re.MULTILINE)
+        )
+        self.assertIn("`codex-review-gate` defines the review route", skill)
         self.assertIn("delivery control, not an admission test", review)
         self.assertIn("current user message does not need to name a subagent", review)
         self.assertIn("Choose the highest matching level", review)
@@ -122,6 +126,79 @@ class SourceValidationTest(unittest.TestCase):
                     else "Review Skill unreadable:"
                 )
                 self.assertTrue(any(item.startswith(expected) for item in failures))
+
+    def test_progressive_disclosure_rejects_missing_sources_and_wrong_links(self) -> None:
+        skill_path = ROOT / "SKILL.md"
+        skill = skill_path.read_text(encoding="utf-8")
+        original_read = Path.read_text
+        references = (
+            ("read-only-collaboration.md", "read-only collaboration contract"),
+            ("collaboration-lifecycle.md", "collaboration lifecycle contract"),
+        )
+
+        for filename, label in references:
+            target = ROOT / "references" / filename
+            with self.subTest(filename=filename, condition="missing"):
+
+                def missing(
+                    path: Path,
+                    encoding: str | None = None,
+                    errors: str | None = None,
+                ) -> str:
+                    if path == target:
+                        raise FileNotFoundError
+                    return original_read(path, encoding=encoding, errors=errors)
+
+                with mock.patch.object(Path, "read_text", missing):
+                    failures = VALIDATOR.validate_source()
+                self.assertIn(f"{label} missing", failures)
+
+            with self.subTest(filename=filename, condition="wrong-link"):
+                mutated = skill.replace(
+                    f"](references/{filename})",
+                    "](references/missing.md)",
+                    1,
+                )
+
+                def wrong_link(
+                    path: Path,
+                    encoding: str | None = None,
+                    errors: str | None = None,
+                ) -> str:
+                    if path == skill_path:
+                        return mutated
+                    return original_read(path, encoding=encoding, errors=errors)
+
+                with mock.patch.object(Path, "read_text", wrong_link):
+                    failures = VALIDATOR.validate_source()
+                self.assertTrue(
+                    any(item.startswith("missing Skill reference pointer:") for item in failures)
+                )
+
+    def test_orchestration_skill_cannot_redefine_review_gate(self) -> None:
+        skill_path = ROOT / "SKILL.md"
+        original_read = Path.read_text
+        skill = skill_path.read_text(encoding="utf-8")
+        for heading in (
+            "##  review GATE",
+            "### Review gate policy",
+            "#### REVIEW GATE <!-- duplicate -->",
+        ):
+            with self.subTest(heading=heading):
+                mutated = skill + f"\n{heading}\n\nDuplicate.\n"
+
+                def duplicate_gate(
+                    path: Path,
+                    encoding: str | None = None,
+                    errors: str | None = None,
+                ) -> str:
+                    if path == skill_path:
+                        return mutated
+                    return original_read(path, encoding=encoding, errors=errors)
+
+                with mock.patch.object(Path, "read_text", duplicate_gate):
+                    failures = VALIDATOR.validate_source()
+                self.assertIn("orchestration Skill must not redefine the Review gate", failures)
 
     def test_worktree_contract_rejects_limit_and_sequence_drift(self) -> None:
         contract = (ROOT / "references" / "worktree-roots.md").read_text(encoding="utf-8")
@@ -240,16 +317,17 @@ class SourceValidationTest(unittest.TestCase):
         self.assertEqual(VALIDATOR.source_version_failures(project, skill), [])
         self.assertEqual(VALIDATOR.source_version_failures(project, review_skill), [])
 
-        mutated = skill.replace("version: 0.9.0", "version: 0.8.0", 1)
-        mutated += "\nversion: 0.9.0\n"
+        project_version = VALIDATOR.top_level_values(project)["version"]
+        mutated = skill.replace(f"version: {project_version}", "version: 0.8.0", 1)
+        mutated += f"\nversion: {project_version}\n"
         self.assertIn(
             "Skill front matter version must match project version",
             VALIDATOR.source_version_failures(project, mutated),
         )
 
         duplicate = skill.replace(
-            "  version: 0.9.0",
-            "  version: 0.9.0\n  version: 0.9.0",
+            f"  version: {project_version}",
+            f"  version: {project_version}\n  version: {project_version}",
             1,
         )
         self.assertIn(
@@ -258,8 +336,8 @@ class SourceValidationTest(unittest.TestCase):
         )
 
         duplicate_project = project.replace(
-            'version = "0.9.0"',
-            'version = "0.8.0"\nversion = "0.9.0"',
+            f'version = "{project_version}"',
+            f'version = "0.8.0"\nversion = "{project_version}"',
             1,
         )
         self.assertIn(
@@ -269,17 +347,22 @@ class SourceValidationTest(unittest.TestCase):
 
     def test_v2_policy_does_not_use_a_main_agent_route_hook(self) -> None:
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        lifecycle = (ROOT / "references" / "collaboration-lifecycle.md").read_text(encoding="utf-8")
         self.assertFalse((ROOT / "hooks" / "orchestration_route.py").exists())
         self.assertIn('fork_turns="none"', skill)
         self.assertIn("collaboration-tool schemas are the sole authority", skill)
-        self.assertIn("earlier final notification", skill)
+        self.assertIn("earlier final notification", lifecycle)
         self.assertNotIn("functions.exec", skill)
 
     def test_only_panel_routing_uses_host_model_binding(self) -> None:
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         routing = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
+        collaboration = (ROOT / "references" / "read-only-collaboration.md").read_text(
+            encoding="utf-8"
+        )
 
-        self.assertIn("panel workstream in `hybrid` use parent-aware panel routes", skill)
+        self.assertIn("references/read-only-collaboration.md", skill)
+        self.assertIn("Only `panel` and the panel workstream in `hybrid`", routing)
         self.assertIn(
             "hybrid specialist delegation never inspect the parent\nmodel identity", routing
         )
@@ -289,7 +372,10 @@ class SourceValidationTest(unittest.TestCase):
         self.assertIn("uses `panel_routes.third_party`", routing)
         self.assertIn("fails closed to `panel_routes.gpt`", routing)
         self.assertIn("Specialist workstreams use ordinary role routes", routing)
-        self.assertIn("semantic instructions, not required labels", skill)
+        self.assertIn(
+            "semantic instructions, not required labels",
+            re.sub(r"\s+", " ", collaboration),
+        )
         self.assertIn("brief makes\nthe workstream clear", routing)
         self.assertNotIn("WORKSTREAM: panel | specialist", skill)
 
@@ -545,6 +631,22 @@ class SourceValidationTest(unittest.TestCase):
             failures = VALIDATOR.validate_runtime(codex_home, skills_root)
 
         self.assertTrue(any("runtime Skill file differs" in failure for failure in failures))
+
+    def test_runtime_validation_reports_missing_progressive_disclosure_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.copy_runtime(Path(temporary).resolve())
+            target = (
+                skills_root / "codex-orchestration" / "references" / "collaboration-lifecycle.md"
+            )
+            target.unlink()
+            failures = VALIDATOR.validate_runtime(codex_home, skills_root)
+
+        self.assertTrue(
+            any(
+                "runtime Skill file differs" in failure and "collaboration-lifecycle.md" in failure
+                for failure in failures
+            )
+        )
 
     def test_runtime_validation_rejects_method_skill_stub(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

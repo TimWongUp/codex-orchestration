@@ -36,7 +36,9 @@ The repository is the only source of truth for its portable Skills, Agents, inst
 - **Parallel reading, locally serialized writing.** Explorers, researchers, and reviewers may run concurrently; inside each root task, only the main agent or one leased worker writes at a time.
 - **Parallel worktrees use peer roots.** With explicit user approval and an admission gate, an
   Integration Root may coordinate up to three independent Worktree Roots. They use normal
-  subagents in isolated checkouts; no derived Worker gains orchestration authority.
+  subagents in isolated checkouts.
+- **Orchestration stays with roots.** Derived Agents do not call collaboration tools or orchestrate
+  descendants, siblings, or other Agents; panel membership never changes that boundary.
 - **Concurrency is bounded per session.** Each root session uses at most eight spawned-agent
   threads, excluding its primary agent, while lower host limits still apply.
 - **Waiting follows dependency.** The main agent waits before decisions, writes, or final answers that pending results could change; only independent, non-overlapping work continues.

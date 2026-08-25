@@ -80,6 +80,22 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(hooks["custom"], {"preserve": True})
             self.assertEqual(hooks["hooks"]["SessionStart"], [unrelated_group])
             self.assertTrue((skills_root / "codex-review-gate" / "SKILL.md").is_file())
+            self.assertTrue(
+                (
+                    skills_root
+                    / "codex-orchestration"
+                    / "references"
+                    / "read-only-collaboration.md"
+                ).is_file()
+            )
+            self.assertTrue(
+                (
+                    skills_root
+                    / "codex-orchestration"
+                    / "references"
+                    / "collaboration-lifecycle.md"
+                ).is_file()
+            )
             self.assertEqual(INSTALL.contract.validate_runtime(codex_home, skills_root), [])
             self.assertEqual(INSTALL.contract.validate_global_rules(codex_home), [])
 
