@@ -25,20 +25,30 @@ BUNDLED_SKILLS = {
 }
 THIRD_PARTY_SKILLS = {"diagnosing-bugs", "prototype"}
 WRITERS = {"worker", "diagnosing-bugs-worker", "prototype-worker"}
-READERS = {
+REVIEWERS = {
+    "architecture-reviewer",
+    "correctness-reviewer",
+    "performance-reviewer",
+    "security-reviewer",
+    "specialist-reviewer",
+    "test-reliability-reviewer",
+}
+READERS = REVIEWERS | {
     "default",
     "explorer",
     "reference-researcher",
     "web-researcher",
-    "correctness-reviewer",
-    "architecture-reviewer",
-    "security-reviewer",
-    "performance-reviewer",
-    "test-reliability-reviewer",
-    "specialist-reviewer",
     "adversarial-verifier",
     "expert",
 }
+REVIEWER_EVIDENCE_CONTRACT = (
+    "Anchor findings to the assigned change boundary and risk. When a finding depends on a task "
+    "or spec requirement or a repository standard, cite the applicable source and identify that "
+    "evidence class; this is evidence discipline, not a generic Standards/Spec pass. Label "
+    "heuristic concerns as judgment calls, report them only when they imply material risk within "
+    "the assignment, and omit checks conclusively covered by current passing tooling unless that "
+    "coverage is itself in question."
+)
 FORBIDDEN_KEYS = {"model", "model_reasoning_effort", "service_tier"}
 TASK_PACKAGE_LANGUAGES = {"en", "zh-CN"}
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
@@ -422,6 +432,29 @@ def top_level_values(source: str) -> dict[str, str]:
     return values
 
 
+def top_level_multiline_value(source: str, key: str) -> str | None:
+    in_multiline_string = False
+    top_level_end = len(source)
+    offset = 0
+    for line in source.splitlines(keepends=True):
+        if not in_multiline_string and re.fullmatch(
+            r"\s*\[\[?.+?\]\]?\s*(?:#.*)?", line.rstrip("\r\n")
+        ):
+            top_level_end = offset
+            break
+        if line.count('"""') % 2:
+            in_multiline_string = not in_multiline_string
+        offset += len(line)
+
+    top_level = source[:top_level_end]
+    pattern = re.compile(
+        rf'^\s*{re.escape(key)}\s*=\s*"""(.*?)^\s*"""\s*$',
+        re.MULTILINE | re.DOTALL,
+    )
+    matches = pattern.findall(top_level)
+    return matches[0] if len(matches) == 1 else None
+
+
 def markdown_frontmatter_values(source: str) -> dict[str, str]:
     lines = source.splitlines()
     if not lines or lines[0].strip() != "---":
@@ -444,7 +477,7 @@ def source_version_failures(project: str, skill: str) -> list[str]:
     frontmatter = skill[4:frontmatter_end] if frontmatter_end >= 0 else ""
     version_fields = re.findall(r"^\s*version:\s*.+$", frontmatter, re.MULTILINE)
     project_version_fields = re.findall(r"^version\s*=\s*.+$", project, re.MULTILINE)
-    require(project_version == "0.9.1", "project version must be 0.9.1", failures)
+    require(project_version == "0.9.2", "project version must be 0.9.2", failures)
     require(
         len(project_version_fields) == 1,
         "project version must appear exactly once",
@@ -1394,6 +1427,7 @@ def validate_source() -> list[str]:
 
     profiles: dict[str, dict[str, str]] = {}
     profile_sources: dict[str, str] = {}
+    profile_instructions: dict[str, str] = {}
     for path in sorted((ROOT / "agents").glob("*.toml")):
         source = path.read_text(encoding="utf-8")
         values = top_level_values(source)
@@ -1402,6 +1436,13 @@ def validate_source() -> list[str]:
         if name:
             profiles[name] = values
             profile_sources[name] = source
+            instructions = top_level_multiline_value(source, "developer_instructions")
+            require(
+                instructions is not None,
+                f"missing or ambiguous developer_instructions: {path.name}",
+                failures,
+            )
+            profile_instructions[name] = instructions or ""
             require(name == path.stem, f"agent filename/name mismatch: {path.name}", failures)
         pinned = pinned_model_keys(source)
         require(not pinned, f"agent pins model settings: {path.name}: {sorted(pinned)}", failures)
@@ -1426,6 +1467,13 @@ def validate_source() -> list[str]:
         require(
             profiles.get(name, {}).get("sandbox_mode") == "read-only",
             f"{name} must be read-only",
+            failures,
+        )
+    for name in REVIEWERS:
+        instructions = profile_instructions.get(name, "")
+        require(
+            instructions.rstrip().endswith(REVIEWER_EVIDENCE_CONTRACT),
+            f"{name} missing canonical reviewer evidence contract",
             failures,
         )
     derived_identity = (

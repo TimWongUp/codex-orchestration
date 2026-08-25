@@ -146,6 +146,12 @@ R2 uses two non-overlapping Reviewers, and R3 performs focused Review and main-a
 before an `adversarial-verifier`. Review Agent execution reuses `codex-orchestration`; the Review
 Skill does not duplicate model routing, lifecycle, or waiting policy.
 
+Each normal Reviewer stays within its assigned change boundary and risk. When a finding depends on
+a task or spec requirement or a repository standard, the Reviewer cites that source and identifies
+the evidence class without starting a generic Standards/Spec pass. Labelled judgment calls remain
+distinct, and Reviewers omit checks conclusively covered by current passing tooling unless the
+tool's coverage or evidence is itself part of the assigned risk.
+
 ## Task-package language
 
 An explicit language request wins. Otherwise the main Skill reads
