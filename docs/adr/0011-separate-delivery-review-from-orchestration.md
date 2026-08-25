@@ -40,3 +40,11 @@ independent judgment can change delivery. Passing mechanical validation, an abse
 or a desired headcount does not create an extra seat. Reviewer findings remain hypotheses until the
 root main agent verifies their cited evidence against the pinned final diff, and Review is not
 repeated solely to obtain a clean report.
+
+An accepted finding is closed by a same-thread targeted follow-up from its original Reviewer after
+the main agent fixes it and reruns affected validation. This remediation check does not restart a
+full Review loop.
+
+R1 uses `correctness-reviewer` as the general default. If its sole material hypothesis clearly
+belongs to a specialist domain, the matching specialist replaces that default rather than adding
+another seat for the same risk.

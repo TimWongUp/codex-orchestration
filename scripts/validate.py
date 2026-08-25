@@ -68,7 +68,7 @@ TEST_NECESSITY_REVIEW_CONTRACT = (
 )
 REVIEW_ROUTE_REVIEW_CELLS = {
     "R0": "None; the main agent inspects the complete diff and validates it.",
-    "R1": "One Reviewer for the material hypothesis.",
+    "R1": "One Reviewer; select its role by the R1 rule below.",
     "R2": (
         "At least one matching Reviewer; add seats only for additional material hypotheses that "
         "need independent judgment, never to fill a quota."
@@ -77,6 +77,14 @@ REVIEW_ROUTE_REVIEW_CELLS = {
         "At least one focused Reviewer, main-agent remediation, then an `adversarial-verifier`."
     ),
 }
+R1_REVIEWER_SELECTION_CONTRACT = (
+    "For R1, `correctness-reviewer` is the general default. When the sole material hypothesis is\n"
+    "specifically architectural, security-related, performance-related, test-related, or "
+    "otherwise\n"
+    "specialist, select the matching Reviewer instead. The specialist replaces the default; it "
+    "does not\n"
+    "create a second seat for the same hypothesis."
+)
 FORBIDDEN_KEYS = {"model", "model_reasoning_effort", "service_tier"}
 TASK_PACKAGE_LANGUAGES = {"en", "zh-CN"}
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
@@ -824,9 +832,12 @@ def validate_source() -> list[str]:
         "R0 needs no Agent",
         "localized runtime, public-contract, managed-policy",
         "broad or hard-to-recover public contract",
-        "One Reviewer for the material hypothesis",
+        "`correctness-reviewer` is the general default",
+        "The specialist replaces the default; it does not\ncreate a second seat",
         "At least one matching Reviewer",
         "At least one focused Reviewer, main-agent remediation, then an `adversarial-verifier`",
+        "send the original Reviewer a\n   same-thread targeted follow-up",
+        "it is not a new full Review",
         "current user message does not need to name a subagent or\nReviewer again",
         "classify it as\nR2. This fail-closed fallback",
         "explicit user prohibition on subagents or Reviewers still takes priority",
@@ -846,6 +857,23 @@ def validate_source() -> list[str]:
             f"Review Skill {level} independent-review route drifted",
             failures,
         )
+    r1_role_rule_removed = review_skill.replace(R1_REVIEWER_SELECTION_CONTRACT, "", 1).lower()
+    require(
+        review_skill.count(R1_REVIEWER_SELECTION_CONTRACT) == 1
+        and f"{R1_REVIEWER_SELECTION_CONTRACT}\n\n## Execute the gate" in review_skill
+        and all(
+            phrase not in r1_role_rule_removed
+            for phrase in (
+                "correctness-reviewer",
+                "correctness reviewer",
+                "correctness review",
+                "default",
+                "specialist",
+            )
+        ),
+        "Review Skill R1 role-selection contract drifted",
+        failures,
+    )
 
     failures.extend(worktree_contract_failures(worktree_contract))
 

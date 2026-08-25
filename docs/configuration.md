@@ -140,6 +140,10 @@ Reviewer; extra seats require additional material hypotheses where independent j
 delivery, and R3 still ends with adversarial verification. Validation-proven properties and missing
 evidence axes do not receive filler Reviewers.
 
+R1 uses `correctness-reviewer` as its general default. When its sole material hypothesis clearly
+belongs to architecture, security, performance, test reliability, or another specialist domain,
+the matching specialist replaces the default rather than adding a second Reviewer.
+
 R0 uses main-agent inspection and validation only. R1-R3 use the Reviewer coverage selected above,
 and R3 performs focused Review and main-agent remediation before an `adversarial-verifier`.
 Review Agent execution reuses `codex-orchestration`; the Review Skill does not duplicate model
@@ -150,6 +154,10 @@ a task or spec requirement or a repository standard, the Reviewer cites that sou
 the evidence class without starting a generic Standards/Spec pass. Labelled judgment calls remain
 distinct, and Reviewers omit checks conclusively covered by current passing tooling unless the
 tool's coverage or evidence is itself part of the assigned risk.
+
+After the main agent fixes an accepted finding and reruns affected validation, the original
+Reviewer receives a same-thread targeted follow-up to verify that finding against the final diff.
+This closes the assigned finding without restarting a full Review merely to obtain a clean report.
 
 ## Task-package language
 

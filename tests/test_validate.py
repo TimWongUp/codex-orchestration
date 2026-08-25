@@ -283,6 +283,20 @@ class SourceValidationTest(unittest.TestCase):
             1,
         )
         r2_review = VALIDATOR.REVIEW_ROUTE_REVIEW_CELLS["R2"]
+        r1_review = VALIDATOR.REVIEW_ROUTE_REVIEW_CELLS["R1"]
+        contradicted_r1 = review.replace(
+            r1_review,
+            "One matching Reviewer, with no default role.",
+            1,
+        )
+        contradicted_r1_default = (
+            review + "\nFor R1, never use correctness-reviewer as a default; always select two "
+            "Reviewers.\n"
+        )
+        contradicted_r1_specialist = (
+            review + "\nFor a specialist-only R1, retain correctness-reviewer and add the "
+            "specialist.\n"
+        )
         contradicted_r2 = review.replace(
             r2_review,
             "No Reviewer is required for R2.",
@@ -305,6 +319,21 @@ class SourceValidationTest(unittest.TestCase):
                 review_path,
                 reordered_review,
                 "Review Skill risk table must precede its execution workflow",
+            ),
+            (
+                review_path,
+                contradicted_r1,
+                "Review Skill R1 independent-review route drifted",
+            ),
+            (
+                review_path,
+                contradicted_r1_default,
+                "Review Skill R1 role-selection contract drifted",
+            ),
+            (
+                review_path,
+                contradicted_r1_specialist,
+                "Review Skill R1 role-selection contract drifted",
             ),
             (
                 review_path,
