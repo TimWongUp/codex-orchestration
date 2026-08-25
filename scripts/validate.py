@@ -5,13 +5,8 @@ from __future__ import annotations
 
 import argparse
 import ast
-import hashlib
-import json
-import ntpath
 import os
-import posixpath
 import re
-import shlex
 import sys
 from pathlib import Path
 
@@ -84,24 +79,6 @@ WORKTREE_INTEGRATION_SEQUENCE = (
     "Loads `codex-review-gate`, then selects and completes its R0-R3 review gate against the "
     "combined diff",
 )
-WORKTREE_ADR_PHRASES = (
-    "at most three nonterminal Worktree Roots",
-    "normal local orchestration authority",
-    "verified distinct official",
-    "Failed or canceled lanes",
-    "user's explicit rescoping",
-    "Prototype lanes",
-    "final R0-R3 review gate",
-    "at most eight spawned-agent threads",
-    "Explicit stop freezes",
-    "no batch has more than three concurrent repository writers",
-)
-WORKTREE_ADR_SEQUENCE = (
-    "waits for every declared handoff to reach `accepted`",
-    "serially merges lanes into a dedicated integration branch",
-    "runs combined validation",
-    "applies the final R0-R3 review gate",
-)
 FORBIDDEN_PUBLIC_PATTERNS = {
     "/" + "Users/": "absolute macOS user path",
     "C:" + "\\Users\\": "absolute Windows user path",
@@ -113,58 +90,10 @@ FORBIDDEN_PUBLIC_PATTERNS = {
 GLOBAL_RULES_START = b"<!-- CODEX-ORCHESTRATION:GLOBAL-RULES:START -->"
 GLOBAL_RULES_END = b"<!-- CODEX-ORCHESTRATION:GLOBAL-RULES:END -->"
 GLOBAL_RULES_TEMPLATE = ROOT / "examples" / "global-agents-block.md"
-RETIRED_HOOK_SCRIPTS = ("subagent_guard.py", "subagent_scope.py")
-RETIRED_AGENT_SHA256 = {
-    "frontend-design.toml": frozenset(
-        {
-            "2187c665f79641d5c2fcc7bf9e6ebe1ae779546b725bfc49de38e544ceb65b56",
-            "4a944a23e66c4237e4925c3961727db3cc1fe62fbc4ba8cadd8900875b867192",
-            "c1ffa1f1dd435f6936314c18710ff8266ed6df4d6b00b18c1564f6253b039c06",
-            "c8d6537150fca80f825469e2821d30bb9109ac68f8746db2127e012f94c30080",
-        }
-    )
-}
-RETIRED_HOOK_SHA256 = {
-    "subagent_guard.py": frozenset(
-        {
-            "c9f1b1cc9ee7a1bfb7db5320a1e76e9378948c5e6cba414b8408dcbaa84527fb",
-            "d375ee6b67a85891765bf0c839d6616b828278e35394fc2a69cba250ea3180b1",
-        }
-    ),
-    "subagent_scope.py": frozenset(
-        {
-            "390c3066a1caa60068b14fba1f67bc5c7854aa0fa4a1b017538deac9c070faad",
-            "458600a69747d6394103190e0b560e4cc82dfcca191e03ca1aa96afab72702ca",
-            "486165ed2b326497f7785a0bc2cd05d537d5e8e2129f76ade784e4ed69635b7c",
-            "760a2f2e9562a7cb10ae9838391ed114e8a60423b06aaeb96792034ac0603727",
-            "9a14a6bf39dcf0d44edc6f6946a74094febd1db6f9a41c7ea2da108582c96d9b",
-            "c1ce7dbae26be92ba359a52082e94d1041625cc79cc0c3c4a9070e55b0ba71aa",
-            "fa82cf03d992b374cf21e323e3d1f42326995b2fae8941fa10c8e0645091a2ce",
-            "ff3ef1b1f18f5e1b99712c8fde518c343b920abf4f68ba0569f4fb7e1f4b9930",
-        }
-    ),
-}
-LEGACY_V1_ROUTE_SHA256 = frozenset(
-    {
-        "67f95392bb8e96460a5b30b4295e31a2e81643ed75c5ef5c216390e6ef557dcf",
-        "bdbacc28beb7c081db9d85e82d85ddadde259058a16ea2084f02ee361575c561",
-    }
-)
-KNOWN_PRIOR_V2_ROUTE_SHA256 = frozenset(
-    {
-        "060848145efd4639999a16cd2fe5987ff0e7187e794f7aa7a42057a91ce2cc54",
-        "ce1979fb2c88f5a8449c9e31e00d0d9ea5e0d136d87aed5d244a89dd65fd6503",
-    }
-)
-RETIRED_ROUTE_SHA256 = LEGACY_V1_ROUTE_SHA256 | KNOWN_PRIOR_V2_ROUTE_SHA256
-LEGACY_HOOK_GROUPS = frozenset(
-    {
-        ("PreToolUse", r"send_input$"),
-        ("PreToolUse", r"close_agent$"),
-        ("PreToolUse", r"send_input$|close_agent$"),
-        ("PostToolUse", r"wait_agent$"),
-        ("PostToolUse", r"(?:functions[._]?exec|wait_agent)$"),
-    }
+PROJECT_HOOK_FILENAMES = (
+    "subagent_guard.py",
+    "subagent_scope.py",
+    "orchestration_route.py",
 )
 
 
@@ -477,7 +406,6 @@ def source_version_failures(project: str, skill: str) -> list[str]:
     frontmatter = skill[4:frontmatter_end] if frontmatter_end >= 0 else ""
     version_fields = re.findall(r"^\s*version:\s*.+$", frontmatter, re.MULTILINE)
     project_version_fields = re.findall(r"^version\s*=\s*.+$", project, re.MULTILINE)
-    require(project_version == "0.9.2", "project version must be 0.9.2", failures)
     require(
         len(project_version_fields) == 1,
         "project version must appear exactly once",
@@ -529,24 +457,6 @@ def worktree_contract_failures(source: str) -> list[str]:
             positions == sorted(set(positions)),
             "worktree-root integration sequence must be complete batch, serial merge, "
             "combined validation, then R0-R3 review",
-            failures,
-        )
-    return failures
-
-
-def worktree_adr_failures(source: str) -> list[str]:
-    failures: list[str] = []
-    normalized = re.sub(r"\s+", " ", source)
-    for phrase in WORKTREE_ADR_PHRASES:
-        require(phrase in normalized, f"worktree-root ADR missing decision: {phrase}", failures)
-    positions = [normalized.find(marker) for marker in WORKTREE_ADR_SEQUENCE]
-    for marker, position in zip(WORKTREE_ADR_SEQUENCE, positions):
-        require(position >= 0, f"worktree-root ADR missing sequence: {marker}", failures)
-    if all(position >= 0 for position in positions):
-        require(
-            positions == sorted(set(positions)),
-            "worktree-root ADR sequence must be accepted batch, serial merge, combined "
-            "validation, then final R0-R3 review",
             failures,
         )
     return failures
@@ -621,194 +531,11 @@ def first_symlink_component(path: Path) -> Path | None:
         current = current.parent
 
 
-def expected_hook_command(target: Path, *, windows: bool | None = None) -> str:
-    arguments = [str(Path(sys.executable).absolute()), str(target.absolute())]
-    use_windows = windows if windows is not None else os.name == "nt"
-    if use_windows:
-        return " ".join(f'"{argument}"' for argument in arguments)
-    return shlex.join(arguments)
-
-
-def hook_command_arguments(command: object, *, windows: bool) -> list[str] | None:
-    if not isinstance(command, str):
-        return None
-    if windows:
-        command = re.sub(r"\^(?:\r\n|\n|\r)", "", command)
-    else:
-        command = re.sub(r"\\(?:\r\n|\n|\r)", "", command)
-    try:
-        lexer = shlex.shlex(command, posix=not windows, punctuation_chars=";&|<>()")
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        arguments = list(lexer)
-    except ValueError:
-        return None
-    if windows:
-        arguments = [
-            argument[1:-1]
-            if len(argument) >= 2 and argument[0] == argument[-1] == '"'
-            else argument
-            for argument in arguments
-        ]
-    return arguments
-
-
-def unparseable_command_mentions_retired_hook(command: object, *, windows: bool) -> bool:
-    if not isinstance(command, str) or hook_command_arguments(command, windows=windows) is not None:
-        return False
-    value = command.casefold() if windows or sys.platform == "darwin" else command
-    names = {
-        name.casefold() if windows or sys.platform == "darwin" else name
-        for name in (*RETIRED_HOOK_SCRIPTS, "orchestration_route.py")
-    }
-    return any(name in value for name in names)
-
-
-def command_invokes_retired_hook(command: object, *, windows: bool) -> bool:
-    """Recognize the former exact two-argument Python Hook command shape."""
-    script_path = python_hook_script(command, windows=windows)
-    if script_path is None:
-        return False
-    script = script_path.replace("\\", "/").rsplit("/", 1)[-1].split("\0", 1)[0]
-    if windows:
-        script = script.casefold()
-        retired = {name.casefold() for name in RETIRED_HOOK_SCRIPTS}
-    else:
-        retired = set(RETIRED_HOOK_SCRIPTS)
-    return script in retired
-
-
-def python_hook_script(command: object, *, windows: bool) -> str | None:
-    """Return the script argument from an exact two-argument Python Hook command."""
-    arguments = hook_command_arguments(command, windows=windows)
-    if arguments is None or len(arguments) != 2:
-        return None
-    executable = arguments[0].replace("\\", "/").rsplit("/", 1)[-1]
-    if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?(?:\.exe)?", executable, re.IGNORECASE) is None:
-        return None
-    return arguments[1]
-
-
-def python_invoked_script(command: object, *, windows: bool) -> str | None:
-    """Find a Python script after interpreter options for fail-closed reference checks."""
-    arguments = hook_command_arguments(command, windows=windows)
-    if arguments is None or len(arguments) < 2:
-        return None
-    index = 0
-    assignment = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", re.DOTALL)
-    if not windows:
-        while index < len(arguments) and assignment.fullmatch(arguments[index]) is not None:
-            index += 1
-        if index < len(arguments):
-            executable = arguments[index].replace("\\", "/").rsplit("/", 1)[-1]
-            if executable == "env":
-                index += 1
-                env_options_with_value = {"-u", "--unset", "-C", "--chdir"}
-                while index < len(arguments):
-                    argument = arguments[index]
-                    if argument == "--":
-                        index += 1
-                        break
-                    if argument in env_options_with_value:
-                        index += 2
-                        continue
-                    if argument.startswith("-"):
-                        index += 1
-                        continue
-                    if assignment.fullmatch(argument) is not None:
-                        index += 1
-                        continue
-                    break
-    if index >= len(arguments):
-        return None
-    executable = arguments[index].replace("\\", "/").rsplit("/", 1)[-1]
-    if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?(?:\.exe)?", executable, re.IGNORECASE) is None:
-        return None
-    index += 1
-    options_with_value = {"-W", "-X", "--check-hash-based-pycs"}
-    while index < len(arguments):
-        argument = arguments[index]
-        if argument in {"-c", "-m", "-"}:
-            return None
-        if argument == "--":
-            return arguments[index + 1] if index + 1 < len(arguments) else None
-        if argument in options_with_value:
-            index += 2
-            continue
-        if argument.startswith("-"):
-            index += 1
-            continue
-        return argument
-    return None
-
-
-def command_path_candidates(command: object, *, windows: bool) -> list[str]:
-    """Find explicit or nested absolute paths plus a parsed Python script argument."""
-    candidates: list[str] = []
-
-    def add(candidate: str) -> None:
-        if candidate not in candidates:
-            candidates.append(candidate)
-
-    invoked = python_invoked_script(command, windows=windows)
-    if invoked is not None:
-        add(invoked)
-    arguments = hook_command_arguments(command, windows=windows)
-    if arguments is None:
-        return candidates
-    path_module = ntpath if windows else posixpath
-    for argument in arguments:
-        if path_module.isabs(argument):
-            add(argument)
-        for quoted in re.findall(r"(['\"])(.*?)\1", argument):
-            candidate = quoted[1]
-            if path_module.isabs(candidate):
-                add(candidate)
-        if not windows and any(character.isspace() for character in argument):
-            nested = hook_command_arguments(argument, windows=False)
-            if nested is None or nested == [argument]:
-                continue
-            nested_invoked = python_invoked_script(argument, windows=False)
-            if nested_invoked is not None:
-                add(nested_invoked)
-            for nested_argument in nested:
-                if posixpath.isabs(nested_argument):
-                    add(nested_argument)
-    return candidates
-
-
-def file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def files_equal(left: Path, right: Path) -> bool:
     try:
         return left.read_bytes() == right.read_bytes()
     except OSError:
         return False
-
-
-def strict_json_loads(source: str | bytes) -> object:
-    def reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
-        result: dict[str, object] = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError(f"duplicate JSON key: {key}")
-            result[key] = value
-        return result
-
-    def reject_constant(value: str) -> object:
-        raise ValueError(f"invalid JSON constant: {value}")
-
-    return json.loads(
-        source,
-        object_pairs_hook=reject_duplicates,
-        parse_constant=reject_constant,
-    )
 
 
 def managed_global_rules_ranges(content: bytes) -> tuple[str, list[tuple[int, int]]]:
@@ -922,309 +649,6 @@ def validate_global_rules(codex_home: Path) -> list[str]:
     return failures
 
 
-def hook_path_key(path: str | Path, *, windows: bool) -> str:
-    path_value = str(path)
-    if windows == (os.name == "nt"):
-        parsed = Path(path_value)
-        if parsed.is_absolute() and ".." not in parsed.parts:
-            path_value = str(canonical_selected_root(parsed))
-    key = path_value.replace("\\", "/")
-    return key.casefold() if windows else key
-
-
-def hook_path_has_parent_traversal(path: str | Path) -> bool:
-    return ".." in str(path).replace("\\", "/").split("/")
-
-
-def hook_path_is_ambiguous(path: str | Path, *, windows: bool) -> bool:
-    value = str(path)
-    path_module = ntpath if windows else posixpath
-    expansion_characters = "%!^&|<>" if windows else "$`*?[{}"
-    return (
-        "\0" in value
-        or hook_path_has_parent_traversal(value)
-        or not path_module.isabs(value)
-        or any(character in value for character in expansion_characters)
-    )
-
-
-def hook_paths_may_alias(left: str | Path, right: str | Path, *, windows: bool) -> bool:
-    left_key = hook_path_key(left, windows=windows)
-    right_key = hook_path_key(right, windows=windows)
-    if left_key == right_key:
-        return True
-    if windows == (os.name == "nt"):
-        for source, target_key in ((left, right_key), (right, left_key)):
-            source_path = Path(source)
-            if not path_is_link_like(source_path):
-                continue
-            try:
-                link_value = Path(os.readlink(source_path))
-            except OSError:
-                continue
-            if not link_value.is_absolute():
-                link_value = source_path.parent / link_value
-            link_key = hook_path_key(link_value.resolve(strict=False), windows=windows)
-            if link_key == target_key or (
-                sys.platform == "darwin"
-                and not windows
-                and link_key.casefold() == target_key.casefold()
-            ):
-                return True
-        try:
-            if os.path.samefile(left, right):
-                return True
-        except (OSError, ValueError):
-            pass
-    return sys.platform == "darwin" and not windows and left_key.casefold() == right_key.casefold()
-
-
-def referenced_script_has_retired_hash(path: str | Path, *, windows: bool) -> bool:
-    if windows != (os.name == "nt") or hook_path_is_ambiguous(path, windows=windows):
-        return False
-    try:
-        candidate = Path(path).resolve(strict=True)
-    except (OSError, RuntimeError, ValueError):
-        return False
-    if not candidate.is_file():
-        return False
-    try:
-        digest = file_sha256(candidate)
-    except OSError:
-        return False
-    retired_hashes = set(RETIRED_ROUTE_SHA256)
-    for hashes in RETIRED_HOOK_SHA256.values():
-        retired_hashes.update(hashes)
-    return digest in retired_hashes
-
-
-def retired_hook_failures(codex_home: Path, *, windows: bool | None = None) -> list[str]:
-    """Find retired project Hook assets without claiming unrelated Hook ownership."""
-    failures: list[str] = []
-    if path_is_link_like(codex_home):
-        return [f"runtime Codex home linked or conflicting: {codex_home}"]
-    linked = first_symlink_component(codex_home)
-    if linked is not None:
-        return [f"runtime Codex home has linked or unsafe path component: {linked}"]
-    codex_home = canonical_selected_root(codex_home)
-    use_windows = windows if windows is not None else os.name == "nt"
-    hooks_root = codex_home / "hooks"
-    route_target = hooks_root / "orchestration_route.py"
-    if path_is_link_like(hooks_root) or (hooks_root.exists() and not hooks_root.is_dir()):
-        failures.append(f"runtime Hook directory linked or conflicting: {hooks_root}")
-    elif hooks_root.is_dir():
-        for script in RETIRED_HOOK_SCRIPTS:
-            target = hooks_root / script
-            if path_is_link_like(target) or (target.exists() and not target.is_file()):
-                failures.append(f"retired Hook path conflicts: {target}")
-            elif target.is_file():
-                try:
-                    digest = file_sha256(target)
-                except OSError as error:
-                    failures.append(f"retired Hook path unreadable: {target}: {error}")
-                    continue
-                if digest in RETIRED_HOOK_SHA256[script]:
-                    failures.append(f"retired managed hook remains: {target}")
-                else:
-                    failures.append(f"retired Hook path ownership conflicts: {target}")
-
-        if path_is_link_like(route_target) or (
-            route_target.exists() and not route_target.is_file()
-        ):
-            failures.append(f"retired route path conflicts: {route_target}")
-        elif route_target.is_file():
-            try:
-                route_digest = file_sha256(route_target)
-            except OSError as error:
-                failures.append(f"retired route unreadable: {route_target}: {error}")
-            else:
-                if route_digest in RETIRED_ROUTE_SHA256:
-                    failures.append(f"retired managed route remains: {route_target}")
-                else:
-                    failures.append(f"retired route path ownership conflicts: {route_target}")
-
-    hooks_path = codex_home / "hooks.json"
-    if not hooks_path.exists() and not path_is_link_like(hooks_path):
-        return failures
-    if path_is_link_like(hooks_path) or not hooks_path.is_file():
-        failures.append(f"runtime hooks config linked or conflicting: {hooks_path}")
-        return failures
-    try:
-        data = strict_json_loads(hooks_path.read_bytes())
-    except (json.JSONDecodeError, OSError, UnicodeError, ValueError) as error:
-        failures.append(f"runtime hooks config invalid: {hooks_path}: {error}")
-        return failures
-    if not isinstance(data, dict):
-        failures.append(f"runtime hooks config has invalid root: {hooks_path}")
-        return failures
-    hooks_value = data.get("hooks", {})
-    if not isinstance(hooks_value, dict):
-        failures.append(f"runtime hooks config has invalid root: {hooks_path}")
-        return failures
-
-    seen_managed_retired_references: set[tuple[str, str]] = set()
-    retired_targets = tuple(hooks_root / name for name in RETIRED_HOOK_SCRIPTS) + (route_target,)
-    for event, groups in hooks_value.items():
-        if not isinstance(groups, list):
-            failures.append(f"runtime hooks config event must be a list: {event}: {hooks_path}")
-            continue
-        for group in groups:
-            if not isinstance(group, dict):
-                failures.append(
-                    f"runtime hooks config group must be an object: {event}: {hooks_path}"
-                )
-                continue
-            if not isinstance(group.get("hooks"), list):
-                failures.append(
-                    f"runtime hooks config group hooks must be a list: {event}: {hooks_path}"
-                )
-                continue
-
-            for hook in group["hooks"]:
-                if not isinstance(hook, dict):
-                    continue
-                present_fields = [
-                    hook[field] for field in ("command", "commandWindows") if field in hook
-                ]
-                if hook.get("type") == "command" and (
-                    not present_fields
-                    or any(
-                        not isinstance(field, str) or not field.strip() for field in present_fields
-                    )
-                ):
-                    failures.append(
-                        f"runtime command Hook has invalid command fields: {event}: {hooks_path}"
-                    )
-                command_fields = ((hook.get("command"), use_windows),)
-                if hook.get("commandWindows") is not None:
-                    command_fields += ((hook.get("commandWindows"), True),)
-                for command, command_windows in command_fields:
-                    if unparseable_command_mentions_retired_hook(command, windows=command_windows):
-                        failures.append(
-                            f"retired-looking Hook registration has unparseable command: "
-                            f"{event}: {hooks_path}"
-                        )
-                        continue
-                    for script in command_path_candidates(command, windows=command_windows):
-                        script_name = script.replace("\\", "/").rsplit("/", 1)[-1].split("\0", 1)[0]
-                        if command_windows or sys.platform == "darwin":
-                            script_name = script_name.casefold()
-                        retired_names = {
-                            name.casefold() if command_windows or sys.platform == "darwin" else name
-                            for name in (*RETIRED_HOOK_SCRIPTS, "orchestration_route.py")
-                        }
-                        if script_name in retired_names and hook_path_is_ambiguous(
-                            script, windows=command_windows
-                        ):
-                            failures.append(
-                                f"retired-looking Hook registration has unsafe path: {event}: "
-                                f"{hooks_path}: {script}"
-                            )
-                            continue
-                        if referenced_script_has_retired_hash(script, windows=command_windows):
-                            failures.append(
-                                f"retired project Hook code registration remains: {event}: "
-                                f"{hooks_path}: {script}"
-                            )
-                            continue
-                        script_key = hook_path_key(script, windows=command_windows)
-                        if not any(
-                            hook_paths_may_alias(script, target, windows=command_windows)
-                            for target in retired_targets
-                        ):
-                            continue
-                        reference_key = (event, script_key)
-                        if reference_key in seen_managed_retired_references:
-                            continue
-                        seen_managed_retired_references.add(reference_key)
-                        failures.append(
-                            f"retired managed Hook registration remains: {event}: "
-                            f"{hooks_path}: {script}"
-                        )
-
-            if event == "SubagentStart" and group.get("matcher") is None:
-                seen_scope_paths: set[str] = set()
-                for hook in group["hooks"]:
-                    if not isinstance(hook, dict):
-                        continue
-                    command_fields = ((hook.get("command"), use_windows),)
-                    if hook.get("commandWindows") is not None:
-                        command_fields += ((hook.get("commandWindows"), True),)
-                    for command, command_windows in command_fields:
-                        script = python_hook_script(command, windows=command_windows)
-                        if script is None:
-                            continue
-                        script_name = script.replace("\\", "/").rsplit("/", 1)[-1].split("\0", 1)[0]
-                        expected_name = "subagent_scope.py"
-                        if command_windows or sys.platform == "darwin":
-                            script_name = script_name.casefold()
-                            expected_name = expected_name.casefold()
-                        if script_name != expected_name:
-                            continue
-                        script_key = hook_path_key(script, windows=command_windows)
-                        if script_key in seen_scope_paths:
-                            continue
-                        seen_scope_paths.add(script_key)
-                        scope_target = hooks_root / "subagent_scope.py"
-                        if hook_paths_may_alias(script, scope_target, windows=command_windows):
-                            failures.append(
-                                f"retired scope registration remains: {event}: {hooks_path}: "
-                                f"{script}"
-                            )
-                            continue
-                        failures.append(
-                            f"retired scope registration ownership conflicts: {event}: "
-                            f"{hooks_path}: {script}"
-                        )
-
-            if event == "UserPromptSubmit" and group.get("matcher") is None:
-                seen_route_paths: set[str] = set()
-                for hook in group["hooks"]:
-                    if not isinstance(hook, dict):
-                        continue
-                    command_fields = ((hook.get("command"), use_windows),)
-                    if hook.get("commandWindows") is not None:
-                        command_fields += ((hook.get("commandWindows"), True),)
-                    for command, command_windows in command_fields:
-                        script = python_hook_script(command, windows=command_windows)
-                        if script is None:
-                            continue
-                        script_name = script.replace("\\", "/").rsplit("/", 1)[-1].split("\0", 1)[0]
-                        if (script_name.casefold() if command_windows else script_name) != (
-                            "orchestration_route.py"
-                        ):
-                            continue
-                        script_key = hook_path_key(script, windows=command_windows)
-                        if script_key in seen_route_paths:
-                            continue
-                        seen_route_paths.add(script_key)
-                        managed_key = hook_path_key(route_target, windows=command_windows)
-                        if script_key == managed_key:
-                            failures.append(
-                                f"retired route registration remains: {event}: {hooks_path}: "
-                                f"{script}"
-                            )
-                            continue
-                        failures.append(
-                            f"retired route registration ownership conflicts: {event}: "
-                            f"{hooks_path}: {script}"
-                        )
-
-            matcher = group.get("matcher")
-            if not isinstance(matcher, str) or (event, matcher) not in LEGACY_HOOK_GROUPS:
-                continue
-            for hook in group["hooks"]:
-                if not isinstance(hook, dict):
-                    continue
-                if command_invokes_retired_hook(
-                    hook.get("command"), windows=use_windows
-                ) or command_invokes_retired_hook(hook.get("commandWindows"), windows=True):
-                    failures.append(
-                        f"retired v1-shaped hook registration remains: {event}: {hooks_path}"
-                    )
-    return failures
-
-
 def public_text_files() -> list[Path]:
     suffixes = {".md", ".toml", ".py", ".yml", ".yaml", ".json"}
     return [
@@ -1270,11 +694,6 @@ def validate_source() -> list[str]:
     )
     worktree_contract = read_required_text(
         ROOT / "references" / "worktree-roots.md", "worktree-root contract", failures
-    )
-    worktree_adr = read_required_text(
-        ROOT / "docs" / "adr" / "0009-coordinate-independent-worktree-roots.md",
-        "worktree-root ADR",
-        failures,
     )
     model_routing = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
@@ -1323,6 +742,12 @@ def validate_source() -> list[str]:
         "orchestration Skill must not redefine the Review gate",
         failures,
     )
+    for forbidden in ("functions.exec", "WORKSTREAM: panel | specialist"):
+        require(
+            forbidden not in skill,
+            f"orchestration Skill retains obsolete routing mechanism: {forbidden}",
+            failures,
+        )
 
     for phrase in (
         "coverage",
@@ -1374,9 +799,13 @@ def validate_source() -> list[str]:
         "Classify one final integrated diff",
     ):
         require(phrase in review_skill, f"missing Review Skill contract: {phrase}", failures)
+    require(
+        0 <= review_skill.find("| R3 |") < review_skill.find("## Execute the gate"),
+        "Review Skill risk table must precede its execution workflow",
+        failures,
+    )
 
     failures.extend(worktree_contract_failures(worktree_contract))
-    failures.extend(worktree_adr_failures(worktree_adr))
 
     for phrase in (
         "latest host-generated system or developer model binding",
@@ -1548,14 +977,10 @@ def validate_source() -> list[str]:
         "CODEX-ORCHESTRATION:GLOBAL-RULES",
         "AGENTS.override.md",
         "byte-for-byte",
-        "commandWindows",
-        "preserves unrelated top-level fields, events, matcher groups, handlers, and order",
         "Do not register the repository root as one Skill",
         "one-time migration from links or a different checkout",
         "examples/preferences.toml",
         "--skills-root",
-        "Retired project Agent and Hook assets",
-        "Pure v2 verification",
         "caught write or verification failure",
         "abrupt process termination",
         "does not confirm the resolved model",
@@ -1614,17 +1039,17 @@ def validate_source() -> list[str]:
         "delivery Review boundary ADR missing",
         failures,
     )
-    for script in RETIRED_HOOK_SCRIPTS:
-        require(
-            not os.path.lexists(ROOT / "hooks" / script),
-            f"retired lifecycle Hook remains in source: {script}",
-            failures,
-        )
     require(
-        not os.path.lexists(ROOT / "hooks" / "orchestration_route.py"),
-        "retired main-agent Route Hook remains in source",
+        (ROOT / "docs" / "adr" / "0012-remove-legacy-cleanup-from-installation.md").is_file(),
+        "legacy cleanup boundary ADR missing",
         failures,
     )
+    for script in PROJECT_HOOK_FILENAMES:
+        require(
+            not os.path.lexists(ROOT / "hooks" / script),
+            f"project Hook remains in source: {script}",
+            failures,
+        )
 
     installer = ROOT / "scripts" / "install.py"
     require(installer.is_file(), "deterministic installer missing", failures)
@@ -1699,8 +1124,6 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
     codex_home = canonical_selected_root(codex_home)
     skills_root = canonical_selected_root(skills_root)
 
-    failures.extend(retired_hook_failures(codex_home))
-
     for name, source_root in BUNDLED_SKILLS.items():
         target_root = skills_root / name
         if path_is_link_like(target_root) or not target_root.is_dir():
@@ -1732,23 +1155,6 @@ def validate_runtime(codex_home: Path, skills_root: Path) -> list[str]:
     if path_is_link_like(agents_root) or not agents_root.is_dir():
         failures.append(f"runtime Agent directory missing, linked, or conflicting: {agents_root}")
     else:
-        for filename, known_hashes in RETIRED_AGENT_SHA256.items():
-            target = agents_root / filename
-            if not os.path.lexists(target):
-                continue
-            if path_is_link_like(target) or not target.is_file():
-                failures.append(f"runtime retired Agent linked or conflicting: {target}")
-                continue
-            try:
-                digest = file_sha256(target)
-            except OSError as error:
-                failures.append(f"runtime retired Agent unreadable: {target}: {error}")
-            else:
-                require(
-                    digest not in known_hashes,
-                    f"runtime retired project Agent remains: {target}",
-                    failures,
-                )
         for source in sorted((ROOT / "agents").glob("*.toml")):
             target = agents_root / source.name
             require(

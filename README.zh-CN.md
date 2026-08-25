@@ -20,7 +20,7 @@ python3 scripts/install.py --codex-home ~/.codex --skills-root ~/.agents/skills 
 
 检查 dry run 后，用完全相同的命令追加 `--apply`。`--skills-root` 必须填写当前 Codex 真正加载的 Skill 根目录；原生 Windows 需要时把 `python3` 换成 `py -3`。
 
-Setup 会复制必需的 Skills 和 Agent 配置，并在当前生效的全局 `AGENTS.md` 或 `AGENTS.override.md` 中注入一个带归属标记的编排与代码 Review 规则块。它还会退役能够确认属于本项目旧版本的 Agent 与 Hook 资产，同时保留无关 Agent、规则块外的个人指令、无关 Hook 组、本机模型路由和其他用户文件。符号链接、归属不明、标记损坏等冲突会阻止整批写入；运行中的安装器捕获到应用或验证失败时会回滚已完成变更。
+Setup 会复制必需的 Skills 和 Agent 配置，并在当前生效的全局 `AGENTS.md` 或 `AGENTS.override.md` 中注入一个带归属标记的编排与代码 Review 规则块。它只写入这份现行投影，保留所有未托管的 Agent 配置、Hook 注册与文件、规则块外的个人指令、本机模型路由和其他用户文件。托管目标上的符号链接、归属冲突或标记损坏会阻止整批写入；运行中的安装器捕获到应用或验证失败时会回滚已完成变更。清理旧版本资产属于另行由用户指定目标的维护动作。
 
 使用 `--no-global-rules` 可保持全局指令不变；若已有本项目规则块，它必须已是当前版本，旧 Review 路由会阻止计划。首次安装的 `--language` 支持 `en` 与 `zh-CN`，以后省略该参数会保留已有合法选择。
 
@@ -56,7 +56,7 @@ Setup 会复制必需的 Skills 和 Agent 配置，并在当前生效的全局 `
 
 当前版本以 macOS 和原生 Windows 上的 Codex 为目标，提供可复用的代码探索、资料研究、正式实现、原型、疑难 Bug 和专项 Review 子代理。候选版本只有在两个平台的 CI 都通过后才声明受支持。
 
-安装在两个平台上共用一个确定性、默认 dry run 的 Python 实现。Agent 可以在完整阅读 `INSTALL.md` 后代为运行，但不再自行重建文件投影和已认证退役逻辑。
+安装在两个平台上共用一个确定性、默认 dry run 的 Python 实现。Agent 可以在完整阅读 `INSTALL.md` 后代为运行，但不再自行重建文件投影。
 
 ## 第一次成功使用
 

@@ -14,9 +14,12 @@ task, necessary context, handoff focus, and references are optional organizing i
 required fields. Agents recover ordinary repository and environment context themselves, and no
 temporary handoff document is created for information that fits in the task message.
 
-The installer authenticates and retires earlier Guard, Scope, and Route files and registrations
-while preserving unrelated Hooks. Single-writer state, derived-agent non-orchestration, Git and
-external-state ownership, explicit exclusions, and risk-based review remain behavioral boundaries.
+The installer initially authenticated and retired earlier Guard, Scope, and Route files and
+registrations while preserving unrelated Hooks. That migration mechanism is superseded by
+[ADR 0012](0012-remove-legacy-cleanup-from-installation.md); current installation leaves all
+unmanaged Agent and Hook assets untouched. Single-writer state, derived-agent non-orchestration,
+Git and external-state ownership, explicit exclusions, and risk-based review remain behavioral
+boundaries.
 
 This supersedes [ADR 0002](0002-keep-orchestration-hooks-with-contract.md) and the optional-Hook or
 fixed-package portions of ADR 0005, ADR 0007, and ADR 0008.

@@ -28,13 +28,15 @@
 
 - Keep agent profiles model-neutral. User model routes live outside the repository.
 - Keep delegation prose language local while role names, paths, and external protocol literals remain portable.
-- Preserve unrelated files and Hook registrations during deterministic installation.
+- Deterministic installation writes only the current named projection. Preserve all unmanaged
+  Agent profiles, Hook registrations, Hook files, and other user content; legacy cleanup is a
+  separate user-directed maintenance action.
 - Keep the managed global-rules block canonical in `examples/global-agents-block.md`; installation
   injects it into the active global `AGENTS.md` or `AGENTS.override.md` without owning surrounding
   user content.
-- Runtime verification rejects the authenticated retired `frontend-design` Agent, prior Guard,
-  Scope, and Route projections, plus unresolved project-shaped registrations. This repository
-  installs no Hook; shared context, memory-routing, and closeout Hooks remain external runtimes.
+- Runtime verification checks only current managed copies and ignores unmanaged Agent and Hook
+  assets. This repository installs no Hook; shared context, memory-routing, and closeout Hooks
+  remain external runtimes.
 - Preserve author, source, revision, license metadata, and `THIRD_PARTY_NOTICES.md` when updating bundled third-party Skills.
 - Each root task owns orchestration and its local Git; writable workers require the canonical lease
   in `references/worker-writing.md`. The Integration Root alone owns cross-worktree integration and
@@ -52,6 +54,7 @@
 - Installation ownership decision: `docs/adr/0008-deterministic-installer-and-global-rules.md`
 - Worktree-root decision: `docs/adr/0009-coordinate-independent-worktree-roots.md`
 - Delivery Review boundary decision: `docs/adr/0011-separate-delivery-review-from-orchestration.md`
+- Legacy cleanup boundary decision: `docs/adr/0012-remove-legacy-cleanup-from-installation.md`
 - Decisions: create `docs/adr/` only when a hard-to-reverse choice needs a durable record.
 
 ## Update gate

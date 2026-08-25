@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import importlib.abc
 import importlib.util
-import json
 import os
-import shlex
 import stat
 import subprocess
 import sys
@@ -50,21 +48,18 @@ class InstallerTests(unittest.TestCase):
             codex_home, skills_root = self.paths(temporary)
             codex_home.mkdir()
             skills_root.mkdir()
+            agents_root = codex_home / "agents"
+            agents_root.mkdir()
+            legacy_agent = agents_root / "frontend-design.toml"
+            legacy_agent.write_text("user-owned legacy profile\n", encoding="utf-8")
+            hooks_root = codex_home / "hooks"
+            hooks_root.mkdir()
+            legacy_hook = hooks_root / "subagent_guard.py"
+            legacy_hook.write_text("user-owned legacy hook\n", encoding="utf-8")
             user_rules = b"# Personal rules\r\n\r\nKeep this byte-for-byte.\r\n"
             (codex_home / "AGENTS.md").write_bytes(user_rules)
-            unrelated_group = {
-                "matcher": "startup",
-                "hooks": [{"type": "command", "command": "python user_hook.py"}],
-            }
-            (codex_home / "hooks.json").write_text(
-                json.dumps(
-                    {
-                        "custom": {"preserve": True},
-                        "hooks": {"SessionStart": [unrelated_group]},
-                    }
-                ),
-                encoding="utf-8",
-            )
+            hooks_content = b"{invalid but user-owned\n"
+            (codex_home / "hooks.json").write_bytes(hooks_content)
 
             plan = self.build(codex_home, skills_root)
             self.assertEqual(plan.conflicts, [])
@@ -76,9 +71,11 @@ class InstallerTests(unittest.TestCase):
                 b"\r\n<!-- CODEX-ORCHESTRATION:GLOBAL-RULES:START -->\r\n",
                 installed_rules,
             )
-            hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
-            self.assertEqual(hooks["custom"], {"preserve": True})
-            self.assertEqual(hooks["hooks"]["SessionStart"], [unrelated_group])
+            self.assertEqual((codex_home / "hooks.json").read_bytes(), hooks_content)
+            self.assertEqual(
+                legacy_agent.read_text(encoding="utf-8"), "user-owned legacy profile\n"
+            )
+            self.assertEqual(legacy_hook.read_text(encoding="utf-8"), "user-owned legacy hook\n")
             self.assertTrue((skills_root / "codex-review-gate" / "SKILL.md").is_file())
             self.assertTrue(
                 (
@@ -103,72 +100,24 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(second.conflicts, [])
             self.assertEqual(second.operations, [])
 
-    def test_authenticated_retired_agent_is_removed(self) -> None:
-        retired_content = (
-            b'name = "frontend-design"\n'
-            b'description = "Read-only frontend and UI design analyst for visual direction, '
-            b'layout, interaction, accessibility, and implementation constraints."\n'
-            b'sandbox_mode = "read-only"\n\n'
-            b'developer_instructions = """\n'
-            b"You are a derived agent. Do not load or execute the codex-orchestration Skill, "
-            b"and do not create, coordinate, wait for, or manage descendants. Panel or hybrid "
-            b"evaluation mode only makes you a panel member; it never grants orchestration "
-            b"authority.\n"
-            b"Develop one implementation-ready design direction without editing files or "
-            b"creating descendants.\n\n"
-            b"Identify purpose, audience, tone, technical constraints, accessibility "
-            b"requirements, and the interface's memorable idea. Return a coherent visual "
-            b"direction, typography and color guidance, layout and motion behavior, "
-            b"implementation constraints, and the highest-value changes. Prefer deliberate "
-            b'choices over generic component patterns.\n"""\n'
-        )
-        digest = INSTALL.sha256_bytes(retired_content)
-        self.assertIn(
-            digest,
-            INSTALL.contract.RETIRED_AGENT_SHA256["frontend-design.toml"],
-        )
+    def test_install_preserves_valid_hooks_json_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home, skills_root = self.paths(temporary)
-            agents_root = codex_home / "agents"
-            agents_root.mkdir(parents=True)
+            codex_home.mkdir()
             skills_root.mkdir()
-            target = agents_root / "frontend-design.toml"
-            target.write_bytes(retired_content)
+            hooks_content = (
+                b'{"hooks": { "SessionStart": [ { "hooks": [ '
+                b'{ "command": "echo ok", "type": "command" } ], '
+                b'"matcher": "startup" } ] }, "custom": 1}\n'
+            )
+            hooks_path = codex_home / "hooks.json"
+            hooks_path.write_bytes(hooks_content)
 
             plan = self.build(codex_home, skills_root, global_rules=False)
-
             self.assertEqual(plan.conflicts, [])
-            self.assertTrue(
-                any(
-                    operation.kind == "delete" and operation.path == target
-                    for operation in plan.operations
-                )
-            )
             INSTALL.apply_plan(plan, global_rules=False)
-            self.assertFalse(target.exists())
-            self.assertEqual(INSTALL.contract.validate_runtime(codex_home, skills_root), [])
 
-    def test_modified_retired_agent_is_an_ownership_conflict(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            agents_root = codex_home / "agents"
-            agents_root.mkdir(parents=True)
-            skills_root.mkdir()
-            target = agents_root / "frontend-design.toml"
-            target.write_text("user-owned profile\n", encoding="utf-8")
-
-            plan = self.build(codex_home, skills_root, global_rules=False)
-
-            self.assertIn(
-                f"retired Agent path ownership conflict: {target}",
-                plan.conflicts,
-            )
-            self.assertFalse(
-                any(
-                    operation.kind == "delete" and operation.path == target
-                    for operation in plan.operations
-                )
-            )
+            self.assertEqual(hooks_path.read_bytes(), hooks_content)
 
     def test_no_global_rules_rejects_a_stale_managed_block(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -264,568 +213,6 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(agents_path.read_bytes(), original)
             self.assertEqual(list(skills_root.iterdir()), [])
 
-    def test_authenticated_scope_hook_and_registration_are_removed(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            target = hooks_root / "subagent_scope.py"
-            target.write_bytes(b"known retired scope fixture\n")
-            command = INSTALL.contract.expected_hook_command(target)
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if os.name == "nt":
-                handler["commandWindows"] = command
-            old_owned = {"hooks": [handler]}
-            unrelated = {"hooks": [{"type": "command", "command": "python custom.py"}]}
-            (codex_home / "hooks.json").write_text(
-                json.dumps({"hooks": {"SubagentStart": [unrelated, old_owned]}}),
-                encoding="utf-8",
-            )
-
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_scope.py"]))
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-            self.assertEqual(plan.conflicts, [])
-            INSTALL.apply_plan(plan, global_rules=True)
-
-            hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
-            groups = hooks["hooks"]["SubagentStart"]
-            self.assertEqual(groups, [unrelated])
-            self.assertFalse(target.exists())
-
-    def test_authenticated_retired_hook_and_registration_are_removed(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_guard.py"
-            retired.write_bytes(b"known retired fixture\n")
-            use_windows = os.name == "nt"
-            command = INSTALL.contract.expected_hook_command(retired, windows=use_windows)
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if use_windows:
-                handler["commandWindows"] = command
-            hooks_path = codex_home / "hooks.json"
-            hooks_path.write_text(
-                json.dumps(
-                    {
-                        "custom": True,
-                        "hooks": {"PreToolUse": [{"matcher": r"send_input$", "hooks": [handler]}]},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_guard.py"]))
-
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-            self.assertEqual(plan.conflicts, [])
-            self.assertTrue(
-                any(
-                    operation.kind == "delete" and operation.path == retired
-                    for operation in plan.operations
-                )
-            )
-
-            INSTALL.apply_plan(plan, global_rules=True)
-
-            self.assertFalse(retired.exists())
-            hooks = json.loads(hooks_path.read_bytes())
-            self.assertTrue(hooks["custom"])
-            self.assertEqual(hooks["hooks"]["PreToolUse"], [])
-            self.assertEqual(INSTALL.contract.validate_runtime(codex_home, skills_root), [])
-
-    def test_custom_reference_blocks_authenticated_retired_hook_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_guard.py"
-            original_retired = b"known retired fixture\n"
-            retired.write_bytes(original_retired)
-            command = INSTALL.contract.expected_hook_command(retired, windows=os.name == "nt")
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if os.name == "nt":
-                handler["commandWindows"] = command
-            hooks_path = codex_home / "hooks.json"
-            original_hooks = json.dumps(
-                {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
-            ).encode("utf-8")
-            hooks_path.write_bytes(original_hooks)
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_guard.py"]))
-
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("unconfirmed ownership" in item for item in plan.conflicts))
-            with self.assertRaises(RuntimeError):
-                INSTALL.apply_plan(plan, global_rules=True)
-            self.assertEqual(retired.read_bytes(), original_retired)
-            self.assertEqual(hooks_path.read_bytes(), original_hooks)
-
-    def test_parent_traversal_reference_blocks_retired_hook_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            (hooks_root / "x").mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_guard.py"
-            retired.write_bytes(b"known retired fixture\n")
-            traversal_target = hooks_root / "x" / ".." / "subagent_guard.py"
-            command = INSTALL.contract.expected_hook_command(
-                traversal_target, windows=os.name == "nt"
-            )
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if os.name == "nt":
-                handler["commandWindows"] = command
-            (codex_home / "hooks.json").write_text(
-                json.dumps(
-                    {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
-                ),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_guard.py"]))
-
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("unsafe path" in item for item in plan.conflicts))
-            self.assertTrue(retired.is_file())
-
-    def test_macos_case_alias_blocks_retired_hook_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_guard.py"
-            retired.write_bytes(b"known retired fixture\n")
-            case_alias = hooks_root / "SUBAGENT_GUARD.PY"
-            command = INSTALL.contract.expected_hook_command(case_alias, windows=os.name == "nt")
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if os.name == "nt":
-                handler["commandWindows"] = command
-            (codex_home / "hooks.json").write_text(
-                json.dumps(
-                    {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
-                ),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_guard.py"]))
-
-            with (
-                mock.patch.object(INSTALL.sys, "platform", "darwin"),
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("unconfirmed ownership" in item for item in plan.conflicts))
-            self.assertTrue(retired.is_file())
-
-    def test_filesystem_alias_with_different_basename_blocks_retired_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_guard.py"
-            retired.write_bytes(b"known retired fixture\n")
-            alias = hooks_root / "custom_alias.py"
-            try:
-                alias.symlink_to(retired)
-            except OSError as error:
-                self.skipTest(f"symlinks unavailable: {error}")
-            command = INSTALL.contract.expected_hook_command(alias, windows=os.name == "nt")
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if os.name == "nt":
-                handler["commandWindows"] = command
-            (codex_home / "hooks.json").write_text(
-                json.dumps(
-                    {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
-                ),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_guard.py"]))
-
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("unconfirmed ownership" in item for item in plan.conflicts))
-            self.assertTrue(retired.is_file())
-
-    def test_orphan_hardlink_with_retired_hash_blocks_pure_v2_completion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_guard.py"
-            retired.write_bytes(b"known retired fixture\n")
-            alias = hooks_root / "custom_alias.py"
-            try:
-                os.link(retired, alias)
-            except OSError as error:
-                self.skipTest(f"hardlinks unavailable: {error}")
-            retired.unlink()
-            command = INSTALL.contract.expected_hook_command(alias, windows=os.name == "nt")
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if os.name == "nt":
-                handler["commandWindows"] = command
-            (codex_home / "hooks.json").write_text(
-                json.dumps(
-                    {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
-                ),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_guard.py"]))
-
-            with mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("unconfirmed ownership" in item for item in plan.conflicts))
-            self.assertTrue(alias.is_file())
-
-    @unittest.skipIf(os.name == "nt", "POSIX shell glob expansion is POSIX-only")
-    def test_posix_glob_reference_blocks_retired_hook_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_guard.py"
-            retired.write_bytes(b"known retired fixture\n")
-            glob_target = codex_home / "hook*" / "subagent_guard.py"
-            handler = {
-                "type": "command",
-                "command": f"{sys.executable} {glob_target}",
-            }
-            (codex_home / "hooks.json").write_text(
-                json.dumps(
-                    {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
-                ),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_guard.py"]))
-
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertEqual(list(codex_home.glob("hook*/subagent_guard.py")), [retired])
-            self.assertTrue(any("unsafe path" in item for item in plan.conflicts))
-            self.assertTrue(retired.is_file())
-
-    def test_python_option_reference_blocks_retired_hook_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_guard.py"
-            retired.write_bytes(b"known retired fixture\n")
-            arguments = [sys.executable, "-u", str(retired)]
-            command = (
-                " ".join(f'"{argument}"' for argument in arguments)
-                if os.name == "nt"
-                else shlex.join(arguments)
-            )
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if os.name == "nt":
-                handler["commandWindows"] = command
-            (codex_home / "hooks.json").write_text(
-                json.dumps(
-                    {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
-                ),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_guard.py"]))
-
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertIsNone(INSTALL.contract.python_hook_script(command, windows=os.name == "nt"))
-            self.assertEqual(
-                INSTALL.contract.python_invoked_script(command, windows=os.name == "nt"),
-                str(retired),
-            )
-            self.assertTrue(any("not a canonical command" in item for item in plan.conflicts))
-            self.assertTrue(retired.is_file())
-
-    def test_shell_operator_reference_blocks_retired_hook_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_scope.py"
-            retired.write_bytes(b"known retired scope fixture\n")
-            separator = "&" if os.name == "nt" else ";"
-            command = (
-                f"{INSTALL.contract.expected_hook_command(retired, windows=os.name == 'nt')} "
-                f"{separator} echo x"
-            )
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if os.name == "nt":
-                handler["commandWindows"] = command
-            (codex_home / "hooks.json").write_text(
-                json.dumps({"hooks": {"SessionStart": [{"hooks": [handler]}]}}),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_scope.py"]))
-
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("not a canonical command" in item for item in plan.conflicts))
-            self.assertTrue(retired.is_file())
-
-    def test_grouped_command_reference_blocks_retired_hook_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_scope.py"
-            retired.write_bytes(b"known retired scope fixture\n")
-            command = (
-                f"({INSTALL.contract.expected_hook_command(retired, windows=os.name == 'nt')})"
-            )
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if os.name == "nt":
-                handler["commandWindows"] = command
-            (codex_home / "hooks.json").write_text(
-                json.dumps({"hooks": {"SessionStart": [{"hooks": [handler]}]}}),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_scope.py"]))
-
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("not a canonical command" in item for item in plan.conflicts))
-            self.assertTrue(retired.is_file())
-
-    @unittest.skipIf(os.name == "nt", "POSIX line-continuation syntax only")
-    def test_unparseable_retired_command_blocks_file_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_scope.py"
-            retired.write_bytes(b"known retired scope fixture\n")
-            command = f"{INSTALL.contract.expected_hook_command(retired, windows=False)}\\"
-            handler = {"type": "command", "command": command}
-            (codex_home / "hooks.json").write_text(
-                json.dumps({"hooks": {"SessionStart": [{"hooks": [handler]}]}}),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_scope.py"]))
-
-            with mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("not a canonical command" in item for item in plan.conflicts))
-            self.assertTrue(retired.is_file())
-
-    @unittest.skipIf(os.name == "nt", "POSIX line-continuation syntax only")
-    def test_line_continuation_reference_blocks_retired_hook_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_scope.py"
-            retired.write_bytes(b"known retired scope fixture\n")
-            command = INSTALL.contract.expected_hook_command(retired, windows=False).replace(
-                "subagent_scope.py", "subagent_\\\nscope.py"
-            )
-            handler = {"type": "command", "command": command}
-            (codex_home / "hooks.json").write_text(
-                json.dumps({"hooks": {"SessionStart": [{"hooks": [handler]}]}}),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_scope.py"]))
-
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("unconfirmed ownership" in item for item in plan.conflicts))
-            self.assertTrue(retired.is_file())
-
-    @unittest.skipIf(os.name == "nt", "POSIX command syntax only")
-    def test_environment_prefix_reference_blocks_retired_hook_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_guard.py"
-            retired.write_bytes(b"known retired fixture\n")
-            command = f"PYTHONUNBUFFERED=1 {shlex.join([sys.executable, str(retired)])}"
-            handler: dict[str, object] = {"type": "command", "command": command}
-            (codex_home / "hooks.json").write_text(
-                json.dumps(
-                    {"hooks": {"SessionStart": [{"matcher": "custom", "hooks": [handler]}]}}
-                ),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_guard.py"]))
-
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertEqual(
-                INSTALL.contract.python_invoked_script(command, windows=False),
-                str(retired),
-            )
-            self.assertTrue(any("not a canonical command" in item for item in plan.conflicts))
-            self.assertTrue(retired.is_file())
-
-    def test_mixed_platform_retired_handler_is_a_conflict(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            target = hooks_root / "subagent_scope.py"
-            target.write_bytes(b"known retired scope fixture\n")
-            custom = hooks_root / "custom.py"
-            custom.write_text("custom\n", encoding="utf-8")
-            (codex_home / "hooks.json").write_text(
-                json.dumps(
-                    {
-                        "hooks": {
-                            "SubagentStart": [
-                                {
-                                    "hooks": [
-                                        {
-                                            "type": "command",
-                                            "command": INSTALL.contract.expected_hook_command(
-                                                target,
-                                                windows=INSTALL.os.name == "nt",
-                                            ),
-                                            "commandWindows": (
-                                                INSTALL.contract.expected_hook_command(
-                                                    custom, windows=True
-                                                )
-                                            ),
-                                        }
-                                    ]
-                                }
-                            ]
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_scope.py"]))
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("unconfirmed ownership" in item for item in plan.conflicts))
-
-    def test_unrecognized_scope_hook_blocks_retirement(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            target = hooks_root / "subagent_scope.py"
-            target.write_text("user-selected old copy\n", encoding="utf-8")
-            hooks_bytes = json.dumps(
-                {
-                    "hooks": {
-                        "SubagentStart": [
-                            {
-                                "hooks": [
-                                    {
-                                        "type": "command",
-                                        "command": INSTALL.contract.expected_hook_command(target),
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                }
-            ).encode("utf-8")
-            (codex_home / "hooks.json").write_bytes(hooks_bytes)
-
-            plan = self.build(codex_home, skills_root)
-            self.assertTrue(any("ownership conflict" in item for item in plan.conflicts))
-            self.assertTrue(any("unconfirmed ownership" in item for item in plan.conflicts))
-            hook_operations = [
-                operation
-                for operation in plan.operations
-                if operation.path in {target, codex_home / "hooks.json"}
-            ]
-            self.assertEqual(hook_operations, [])
-
-    def test_nul_in_project_hook_path_is_a_bounded_conflict(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            target = hooks_root / "subagent_scope.py"
-            target.write_bytes(b"known retired scope fixture\n")
-            unsafe_target = Path(f"{target}\0")
-            command = INSTALL.contract.expected_hook_command(unsafe_target)
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if os.name == "nt":
-                handler["commandWindows"] = command
-            (codex_home / "hooks.json").write_text(
-                json.dumps({"hooks": {"SubagentStart": [{"hooks": [handler]}]}}),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_scope.py"]))
-
-            with mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("unsafe path" in item for item in plan.conflicts))
-            self.assertTrue(target.is_file())
-
     def test_valid_single_quoted_language_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home, skills_root = self.paths(temporary)
@@ -847,251 +234,6 @@ class InstallerTests(unittest.TestCase):
 
             self.assertFalse(any("first install requires" in item for item in plan.conflicts))
             self.assertFalse(any(operation.path == preferences for operation in plan.operations))
-
-    def test_unhashable_matcher_is_preserved_without_traceback(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            codex_home.mkdir()
-            skills_root.mkdir()
-            hooks_path = codex_home / "hooks.json"
-            original = json.dumps(
-                {
-                    "hooks": {
-                        "PreToolUse": [
-                            {
-                                "matcher": [],
-                                "hooks": [{"type": "command", "command": "python custom.py"}],
-                            }
-                        ]
-                    }
-                }
-            ).encode("utf-8")
-            hooks_path.write_bytes(original)
-
-            plan = self.build(codex_home, skills_root)
-
-            self.assertEqual(plan.conflicts, [])
-            self.assertFalse(any(operation.path == hooks_path for operation in plan.operations))
-
-    def test_external_retired_registration_is_a_conflict_not_a_removal(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            codex_home.mkdir()
-            skills_root.mkdir()
-            external = Path(temporary).resolve() / "old" / "hooks" / "orchestration_route.py"
-            external.parent.mkdir(parents=True)
-            external.write_text("known old route\n", encoding="utf-8")
-            (codex_home / "hooks.json").write_text(
-                json.dumps(
-                    {
-                        "hooks": {
-                            "UserPromptSubmit": [
-                                {
-                                    "hooks": [
-                                        {
-                                            "type": "command",
-                                            "command": INSTALL.contract.expected_hook_command(
-                                                external
-                                            ),
-                                        }
-                                    ]
-                                }
-                            ]
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_ROUTE_SHA256))
-            with mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("unconfirmed ownership" in item for item in plan.conflicts))
-            self.assertFalse(any(operation.kind == "delete" for operation in plan.operations))
-
-    def test_empty_unrelated_hook_group_is_preserved(self) -> None:
-        empty_group = {"matcher": "disabled", "hooks": []}
-        empty_event = "PreCompact"
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            codex_home.mkdir()
-            skills_root.mkdir()
-            hooks_path = codex_home / "hooks.json"
-            original = json.dumps(
-                {
-                    "description": "user",
-                    "hooks": {
-                        "SubagentStart": [empty_group],
-                        empty_event: [],
-                    },
-                }
-            ).encode("utf-8")
-            hooks_path.write_bytes(original)
-
-            plan = self.build(codex_home, skills_root)
-            self.assertEqual(plan.conflicts, [])
-            INSTALL.apply_plan(plan, global_rules=True)
-
-            self.assertEqual(hooks_path.read_bytes(), original)
-
-    def test_non_list_group_hooks_blocks_installation(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            target = hooks_root / "subagent_scope.py"
-            original_target = b"known retired scope fixture\n"
-            target.write_bytes(original_target)
-            command = INSTALL.contract.expected_hook_command(target)
-            hooks_path = codex_home / "hooks.json"
-            original_hooks = json.dumps(
-                {"hooks": {"SubagentStart": [{"hooks": {"type": "command", "command": command}}]}}
-            ).encode("utf-8")
-            hooks_path.write_bytes(original_hooks)
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_scope.py"]))
-
-            with mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("group hooks must be a list" in item for item in plan.conflicts))
-            with self.assertRaises(RuntimeError):
-                INSTALL.apply_plan(plan, global_rules=True)
-            self.assertEqual(target.read_bytes(), original_target)
-            self.assertEqual(hooks_path.read_bytes(), original_hooks)
-
-    def test_malformed_retired_handlers_block_file_deletion(self) -> None:
-        for label in ("missing-type", "wrong-type", "non-string-command"):
-            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
-                codex_home, skills_root = self.paths(temporary)
-                hooks_root = codex_home / "hooks"
-                hooks_root.mkdir(parents=True)
-                skills_root.mkdir()
-                target = hooks_root / "subagent_scope.py"
-                original_target = b"known retired scope fixture\n"
-                target.write_bytes(original_target)
-                command = INSTALL.contract.expected_hook_command(target)
-                if label == "missing-type":
-                    handler: dict[str, object] = {"command": command}
-                elif label == "wrong-type":
-                    handler = {"type": "shell", "command": command}
-                else:
-                    handler = {"type": "command", "command": 123}
-                hooks_path = codex_home / "hooks.json"
-                original_hooks = json.dumps(
-                    {"hooks": {"SubagentStart": [{"hooks": [handler]}]}}
-                ).encode("utf-8")
-                hooks_path.write_bytes(original_hooks)
-                known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_scope.py"]))
-
-                with mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest):
-                    plan = self.build(codex_home, skills_root)
-
-                self.assertTrue(plan.conflicts)
-                with self.assertRaises(RuntimeError):
-                    INSTALL.apply_plan(plan, global_rules=True)
-                self.assertEqual(target.read_bytes(), original_target)
-                self.assertEqual(hooks_path.read_bytes(), original_hooks)
-
-    def test_custom_route_matcher_blocks_registration_retirement(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            target = hooks_root / "orchestration_route.py"
-            original_target = b"known retired route fixture\n"
-            target.write_bytes(original_target)
-            handler = {
-                "type": "command",
-                "command": INSTALL.contract.expected_hook_command(target),
-            }
-            hooks_path = codex_home / "hooks.json"
-            original_hooks = json.dumps(
-                {"hooks": {"UserPromptSubmit": [{"matcher": "custom", "hooks": [handler]}]}}
-            ).encode("utf-8")
-            hooks_path.write_bytes(original_hooks)
-            known_digest = next(iter(INSTALL.contract.RETIRED_ROUTE_SHA256))
-
-            with (
-                mock.patch.object(INSTALL, "sha256_bytes", return_value=known_digest),
-                mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest),
-            ):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("unconfirmed ownership" in item for item in plan.conflicts))
-            with self.assertRaises(RuntimeError):
-                INSTALL.apply_plan(plan, global_rules=True)
-            self.assertEqual(target.read_bytes(), original_target)
-            self.assertEqual(hooks_path.read_bytes(), original_hooks)
-
-    def test_python_code_reference_blocks_retired_hook_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            codex_home.mkdir()
-            skills_root.mkdir()
-            retired = Path(temporary).resolve() / "old" / "subagent_scope.py"
-            retired.parent.mkdir()
-            retired.write_bytes(b"known retired scope fixture\n")
-            code = f"exec(open({str(retired)!r}).read())"
-            arguments = [sys.executable, "-c", code]
-            command = (
-                subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
-            )
-            handler: dict[str, object] = {"type": "command", "command": command}
-            if os.name == "nt":
-                handler["commandWindows"] = command
-            (codex_home / "hooks.json").write_text(
-                json.dumps({"hooks": {"SessionStart": [{"hooks": [handler]}]}}),
-                encoding="utf-8",
-            )
-            known_digest = next(iter(INSTALL.contract.RETIRED_HOOK_SHA256["subagent_scope.py"]))
-
-            with mock.patch.object(INSTALL.contract, "file_sha256", return_value=known_digest):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("not a canonical command" in item for item in plan.conflicts))
-
-    def test_missing_hooks_field_is_not_created(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            codex_home.mkdir()
-            skills_root.mkdir()
-            hooks_path = codex_home / "hooks.json"
-            original = b'{"custom":true}'
-            hooks_path.write_bytes(original)
-
-            plan = self.build(codex_home, skills_root)
-            self.assertEqual(plan.conflicts, [])
-            INSTALL.apply_plan(plan, global_rules=True)
-
-            self.assertEqual(hooks_path.read_bytes(), original)
-
-    def test_utf8_bom_hooks_config_is_accepted(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            codex_home.mkdir()
-            skills_root.mkdir()
-            hooks_path = codex_home / "hooks.json"
-            hooks_path.write_bytes(b'\xef\xbb\xbf{"custom":true,"hooks":{}}')
-
-            original = hooks_path.read_bytes()
-            plan = self.build(codex_home, skills_root)
-            self.assertEqual(plan.conflicts, [])
-            INSTALL.apply_plan(plan, global_rules=True)
-
-            self.assertEqual(hooks_path.read_bytes(), original)
-
-    def test_duplicate_hook_json_keys_are_a_planning_conflict(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            codex_home.mkdir()
-            skills_root.mkdir()
-            (codex_home / "hooks.json").write_bytes(b'{"hooks":{},"hooks":{}}')
-
-            plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("duplicate JSON key" in item for item in plan.conflicts))
 
     def test_linked_managed_target_is_a_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1209,26 +351,6 @@ class InstallerTests(unittest.TestCase):
                 any("global instructions unreadable" in item for item in plan.conflicts)
             )
 
-    def test_unreadable_retired_hook_is_a_bounded_conflict(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            target = hooks_root / "subagent_guard.py"
-            target.write_text("retired\n", encoding="utf-8")
-            original_read = Path.read_bytes
-
-            def unreadable(path: Path) -> bytes:
-                if path == target:
-                    raise PermissionError("denied")
-                return original_read(path)
-
-            with mock.patch.object(Path, "read_bytes", unreadable):
-                plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("retired Hook path unreadable" in item for item in plan.conflicts))
-
     def test_failed_verification_rolls_back_every_completed_write(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home, skills_root = self.paths(temporary)
@@ -1262,7 +384,7 @@ class InstallerTests(unittest.TestCase):
             external.mkdir()
             saved_parent = skills_root / "managed-saved"
             plan = INSTALL.InstallPlan(codex_home=codex_home, skills_root=skills_root)
-            plan.operations.append(INSTALL.Operation("write", target, "test", b"new\n", b"old\n"))
+            plan.operations.append(INSTALL.Operation(target, "test", b"new\n", b"old\n"))
             real_atomic_write = INSTALL.atomic_write
 
             def write_then_swap(path: Path, content: bytes) -> None:
@@ -1297,6 +419,23 @@ class InstallerTests(unittest.TestCase):
                 INSTALL.apply_plan(plan, global_rules=True)
 
             self.assertEqual(agents_path.read_bytes(), b"concurrent edit\n")
+            self.assertEqual(list(skills_root.iterdir()), [])
+
+    def test_apply_rejects_a_missing_target_that_appears_after_planning(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.paths(temporary)
+            codex_home.mkdir()
+            skills_root.mkdir()
+            plan = self.build(codex_home, skills_root)
+            self.assertEqual(plan.conflicts, [])
+            target = codex_home / "agents" / "worker.toml"
+            target.parent.mkdir()
+            target.write_bytes(b"concurrent user file\n")
+
+            with self.assertRaisesRegex(RuntimeError, "appeared after planning"):
+                INSTALL.apply_plan(plan, global_rules=True)
+
+            self.assertEqual(target.read_bytes(), b"concurrent user file\n")
             self.assertEqual(list(skills_root.iterdir()), [])
 
     def test_apply_rejects_a_parent_link_created_after_planning(self) -> None:
@@ -1372,6 +511,14 @@ class InstallerTests(unittest.TestCase):
             INSTALL.windows_extended_path(r"C:\runtime\file"),
             r"\\?\C:\runtime\file",
         )
+        self.assertEqual(
+            INSTALL.windows_extended_path(r"\\server\share\file"),
+            r"\\?\UNC\server\share\file",
+        )
+        self.assertEqual(
+            INSTALL.windows_extended_path(r"\\?\C:\runtime\file"),
+            r"\\?\C:\runtime\file",
+        )
 
     def test_overlong_windows_target_is_a_planning_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1418,32 +565,6 @@ class InstallerTests(unittest.TestCase):
 
             self.assertFalse(accepted)
             self.assertTrue(any("Windows path limit" in item for item in plan.conflicts))
-
-    def test_overlong_windows_retired_target_is_not_planned_for_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary).resolve()
-            codex_home = root / ("a" * 80) / ("b" * 80) / ("c" * 40)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            retired = hooks_root / "subagent_guard.py"
-            retired.write_bytes(b"retired\n")
-            skills_root = root / "skills"
-            skills_root.mkdir()
-            plan = INSTALL.InstallPlan(codex_home=codex_home, skills_root=skills_root)
-
-            with mock.patch.object(INSTALL.os, "name", "nt"):
-                INSTALL.plan_retired_hook_files(plan)
-
-            self.assertTrue(any("Windows path limit" in item for item in plan.conflicts))
-            self.assertFalse(any(operation.kind == "delete" for operation in plan.operations))
-        self.assertEqual(
-            INSTALL.windows_extended_path(r"\\server\share\file"),
-            r"\\?\UNC\server\share\file",
-        )
-        self.assertEqual(
-            INSTALL.windows_extended_path(r"\\?\C:\runtime\file"),
-            r"\\?\C:\runtime\file",
-        )
 
     def test_cli_dry_run_does_not_create_roots_and_missing_language_conflicts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1526,19 +647,6 @@ class InstallerTests(unittest.TestCase):
                 without_global.returncode, 0, without_global.stdout + without_global.stderr
             )
             self.assertIn("Global rules: unchanged", without_global.stdout)
-
-    def test_retired_file_requires_authenticated_hash(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            hooks_root = codex_home / "hooks"
-            hooks_root.mkdir(parents=True)
-            skills_root.mkdir()
-            retired = hooks_root / "subagent_guard.py"
-            retired.write_text("foreign\n", encoding="utf-8")
-
-            plan = self.build(codex_home, skills_root)
-
-            self.assertTrue(any("ownership conflict" in item for item in plan.conflicts))
 
 
 if __name__ == "__main__":

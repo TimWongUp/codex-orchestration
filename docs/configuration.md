@@ -49,29 +49,22 @@ managed files are drift. The Agent shows the difference and replaces it only aft
 approval; conflicts are left for the user to resolve without deletion.
 
 Those rules govern ordinary installation. During a one-time migration from another source,
-`INSTALL.md` section 8 is authoritative: after the user approves the exact cutover targets, the
+`INSTALL.md` section 7 is authoritative: after the user approves the exact cutover targets, the
 Agent may remove only the confirmed managed links before installing the physical runtime
 projection. Old source directories are still retained unless the user separately approves their
 retirement.
 
-## Retired lifecycle and Route assets
+## Unmanaged legacy assets
 
-Pure v2 retirement is required on every installation. The
-installing Agent inspects the managed Hook directory and Hook configuration, shows any former
-`subagent_guard.py` or `subagent_scope.py` file, recognized Guard or Scope registration, known prior project
-`orchestration_route.py`, or its `UserPromptSubmit` registration in the installation plan. It
-changes only approved assets whose prior project ownership is confirmed. The Hook directory must
-be physical, and known prior copies are recognized with LF or CRLF line endings.
+The installer and runtime validator own only the current named projection. They do not inspect
+`hooks.json`, the Hook directory, or extra Agent profiles, including files left by earlier project
+versions. This keeps the installation plan write-only and prevents historical cleanup rules from
+becoming a permanent parser for user-owned configuration.
 
-Known legacy event/matcher pairs plus an exact two-argument Python command identify a Guard
-registration candidate even when it points to an older Codex home, checkout, or Python executable.
-A Route registration is confirmed only when its exact Python command points to the confirmed prior
-Route projection. The installer removes confirmed v1 and v2 project Route copies and registrations.
-An exact reference to a managed retired target under any other event or matcher is a conflict so
-retirement cannot leave a dangling custom registration.
-Ambiguous, external, linked, or different same-named assets remain conflicts, not automatic
-deletion targets, and unresolved project-shaped conflicts block a pure v2 completion claim. If
-cleanup is declined, the installation remains mixed v1/v2.
+When legacy cleanup is desired, treat it as a separate maintenance task: inspect the live runtime,
+resolve the exact files and registrations, show the removal plan, and obtain explicit approval.
+Installing or validating the current projection neither proves that cleanup is needed nor claims it
+has happened.
 
 ## V2 collaboration boundary
 
@@ -206,7 +199,7 @@ python scripts/validate.py --runtime --global-rules --codex-home <codex-home> --
 
 Use the interpreter command available on the host. `--skills-root` is required so validation
 cannot guess a non-active location. Runtime validation checks exact bundled Skill and Agent copies,
-validates any saved task-package language and model route, rejects linked managed targets, and
-rejects retired Guard, Scope, or Route files and registrations. Add `--global-rules` when the managed block was selected; it checks
-the active Codex global instruction file and rejects stale copies in the inactive file. The
-installing Agent separately verifies that the host can enforce each approved model route entry.
+validates any saved task-package language and model route, and rejects linked managed targets. It
+ignores unmanaged Agent and Hook assets. Add `--global-rules` when the managed block was selected;
+it checks the active Codex global instruction file and rejects stale copies in the inactive file.
+The installing Agent separately verifies that the host can enforce each approved model route entry.
