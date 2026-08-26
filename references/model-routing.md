@@ -73,19 +73,6 @@ thread is closed or reused for the lease.
 
 ## Resolution evidence
 
-After spawning, report the resolved model only when runtime metadata or the visible UI exposes it.
-If the tool returns only an agent id or nickname, the resolved model is `unknown`/unconfirmed;
-never infer it from the route, an omitted model field, or the current default.
-
-Treat a resolved model as wrong only when runtime/UI metadata or an explicit spawn rejection or
-mismatch error shows it. A route entry, inheritance request, agent id, nickname, default, or
-main-agent expectation is not evidence that the wrong model resolved.
-
-## Local file
-
-During the deterministic installation in `INSTALL.md`, model routing is a separate optional choice.
-The Agent starts from `examples/model-routing.toml`, replaces placeholders only with model
-identifiers and host requirements available on the current host, removes unused example entries,
-shows the complete task overrides, panel routes, and ordinary role order, and writes the approved
-file to `$CODEX_HOME/codex-orchestration/model-routing.toml`. It never generates or changes routes
-implicitly.
+Only runtime metadata or the visible UI confirms the resolved model. An agent id, nickname, route,
+inheritance request, omitted field, default, or main-agent expectation leaves it unconfirmed; only
+runtime/UI evidence or an explicit spawn rejection or mismatch proves that it resolved incorrectly.

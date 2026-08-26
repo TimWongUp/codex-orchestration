@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan or apply a Codex Orchestration runtime projection."""
+"""Plan, apply, or uninstall a Codex Orchestration runtime projection."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ DEFAULT_SKILLS_ROOT = Path.home() / ".agents" / "skills"
 class Operation:
     path: Path
     reason: str
-    content: bytes
+    content: bytes | None
     expected: bytes | None = None
 
 
@@ -60,9 +60,29 @@ class InstallPlan:
             return
         self.operations.append(Operation(path, reason, content, planned))
 
+    def add_delete(self, path: Path, content: bytes, reason: str) -> None:
+        self.operations.append(Operation(path, reason, None, content))
+
 
 def lexists(path: Path) -> bool:
     return os.path.lexists(path)
+
+
+def same_physical_path(left: Path, right: Path) -> bool:
+    try:
+        return lexists(left) and lexists(right) and os.path.samefile(left, right)
+    except OSError:
+        return False
+
+
+def paths_overlap(left: Path, right: Path) -> bool:
+    if left.is_relative_to(right) or right.is_relative_to(left):
+        return True
+    if same_physical_path(left, right):
+        return True
+    if any(same_physical_path(candidate, right) for candidate in left.parents):
+        return True
+    return any(same_physical_path(candidate, left) for candidate in right.parents)
 
 
 def sha256_bytes(content: bytes) -> str:
@@ -104,9 +124,9 @@ def prompt_task_package_language(default: str) -> str | None:
         print("Choose en or zh-CN.")
 
 
-def confirm_apply() -> bool:
+def confirm_apply(action: str = "installation") -> bool:
     try:
-        answer = input("Apply this installation plan? [y/N]: ").strip().lower()
+        answer = input(f"Apply this {action} plan? [y/N]: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return False
@@ -286,6 +306,105 @@ def plan_preferences(plan: InstallPlan, language: str | None) -> None:
     )
 
 
+def plan_owned_file_removal(
+    plan: InstallPlan,
+    path: Path,
+    owned_content: bytes,
+    reason: str,
+    *,
+    root: Path,
+    label: str,
+) -> None:
+    if not regular_target(path, root, label, plan):
+        return
+    if not path.is_file():
+        plan.current.append((path, f"{reason} already absent"))
+        return
+    try:
+        current = path.read_bytes()
+    except OSError as error:
+        plan.conflicts.append(f"{label} unreadable: {path}: {error}")
+        return
+    if current != owned_content:
+        plan.conflicts.append(f"{label} changed; refusing removal: {path}")
+        return
+    plan.add_delete(path, current, reason)
+
+
+def plan_skill_removal(
+    plan: InstallPlan,
+    name: str,
+    source_root: Path,
+    target_root: Path,
+) -> None:
+    if lexists(target_root) and (
+        contract.path_is_link_like(target_root) or not target_root.is_dir()
+    ):
+        plan.conflicts.append(f"Skill target linked or conflicting: {target_root}")
+        return
+    for source in source_skill_files(name, source_root):
+        content = read_managed_source(source, "managed Skill source", plan)
+        if content is None:
+            continue
+        target = target_root / source.relative_to(source_root)
+        plan_owned_file_removal(
+            plan,
+            target,
+            content,
+            f"remove managed Skill {name}",
+            root=plan.skills_root,
+            label="managed Skill file",
+        )
+
+
+def plan_agent_removal(plan: InstallPlan) -> None:
+    agents_root = plan.codex_home / "agents"
+    if lexists(agents_root) and (
+        contract.path_is_link_like(agents_root) or not agents_root.is_dir()
+    ):
+        plan.conflicts.append(f"Agent directory linked or conflicting: {agents_root}")
+        return
+    for source in sorted((ROOT / "agents").glob("*.toml")):
+        content = read_managed_source(source, "managed Agent source", plan)
+        if content is None:
+            continue
+        plan_owned_file_removal(
+            plan,
+            agents_root / source.name,
+            content,
+            "remove managed Agent profile",
+            root=plan.codex_home,
+            label="managed Agent file",
+        )
+
+
+def plan_preferences_removal(plan: InstallPlan) -> None:
+    target = plan.codex_home / "codex-orchestration" / "preferences.toml"
+    template = read_managed_source(
+        ROOT / "examples" / "preferences.toml", "task-package preference source", plan
+    )
+    if template is None or not regular_target(
+        target, plan.codex_home, "task-package preference", plan
+    ):
+        return
+    if not target.is_file():
+        plan.current.append((target, "task-package preference already absent"))
+        return
+    try:
+        current = target.read_bytes()
+    except OSError as error:
+        plan.conflicts.append(f"task-package preference unreadable: {target}: {error}")
+        return
+    rendered = {
+        template.replace(b"LANGUAGE", language.encode("utf-8"))
+        for language in contract.TASK_PACKAGE_LANGUAGES
+    }
+    if current not in rendered:
+        plan.conflicts.append(f"task-package preference changed; refusing removal: {target}")
+        return
+    plan.add_delete(target, current, "remove managed task-package preference")
+
+
 def newline_for(content: bytes) -> bytes:
     without_crlf = content.replace(b"\r\n", b"")
     return b"\r\n" if b"\r\n" in content and b"\n" not in without_crlf else b"\n"
@@ -392,13 +511,37 @@ def check_unchanged_global_rules(plan: InstallPlan) -> None:
         plan.current.append((candidate, "current managed global-rules block left unchanged"))
 
 
-def build_plan(
-    codex_home: Path,
-    skills_root: Path,
-    *,
-    language: str | None,
-    global_rules: bool,
-) -> InstallPlan:
+def plan_global_rules_removal(plan: InstallPlan) -> None:
+    for filename in GLOBAL_RULES_CANDIDATES:
+        candidate = plan.codex_home / filename
+        if not regular_target(candidate, plan.codex_home, "global instructions", plan):
+            continue
+        try:
+            if not candidate.is_file():
+                plan.current.append((candidate, "managed global-rules block already absent"))
+                continue
+            content = candidate.read_bytes()
+        except OSError as error:
+            plan.conflicts.append(f"global instructions unreadable: {candidate}: {error}")
+            continue
+        state, ranges = contract.managed_global_rules_ranges(content)
+        if state == "corrupt" or len(ranges) > 1:
+            plan.conflicts.append(f"global rules markers corrupt or duplicated: {candidate}")
+            continue
+        if not ranges:
+            plan.current.append((candidate, "managed global-rules block already absent"))
+            continue
+        start, end = ranges[0]
+        plan.add_write(
+            candidate,
+            content[:start] + content[end:],
+            "remove managed global-rules block",
+            expected=content,
+            use_expected=True,
+        )
+
+
+def initialize_plan(codex_home: Path, skills_root: Path) -> tuple[InstallPlan, bool]:
     raw_codex_home = codex_home.absolute()
     raw_skills_root = skills_root.absolute()
     codex_home = contract.canonical_selected_root(raw_codex_home)
@@ -415,20 +558,53 @@ def build_plan(
         if linked is not None:
             plan.conflicts.append(f"{label} has linked or unsafe path component: {linked}")
     if plan.conflicts:
-        return plan
+        return plan, False
     home_ok = ensure_physical_root(codex_home, "Codex home", plan)
     skills_ok = ensure_physical_root(skills_root, "Skill root", plan)
-    if not home_ok or not skills_ok:
+    return plan, home_ok and skills_ok
+
+
+def build_plan(
+    codex_home: Path,
+    skills_root: Path,
+    *,
+    language: str | None,
+    global_rules: bool,
+) -> InstallPlan:
+    plan, roots_ok = initialize_plan(codex_home, skills_root)
+    if not roots_ok:
         return plan
 
     for name, source_root in contract.BUNDLED_SKILLS.items():
-        plan_skill(plan, name, source_root, skills_root / name)
+        plan_skill(plan, name, source_root, plan.skills_root / name)
     plan_agents(plan)
     plan_preferences(plan, language)
     if global_rules:
         plan_global_rules(plan)
     else:
         check_unchanged_global_rules(plan)
+    return plan
+
+
+def build_uninstall_plan(codex_home: Path, skills_root: Path) -> InstallPlan:
+    plan, roots_ok = initialize_plan(codex_home, skills_root)
+    if not roots_ok:
+        return plan
+    for label, selected_root in (
+        ("Codex home", plan.codex_home),
+        ("Skill root", plan.skills_root),
+    ):
+        if paths_overlap(selected_root, ROOT):
+            plan.conflicts.append(
+                f"{label} overlaps source checkout; refusing uninstall: {selected_root}"
+            )
+    if plan.conflicts:
+        return plan
+    for name, source_root in contract.BUNDLED_SKILLS.items():
+        plan_skill_removal(plan, name, source_root, plan.skills_root / name)
+    plan_agent_removal(plan)
+    plan_preferences_removal(plan)
+    plan_global_rules_removal(plan)
     return plan
 
 
@@ -512,8 +688,10 @@ def rollback(
     completed: list[Operation],
     previous: dict[Path, bytes | None],
     created_directories: list[Path],
+    staged_deletions: dict[Path, Path] | None = None,
 ) -> list[str]:
     failures: list[str] = []
+    staged_deletions = staged_deletions or {}
     for operation in reversed(completed):
         old_content = previous[operation.path]
         try:
@@ -525,6 +703,22 @@ def rollback(
                 failures.append(
                     f"rollback refused conflicting target: {operation.path}: {probe.conflicts[0]}"
                 )
+                continue
+            if operation.content is None and operation.path in staged_deletions:
+                temporary = staged_deletions[operation.path]
+                if lexists(operation.path):
+                    failures.append(f"rollback refused changed target: {operation.path}")
+                    continue
+                if not regular_target(temporary, root, "rollback staged deletion", probe):
+                    failures.append(
+                        f"rollback refused conflicting staged deletion: {temporary}: "
+                        f"{probe.conflicts[-1]}"
+                    )
+                    continue
+                if not temporary.is_file() or temporary.read_bytes() != old_content:
+                    failures.append(f"rollback refused changed staged deletion: {temporary}")
+                    continue
+                os.replace(temporary, operation.path)
                 continue
             current = operation.path.read_bytes() if operation.path.is_file() else None
             installed = operation.content
@@ -548,7 +742,49 @@ def rollback(
     return failures
 
 
-def verification_failures(plan: InstallPlan, *, global_rules: bool) -> list[str]:
+def managed_runtime_targets(plan: InstallPlan) -> list[Path]:
+    targets: list[Path] = []
+    for name, source_root in contract.BUNDLED_SKILLS.items():
+        target_root = plan.skills_root / name
+        targets.extend(
+            target_root / source.relative_to(source_root)
+            for source in source_skill_files(name, source_root)
+        )
+    targets.extend(
+        plan.codex_home / "agents" / source.name
+        for source in sorted((ROOT / "agents").glob("*.toml"))
+    )
+    targets.append(plan.codex_home / "codex-orchestration" / "preferences.toml")
+    return targets
+
+
+def uninstall_verification_failures(plan: InstallPlan) -> list[str]:
+    failures = contract.validate_source()
+    for target in managed_runtime_targets(plan):
+        if lexists(target):
+            failures.append(f"managed runtime target remains after uninstall: {target}")
+    for filename in GLOBAL_RULES_CANDIDATES:
+        candidate = plan.codex_home / filename
+        try:
+            if not candidate.is_file():
+                continue
+            content = candidate.read_bytes()
+        except OSError as error:
+            failures.append(f"global instructions unreadable after uninstall: {candidate}: {error}")
+            continue
+        state, ranges = contract.managed_global_rules_ranges(content)
+        if state == "corrupt":
+            failures.append(f"global rules markers corrupt after uninstall: {candidate}")
+        elif ranges:
+            failures.append(f"managed global-rules block remains after uninstall: {candidate}")
+    return failures
+
+
+def verification_failures(
+    plan: InstallPlan, *, global_rules: bool, uninstall: bool = False
+) -> list[str]:
+    if uninstall:
+        return uninstall_verification_failures(plan)
     failures = contract.validate_source()
     failures.extend(contract.validate_runtime(plan.codex_home, plan.skills_root))
     if global_rules:
@@ -588,43 +824,101 @@ def recheck_operation(plan: InstallPlan, operation: Operation) -> None:
     recheck_snapshot(plan, operation.path, operation.expected, "transaction target")
 
 
-def apply_plan(plan: InstallPlan, *, global_rules: bool) -> None:
+def cleanup_empty_managed_directories(plan: InstallPlan, deleted_paths: list[Path]) -> None:
+    owned_roots = [
+        *(plan.skills_root / name for name in contract.BUNDLED_SKILLS),
+        plan.codex_home / "codex-orchestration",
+    ]
+    candidates: set[Path] = set()
+    for path in deleted_paths:
+        for owned_root in owned_roots:
+            if not path.is_relative_to(owned_root):
+                continue
+            current = path.parent
+            while current.is_relative_to(owned_root):
+                candidates.add(current)
+                if current == owned_root:
+                    break
+                current = current.parent
+    for directory in sorted(candidates, key=lambda item: len(item.parts), reverse=True):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+
+def apply_plan(plan: InstallPlan, *, global_rules: bool, uninstall: bool = False) -> list[str]:
     if plan.conflicts:
         raise RuntimeError("installation plan has conflicts")
     previous: dict[Path, bytes | None] = {}
     completed: list[Operation] = []
     created_directories: list[Path] = []
+    staged_deletions: dict[Path, Path] = {}
     try:
         for operation in plan.operations:
             recheck_operation(plan, operation)
             previous[operation.path] = operation.expected
-            create_parent_directories(operation.path, created_directories)
-            completed.append(operation)
-            atomic_write(operation.path, operation.content)
-            recheck_snapshot(plan, operation.path, operation.content, "post-write target")
-        failures = verification_failures(plan, global_rules=global_rules)
+            if operation.content is None:
+                temporary = installer_temporary_path(operation.path, secrets.token_hex(12))
+                recheck_snapshot(plan, temporary, None, "staged deletion")
+                completed.append(operation)
+                os.replace(operation.path, temporary)
+                staged_deletions[operation.path] = temporary
+                recheck_snapshot(plan, operation.path, None, "post-delete target")
+            else:
+                create_parent_directories(operation.path, created_directories)
+                completed.append(operation)
+                atomic_write(operation.path, operation.content)
+                recheck_snapshot(plan, operation.path, operation.content, "post-write target")
+        failures = verification_failures(plan, global_rules=global_rules, uninstall=uninstall)
         if failures:
             details = "\n".join(f"- {item}" for item in failures)
             raise RuntimeError(f"verification failed:\n{details}")
     except BaseException as error:
-        rollback_failures = rollback(plan, completed, previous, created_directories)
+        rollback_failures = rollback(
+            plan,
+            completed,
+            previous,
+            created_directories,
+            staged_deletions,
+        )
         if rollback_failures:
             raise RuntimeError(f"{error}\n" + "\n".join(rollback_failures)) from error
         raise
+    warnings: list[str] = []
+    for temporary in staged_deletions.values():
+        try:
+            temporary.unlink()
+        except OSError as error:
+            warnings.append(
+                "staged uninstall copy could not be removed after verified commit; inspect and "
+                f"remove it manually: {temporary}: {error}"
+            )
+    cleanup_empty_managed_directories(plan, list(staged_deletions))
+    return warnings
 
 
-def print_plan(plan: InstallPlan, *, global_rules: bool) -> None:
-    print("Codex Orchestration installation plan")
+def print_plan(plan: InstallPlan, *, global_rules: bool, uninstall: bool = False) -> None:
+    action = "uninstall" if uninstall else "installation"
+    print(f"Codex Orchestration {action} plan")
     print(f"Codex home: {plan.codex_home}")
     print(f"Skill root: {plan.skills_root}")
-    print(f"Global rules: {'managed block' if global_rules else 'unchanged'}")
+    if uninstall:
+        print("Global rules: remove managed block")
+    else:
+        print(f"Global rules: {'managed block' if global_rules else 'unchanged'}")
     for operation in plan.operations:
-        label = "UPDATE" if operation.path.is_file() else "CREATE"
-        digest = f" sha256={sha256_bytes(operation.content)}"
+        if operation.content is None:
+            label = "DELETE"
+            digest = f" sha256={sha256_bytes(operation.expected or b'')}"
+        else:
+            label = "UPDATE" if operation.path.is_file() else "CREATE"
+            digest = f" sha256={sha256_bytes(operation.content)}"
         print(f"[{label}] {operation.path} — {operation.reason}{digest}")
     if not plan.operations:
-        print("[CURRENT] no managed runtime changes")
-    if global_rules and plan.global_rules_target is not None:
+        state = "already absent" if uninstall else "no managed runtime changes"
+        print(f"[CURRENT] {state}")
+    if not uninstall and global_rules and plan.global_rules_target is not None:
         print(f"Active global instructions: {plan.global_rules_target}")
         print(contract.GLOBAL_RULES_TEMPLATE.read_text(encoding="utf-8").rstrip())
     for conflict in plan.conflicts:
@@ -654,7 +948,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--global-rules",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="inject the managed global AGENTS block (default: enabled)",
+        help="inject the managed global AGENTS block during install (default: enabled)",
+    )
+    parser.add_argument(
+        "--uninstall",
+        action="store_true",
+        help="remove the current managed global runtime projection",
     )
     parser.add_argument(
         "--apply",
@@ -675,38 +974,60 @@ def main(argv: list[str] | None = None, *, interactive: bool | None = None) -> i
     skills_root = args.skills_root.expanduser().absolute()
     if interactive is None:
         interactive = interactive_terminal()
+    if args.uninstall and args.language is not None:
+        print("Refusing uninstall because --language applies only to installation.")
+        return 2
+    if args.uninstall and not args.global_rules:
+        print("Refusing uninstall because --no-global-rules would leave unusable global routing.")
+        return 2
     preferences_path = codex_home / "codex-orchestration" / "preferences.toml"
-    if args.language is None and interactive and not lexists(preferences_path):
+    if (
+        not args.uninstall
+        and args.language is None
+        and interactive
+        and not lexists(preferences_path)
+    ):
         args.language = prompt_task_package_language(detected_task_package_language())
         if args.language is None:
             print("Installation cancelled; no files changed.")
             return 0
-    plan = build_plan(
-        codex_home,
-        skills_root,
-        language=args.language,
-        global_rules=args.global_rules,
-    )
-    print_plan(plan, global_rules=args.global_rules)
+    if args.uninstall:
+        plan = build_uninstall_plan(codex_home, skills_root)
+    else:
+        plan = build_plan(
+            codex_home,
+            skills_root,
+            language=args.language,
+            global_rules=args.global_rules,
+        )
+    print_plan(plan, global_rules=args.global_rules, uninstall=args.uninstall)
     if plan.conflicts:
-        print("Refusing installation because the plan contains conflicts.")
+        action = "uninstall" if args.uninstall else "installation"
+        print(f"Refusing {action} because the plan contains conflicts.")
         return 2
     if not args.apply:
         if not plan.operations:
-            print("OK: managed runtime is already current")
+            state = "already absent" if args.uninstall else "already current"
+            print(f"OK: managed runtime is {state}")
             return 0
         if not interactive:
             print("Dry run only. Re-run the same command with --apply to write these changes.")
             return 0
-        if not confirm_apply():
-            print("Installation cancelled; no files changed.")
+        action = "uninstall" if args.uninstall else "installation"
+        if not confirm_apply(action):
+            print(f"{action.capitalize()} cancelled; no files changed.")
             return 0
     try:
-        apply_plan(plan, global_rules=args.global_rules)
+        warnings = apply_plan(plan, global_rules=args.global_rules, uninstall=args.uninstall)
     except (OSError, RuntimeError) as error:
         print(f"FAIL: {error}")
         return 1
-    print("OK: installation applied and runtime verification passed")
+    for warning in warnings:
+        print(f"[WARNING] {warning}")
+    if args.uninstall:
+        print("OK: uninstall applied and managed runtime absence verified")
+    else:
+        print("OK: installation applied and runtime verification passed")
     print("Start a new Codex task so Skills, Agents, and global rules reload.")
     return 0
 

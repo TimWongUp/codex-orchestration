@@ -1,49 +1,47 @@
 ---
 name: codex-review-gate
-description: Apply the independent R0-R3 delivery review gate after repository implementation, tests, dependencies, build or deployment configuration, public contracts, or managed runtime policy changes and before final delivery. Use whenever an applicable project, user, or workflow rule requires risk-based review, including final integrated diffs from staged work or Worktree Roots. This Skill defines the risk route and authorizes its read-only Reviewers; the root main agent executes classification, remediation, verification, and delivery. It does not authorize implementation delegation or Worktree creation.
+description: Apply the R0-R3 Delivery Review gate to final repository diffs after implementation, tests, dependencies, build or deployment configuration, public contracts, or managed runtime policy changes. It selects and authorizes read-only Reviewers for R1-R3; the root handles classification, remediation, validation, and delivery.
 metadata:
-  version: 0.10.2
+  version: 0.10.4
 ---
 
 # Codex delivery review gate
 
 ## Authority
 
-This Skill defines a delivery control, not an admission test for ordinary implementation or
-investigation delegation. Apply it from the root task after the final diff is available and before
-delivery. A project, user, or workflow instruction requiring this gate already authorizes the
-read-only reviewers selected by R1-R3; the current user message does not need to name a subagent or
-Reviewer again. A current explicit user prohibition on subagents or Reviewers still takes priority.
+This Skill is a delivery control, not an admission test for ordinary delegation. Apply it from the
+root task after the final diff is available and before delivery. A project, user, or workflow rule
+requiring this gate authorizes its selected R1-R3 read-only Reviewers without a separate current-turn
+request; a current explicit user prohibition on subagents or Reviewers still wins.
 
-The main agent owns the classification, final diff inspection, validation, remediation, Git, and
-delivery. Reviewers remain read-only. Load `codex-orchestration` only when R1-R3 needs Agent
-execution, then use its model routing, brief, lifecycle, and waiting contracts. R0 needs no Agent
-solely for review.
+The root owns classification, final diff inspection, validation, remediation, Git, and delivery.
+R0 needs no Agent solely for Review; for R1-R3, load `codex-orchestration` and use its model routing,
+brief, lifecycle, and waiting contracts.
 
 ## Classify the final diff
 
 Choose the highest matching level. Changed line or file counts never determine a level by
-themselves. When evidence does not distinguish two adjacent levels, choose the higher one.
+themselves. When evidence does not distinguish two adjacent levels that both plausibly match,
+choose the higher one.
 
 | Level | Highest matching condition | Independent review |
 | --- | --- | --- |
-| R0 | The change does not alter runtime behavior and is mechanical, local, and completely verifiable. It does not change dependencies, build or deployment behavior, public contracts, test semantics, or security policy. | None; the main agent inspects the complete diff and validates it. |
-| R1 | The change is not R0, remains localized, has one material risk dimension, is covered by relevant validation, and is easy to detect and recover if wrong. This includes localized runtime, public-contract, managed-policy, test-semantic, dependency, or build changes. | One Reviewer; select its role by the R1 rule below. |
+| R0 | The change is local and self-contained, completely verifiable by the main agent at the boundary where its behavior is observable, easy to detect and recover if wrong, and leaves no material failure hypothesis that current validation does not exclude and independent judgment could change. It does not change dependencies, build or deployment behavior, public contracts, test semantics, or security policy. Runtime behavior changes may qualify; a self-contained illustrative or demonstration artifact with no network, auth, persistence, secret, dependency, or contract surface, verified at its target boundaries, is a typical example. | None; the main agent inspects the complete diff and validates it. |
+| R1 | The change is not R0, remains localized, is covered by relevant validation, is easy to detect and recover if wrong, and has exactly one material failure hypothesis that current validation does not exclude and independent judgment could change. A localized runtime, public-contract, managed-policy, test-semantic, dependency, or build change qualifies only when that hypothesis exists; without one, complete the missing validation — classify the change as R0 only when every R0 condition and exclusion is satisfied, and otherwise apply the R2 fallback. | One Reviewer; select its role by the R1 rule below. |
 | R2 | The change has two or more independent material risk dimensions, changes a broad or hard-to-recover public contract, or touches a sensitive boundary such as security, privacy, concurrency, data compatibility, or deployment. | At least one matching Reviewer; add seats only for additional material hypotheses that need independent judgment, never to fill a quota. |
 | R3 | The change defines or weakens a trust or authorization boundary, or failure could cause unauthorized access, code execution, secret exposure, irreversible data loss, financial impact, supply-chain compromise, or a broad production outage. Also use R3 when earlier review reveals a material flaw that changes the original risk assumptions. | At least one focused Reviewer, main-agent remediation, then an `adversarial-verifier`. |
 
 If a change does not fully match R0, R1, or R3 and no explicit R2 condition applies, classify it as
-R2. This fail-closed fallback covers missing validation, uncertain recoverability, and unusual
-non-runtime changes without expanding the table.
+R2. This fail-closed fallback covers material uncertainty such as missing validation, uncertain
+recoverability, or an unclear risk boundary; the mere presence of runtime behavior is not
+uncertainty, and a verified, recoverable change with no material failure hypothesis belongs in R0.
 
-Risk dimensions include correctness and regressions, architecture and public contracts, security
-and privacy, concurrency and state, data compatibility and migrations, test reliability,
-performance and resources, and deployment or supply-chain impact. Count distinct failure
-hypotheses, not role names. Risk level expresses impact; Reviewer count follows only the distinct
-material hypotheses for which independent judgment can change delivery. R1-R3 always select at
-least one matching Reviewer; additional seats require additional hypotheses. A validation-proven
-property, missing evidence axis, or desired headcount does not create an extra seat. Assign every
-Reviewer a different material risk and evidence boundary.
+Risk dimensions include correctness, architecture, public contracts, security, privacy,
+concurrency, state, data compatibility, migrations, test reliability, performance, resources,
+deployment, and supply-chain impact. Count failure hypotheses, not role names. R1-R3 always select
+at least one matching Reviewer; add a seat only for another material hypothesis where independent
+judgment can change delivery. Proven properties, missing evidence axes, and desired headcount add no
+seat. Give every Reviewer a distinct material risk and evidence boundary.
 
 For R1, `correctness-reviewer` is the general default. When the sole material hypothesis is
 specifically architectural, security-related, performance-related, test-related, or otherwise
@@ -54,7 +52,8 @@ create a second seat for the same hypothesis.
 
 1. Pin the comparison boundary and confirm the final diff is non-empty. Inspect that diff, affected
    contracts, validation evidence, and recoverability. Select R0-R3 and retain one concise reason
-   naming the highest matching condition.
+   naming the highest matching condition; an R0 reason must state the completed validation and why
+   no material failure hypothesis remains.
 2. For R0, finish main-agent validation. For R1-R3, load `codex-orchestration`, select the matching
    read-only roles, give each Reviewer a concrete failure hypothesis and evidence boundary, and wait
    for every result that can affect delivery.

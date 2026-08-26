@@ -8,11 +8,11 @@
   and global rules are deployment artifacts; task-package language, machine-specific routing, and unrelated Hook registration stay outside the repository.
 - The target local platforms are macOS and native Windows. Claim support only after both CI
   runners pass for the release candidate.
-- When asked to install, update, repair, or verify this project, read `INSTALL.md` completely
+- When asked to install, update, repair, uninstall, or verify this project, read `INSTALL.md` completely
   before changing user configuration. `INSTALL.md` defines the contract and `scripts/install.py`
-  is its deterministic implementation for planning, ownership checks, writes, rollback, and
+  is its deterministic implementation for planning, ownership checks, mutations, rollback, and
   verification. Agents use its non-interactive dry run before `--apply`; do not reproduce
-  installation with ad hoc copies.
+  installation or uninstall with ad hoc file commands.
 
 ## Commands
 
@@ -25,14 +25,16 @@
 - Runtime validation: `<python> scripts/validate.py --runtime --codex-home <path> --skills-root <path>`
 - Interactive install: `<python> scripts/install.py`
 - Non-interactive install dry run: `<python> scripts/install.py --language <en|zh-CN>`
+- Global uninstall dry run: `<python> scripts/install.py --uninstall`
 
 ## Constraints
 
 - Keep agent profiles model-neutral. User model routes live outside the repository.
 - Keep delegation prose language local while role names, paths, and external protocol literals remain portable.
-- Deterministic installation writes only the current named projection. Preserve all unmanaged
-  Agent profiles, Hook registrations, Hook files, and other user content; legacy cleanup is a
-  separate user-directed maintenance action.
+- Deterministic installation writes only the current named projection. Explicit uninstall removes
+  only byte-matching current managed files and the marker-owned global-rules block. Preserve all
+  unmanaged Agent profiles, Hook registrations, Hook files, and other user content; legacy cleanup
+  is a separate user-directed maintenance action.
 - Keep the managed global-rules block canonical in `examples/global-agents-block.md`; installation
   injects it into the active global `AGENTS.md` or `AGENTS.override.md` without owning surrounding
   user content.
@@ -57,6 +59,8 @@
 - Worktree-root decision: `docs/adr/0009-coordinate-independent-worktree-roots.md`
 - Delivery Review boundary decision: `docs/adr/0011-separate-delivery-review-from-orchestration.md`
 - Legacy cleanup boundary decision: `docs/adr/0012-remove-legacy-cleanup-from-installation.md`
+- Current projection uninstall decision: `docs/adr/0013-safe-current-projection-uninstall.md`
+- Review-threshold decision: `docs/adr/0014-risk-hypothesis-gate-threshold.md`
 - Decisions: create `docs/adr/` only when a hard-to-reverse choice needs a durable record.
 
 ## Update gate

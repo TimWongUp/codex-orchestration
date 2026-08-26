@@ -6,10 +6,7 @@ An ordinary final notification is sufficient for a normal dependency wait. Take 
 only where a branch below expressly requires one after a follow-up, interruption, replacement, or
 stop.
 
-## Dependencies and follow-ups
-
-Pending results remain a dependency barrier for any decision, write, or final answer they could
-change. Continue only independent work outside the delegated scope.
+## Follow-ups
 
 A same-thread follow-up contains only the correction, question, or new evidence because the thread
 keeps its accepted context. A new agent receives a standalone brief.

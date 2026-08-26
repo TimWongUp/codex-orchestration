@@ -9,41 +9,27 @@ the result can be independently accepted, the repository state is ready, and no 
 active in this root task. Selecting the writable worker role starts that root task's lease; while
 the worker is active, the main agent and every other derived agent remain read-only.
 
-Workers are derived agents. They do not load or execute `codex-orchestration`, call collaboration
-tools, orchestrate any other agent, manage Git, or change external state. A sandbox or role name is
-not permission to expand the user's task.
+The worker remains inside the assigned outcome; its profile leaves orchestration, Git, and external
+state to the root task. A sandbox or role name does not expand the user's task.
 
 ## Worker brief
 
-Send a compact natural-language brief, not a required form. It normally makes the intended change
-and handoff focus clear, supplies only context the worker cannot cheaply recover, and points to
-useful files, diffs, logs, or references. Optional headings such as task, context, handoff, and
-references may help readability, but their names and presence carry no authority.
-
-Let the worker inspect the repository and recover ordinary implementation context. State explicit
-exclusions, authority limits, or validation expectations only when they materially change the
-work. Do not create a temporary handoff file for information that fits in the task message.
+Use the main Skill's natural-language brief contract. Make the intended change and handoff focus
+clear; add exclusions, authority limits, or validation expectations only when they materially
+change the work. Let the worker recover ordinary implementation context.
 
 The worker uses judgment to make the smallest complete change, including necessary adjacent files.
 It preserves pre-existing work and treats explicit exclusions as binding. If the correct change
 would materially expand the requested outcome, conflict with existing changes, or require new
 authority, the worker returns a checkpoint instead of guessing.
 
-## Method workers
-
-`diagnosing-bugs-worker` loads the complete `diagnosing-bugs` Skill and applies its feedback loop,
-reproduction, minimization, hypothesis testing, regression-test, and instrumentation-cleanup
-method within the assigned outcome.
-
-`prototype-worker` loads the complete `prototype` Skill and builds the smallest throwaway result
-that answers the design question without turning it into production architecture on its own.
-
 ## Follow-ups and rounds
 
-A follow-up to the same worker thread may contain only the acceptance finding, correction, or new
-evidence because the thread retains its context. A newly created worker receives a standalone
-brief. The main Skill still limits one branch to three writable rounds; a round ends when that
-worker is no longer running, and no prior lease remains active between rounds.
+A branch receives at most three writable rounds: the initial implementation; one same-thread
+correction after the worker is idle; then, only when acceptance or Review requires it, one new
+worker selected through [model-routing.md](model-routing.md). A round ends when its worker is no
+longer running, and no prior lease carries into the next round. After round three, the main agent
+takes over, decomposes again, or reports the blocker.
 
 ## Handoff and acceptance
 

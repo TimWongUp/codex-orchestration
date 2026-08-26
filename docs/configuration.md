@@ -122,18 +122,22 @@ keep global context small. The Review pointer requires `codex-review-gate` after
 implementation, test, dependency, build/deployment, public-contract, or managed runtime-policy changes and
 authorizes only its R1-R3 read-only Reviewers. Ordinary proactive-delegation admission cannot
 suppress those Reviewer calls, while implementation and investigation delegation retain their
-normal threshold.
+normal threshold. Loading the gate classifies the final diff; it does not by itself start a
+Reviewer, since R0 completes with main-agent validation only.
 
 ## Delivery review
 
-`codex-review-gate` classifies the final integrated diff before delivery. R0 covers only mechanical,
-non-behavioral, fully verifiable changes; R1 covers one localized, validated, recoverable risk,
-including localized runtime, public-contract, managed-policy, test-semantic, dependency, or build
-changes; R2 covers multiple independent risks, broad or hard-to-recover public contracts,
-sensitive boundaries, or otherwise unclassified risk; R3 covers changed trust or authorization
-boundaries and high-impact failure. The highest matching
-level wins, diff size alone never decides the level, and uncertainty fails closed to the higher
-level or R2 fallback.
+`codex-review-gate` classifies the final integrated diff before delivery. R0 covers local,
+self-contained changes that the main agent completely verified at the boundary where their behavior
+is observable, that are easy to recover, and that leave no material failure hypothesis current
+validation does not exclude; runtime behavior changes qualify, and a self-contained illustrative or
+demonstration artifact is a typical example. R1 covers one localized, validated, recoverable
+material failure hypothesis that independent judgment could change, including localized runtime,
+public-contract, managed-policy, test-semantic, dependency, or build changes; R2 covers multiple
+independent risks, broad or hard-to-recover public contracts, sensitive boundaries, or material
+uncertainty; R3 covers changed trust or authorization boundaries and high-impact failure. The
+highest matching level wins, diff size alone never decides the level, and material uncertainty
+fails closed to the higher level or R2 fallback.
 
 The risk level does not set a Reviewer quota. R1-R3 always select at least one matching read-only
 Reviewer; extra seats require additional material hypotheses where independent judgment can change

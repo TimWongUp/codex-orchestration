@@ -37,10 +37,11 @@ keep Hooks out of the current suite.
 
 ## Consequences
 
-The installer and validator lose their deletion operations, historical hashes, Hook JSON and shell
-command parsers, and the tests dedicated to those compatibility paths. The retained suite focuses
-on current projection integrity, transactions, path safety, cross-platform behavior, and active
-policy contracts.
+Ordinary installation loses its cleanup deletions, historical hashes, Hook JSON and shell command
+parsers, and the tests dedicated to those compatibility paths. The retained suite focuses on
+current projection integrity, transactions, path safety, cross-platform behavior, and active policy
+contracts. [ADR 0013](0013-safe-current-projection-uninstall.md) later adds an explicit uninstall
+for the byte-matching current projection without restoring historical cleanup.
 
 An upgrade may leave an older Agent or Hook active until the user chooses to remove it. This is an
 explicitly unmanaged runtime condition rather than an installation failure. Operators who need a

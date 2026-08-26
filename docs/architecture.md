@@ -99,13 +99,14 @@ confidence in current behavior or credible failures at a correct seam, whether a
 already supplies that confidence, and whether removal preserves equivalent behavior and failure
 protection. Test count and coverage percentage are evidence inputs, not optimization targets.
 
-The gate evaluates the highest-risk property of the final integrated diff: non-behavioral and fully
-verifiable work may be R0; localized, validated, recoverable single-risk changes are R1, including
-localized public-contract and managed-policy changes; multiple independent risks, broad or
-hard-to-recover public contracts, sensitive boundaries, or otherwise unclassified changes are R2;
-changed trust boundaries or high-impact failure are R3. Main-agent validation is required
-at every level but does not count as independent Review. R3 ends with adversarial verification
-after focused Review and remediation.
+The gate evaluates the highest-risk property of the final integrated diff: local, self-contained
+work that the main agent completely verified and that leaves no material failure hypothesis may be
+R0 even when it changes runtime behavior; localized, validated, recoverable changes with one
+material failure hypothesis that independent judgment could change are R1, including localized
+public-contract and managed-policy changes; multiple independent risks, broad or hard-to-recover
+public contracts, sensitive boundaries, or material uncertainty are R2; changed trust boundaries or
+high-impact failure are R3. Main-agent validation is required at every level but does not count as
+independent Review. R3 ends with adversarial verification after focused Review and remediation.
 
 Risk level and Reviewer count are separate decisions. The level expresses impact and
 recoverability; R1-R3 always select at least one matching Reviewer, and additional seats correspond

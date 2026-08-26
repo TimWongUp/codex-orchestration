@@ -45,6 +45,9 @@ class InstallerTests(unittest.TestCase):
             global_rules=global_rules,
         )
 
+    def build_uninstall(self, codex_home: Path, skills_root: Path):
+        return INSTALL.build_uninstall_plan(codex_home, skills_root)
+
     def test_full_install_is_idempotent_and_preserves_unrelated_content(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home, skills_root = self.paths(temporary)
@@ -101,6 +104,170 @@ class InstallerTests(unittest.TestCase):
             second = self.build(codex_home, skills_root)
             self.assertEqual(second.conflicts, [])
             self.assertEqual(second.operations, [])
+
+    def test_uninstall_removes_only_current_managed_projection_and_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.paths(temporary)
+            codex_home.mkdir()
+            skills_root.mkdir()
+            personal_rules = b"# Personal rules\n"
+            (codex_home / "AGENTS.md").write_bytes(personal_rules)
+            hooks_content = b"{unmanaged hooks}\n"
+            (codex_home / "hooks.json").write_bytes(hooks_content)
+            agents_root = codex_home / "agents"
+            agents_root.mkdir()
+            unmanaged_agent = agents_root / "personal.toml"
+            unmanaged_agent.write_bytes(b"personal agent\n")
+
+            install = self.build(codex_home, skills_root)
+            self.assertEqual(install.conflicts, [])
+            INSTALL.apply_plan(install, global_rules=True)
+
+            local_root = codex_home / "codex-orchestration"
+            model_route = local_root / "model-routing.toml"
+            model_route.write_bytes(b"local model route\n")
+            unmanaged_skill_file = skills_root / "codex-orchestration" / "personal-note.md"
+            unmanaged_skill_file.write_bytes(b"preserve inside managed directory\n")
+            rules_path = codex_home / "AGENTS.md"
+            rules_path.write_bytes(
+                rules_path.read_bytes().replace(
+                    b"## Agent orchestration", b"## Stale agent orchestration"
+                )
+            )
+
+            plan = self.build_uninstall(codex_home, skills_root)
+            self.assertEqual(plan.conflicts, [])
+            self.assertTrue(any(operation.content is None for operation in plan.operations))
+            INSTALL.apply_plan(plan, global_rules=True, uninstall=True)
+
+            for target in INSTALL.managed_runtime_targets(plan):
+                self.assertFalse(INSTALL.lexists(target), target)
+            self.assertNotIn(
+                INSTALL.contract.GLOBAL_RULES_START,
+                (codex_home / "AGENTS.md").read_bytes(),
+            )
+            self.assertTrue((codex_home / "AGENTS.md").read_bytes().startswith(personal_rules))
+            self.assertEqual((codex_home / "hooks.json").read_bytes(), hooks_content)
+            self.assertEqual(unmanaged_agent.read_bytes(), b"personal agent\n")
+            self.assertEqual(model_route.read_bytes(), b"local model route\n")
+            self.assertEqual(
+                unmanaged_skill_file.read_bytes(), b"preserve inside managed directory\n"
+            )
+            self.assertFalse((skills_root / "codex-review-gate").exists())
+
+            second = self.build_uninstall(codex_home, skills_root)
+            self.assertEqual(second.conflicts, [])
+            self.assertEqual(second.operations, [])
+
+    def test_uninstall_rejects_changed_managed_file_before_any_removal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.paths(temporary)
+            codex_home.mkdir()
+            skills_root.mkdir()
+            install = self.build(codex_home, skills_root)
+            self.assertEqual(install.conflicts, [])
+            INSTALL.apply_plan(install, global_rules=True)
+            changed = codex_home / "agents" / "worker.toml"
+            changed.write_bytes(b"user changed this managed profile\n")
+
+            plan = self.build_uninstall(codex_home, skills_root)
+
+            self.assertTrue(any("changed; refusing removal" in item for item in plan.conflicts))
+            with self.assertRaises(RuntimeError):
+                INSTALL.apply_plan(plan, global_rules=True, uninstall=True)
+            self.assertEqual(changed.read_bytes(), b"user changed this managed profile\n")
+            self.assertTrue((skills_root / "codex-orchestration" / "SKILL.md").is_file())
+            self.assertIn(
+                INSTALL.contract.GLOBAL_RULES_START,
+                (codex_home / "AGENTS.md").read_bytes(),
+            )
+
+    def test_uninstall_verification_failure_restores_staged_files_and_rules(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.paths(temporary)
+            codex_home.mkdir()
+            skills_root.mkdir()
+            install = self.build(codex_home, skills_root)
+            self.assertEqual(install.conflicts, [])
+            INSTALL.apply_plan(install, global_rules=True)
+            rules_before = (codex_home / "AGENTS.md").read_bytes()
+            worker = codex_home / "agents" / "worker.toml"
+            worker_before = worker.read_bytes()
+            plan = self.build_uninstall(codex_home, skills_root)
+            self.assertEqual(plan.conflicts, [])
+
+            with (
+                mock.patch.object(
+                    INSTALL, "uninstall_verification_failures", return_value=["boom"]
+                ),
+                self.assertRaises(RuntimeError),
+            ):
+                INSTALL.apply_plan(plan, global_rules=True, uninstall=True)
+
+            self.assertEqual(worker.read_bytes(), worker_before)
+            self.assertEqual((codex_home / "AGENTS.md").read_bytes(), rules_before)
+            self.assertEqual(INSTALL.contract.validate_runtime(codex_home, skills_root), [])
+            self.assertEqual(INSTALL.contract.validate_global_rules(codex_home), [])
+
+    def test_uninstall_rejects_runtime_roots_overlapping_source_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.paths(temporary)
+            codex_home.mkdir()
+            skills_root.mkdir()
+            cases = (
+                (ROOT, skills_root),
+                (codex_home, ROOT / "skills"),
+                (ROOT.parent, skills_root),
+            )
+            for selected_home, selected_skills in cases:
+                with self.subTest(
+                    codex_home=selected_home,
+                    skills_root=selected_skills,
+                ):
+                    plan = self.build_uninstall(selected_home, selected_skills)
+                    self.assertTrue(
+                        any("overlaps source checkout" in item for item in plan.conflicts)
+                    )
+                    self.assertEqual(plan.operations, [])
+
+            case_variant = ROOT.with_name(ROOT.name.swapcase())
+            try:
+                same_checkout = os.path.samefile(case_variant, ROOT)
+            except OSError:
+                same_checkout = False
+            if same_checkout:
+                plan = self.build_uninstall(case_variant, skills_root)
+                self.assertTrue(any("overlaps source checkout" in item for item in plan.conflicts))
+                self.assertEqual(plan.operations, [])
+
+    def test_staged_cleanup_failure_is_a_committed_uninstall_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.paths(temporary)
+            codex_home.mkdir()
+            skills_root.mkdir()
+            install = self.build(codex_home, skills_root)
+            self.assertEqual(install.conflicts, [])
+            INSTALL.apply_plan(install, global_rules=True)
+            plan = self.build_uninstall(codex_home, skills_root)
+            self.assertEqual(plan.conflicts, [])
+            real_unlink = Path.unlink
+            retained: list[Path] = []
+
+            def fail_one_staged_cleanup(path: Path, *args, **kwargs) -> None:
+                if not retained and ".codex-orchestration-" in path.name:
+                    retained.append(path)
+                    raise PermissionError("forced staged cleanup failure")
+                real_unlink(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "unlink", fail_one_staged_cleanup):
+                warnings = INSTALL.apply_plan(plan, global_rules=True, uninstall=True)
+
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("after verified commit", warnings[0])
+            self.assertEqual(len(retained), 1)
+            self.assertTrue(retained[0].is_file())
+            for target in INSTALL.managed_runtime_targets(plan):
+                self.assertFalse(INSTALL.lexists(target), target)
 
     def test_first_install_without_global_rules_preserves_global_files_and_hooks(self) -> None:
         cases = (
@@ -966,6 +1133,35 @@ class InstallerTests(unittest.TestCase):
                 without_global.returncode, 0, without_global.stdout + without_global.stderr
             )
             self.assertIn("Global rules: unchanged", without_global.stdout)
+
+            uninstall_dry_run = subprocess.run(
+                [*second_command, "--uninstall"],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(
+                uninstall_dry_run.returncode,
+                0,
+                uninstall_dry_run.stdout + uninstall_dry_run.stderr,
+            )
+            self.assertIn("Codex Orchestration uninstall plan", uninstall_dry_run.stdout)
+            self.assertIn("[DELETE]", uninstall_dry_run.stdout)
+            self.assertTrue((effective_skills / "codex-orchestration" / "SKILL.md").is_file())
+
+            uninstall = subprocess.run(
+                [*second_command, "--uninstall", "--apply"],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(uninstall.returncode, 0, uninstall.stdout + uninstall.stderr)
+            self.assertIn("managed runtime absence verified", uninstall.stdout)
+            self.assertFalse((effective_skills / "codex-orchestration" / "SKILL.md").exists())
+            self.assertNotIn(
+                INSTALL.contract.GLOBAL_RULES_START,
+                (effective_home / "AGENTS.md").read_bytes(),
+            )
 
 
 if __name__ == "__main__":

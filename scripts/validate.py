@@ -739,6 +739,7 @@ def validate_source() -> list[str]:
     model_routing = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
     normalized_skill = re.sub(r"\s+", " ", skill)
+    normalized_review = re.sub(r"\s+", " ", review_skill)
     normalized_read_only = re.sub(r"\s+", " ", read_only_contract)
     normalized_lifecycle = re.sub(r"\s+", " ", lifecycle_contract)
 
@@ -754,13 +755,12 @@ def validate_source() -> list[str]:
         "dependency barrier",
         "Before selecting a model for any delegation",
         "unisolated prompt injection",
-        "Do not load or execute this Skill",
-        "do not call collaboration tools or create, coordinate, wait for, interrupt, message, "
-        "manage, or summarize any other agent",
+        "Derived agents do not load or execute this Skill",
+        "call collaboration tools, or orchestrate any agent",
         "Independent Worktree Roots",
         "same local orchestration authority as any other",
-        "separately authorizes only the read-only Reviewers",
-        "`codex-review-gate` defines the review route",
+        "separately authorizes only its selected R1-R3 read-only Reviewers",
+        "without reapplying the ordinary delegation threshold",
     ):
         require(phrase in normalized_skill, f"missing Skill contract: {phrase}", failures)
 
@@ -826,25 +826,31 @@ def validate_source() -> list[str]:
 
     for phrase in (
         "delivery control, not an admission test",
-        "already authorizes the\nread-only reviewers selected by R1-R3",
+        "authorizes its selected R1-R3 read-only Reviewers",
         "Choose the highest matching level",
         "Changed line or file counts never determine a level",
         "R0 needs no Agent",
         "localized runtime, public-contract, managed-policy",
+        "leaves no material failure hypothesis",
+        "exactly one material failure hypothesis",
+        "classify the change as R0 only when every R0 condition and exclusion is satisfied",
+        "independent judgment could change",
+        "self-contained illustrative or demonstration artifact",
+        "the mere presence of runtime behavior is not",
         "broad or hard-to-recover public contract",
         "`correctness-reviewer` is the general default",
-        "The specialist replaces the default; it does not\ncreate a second seat",
+        "The specialist replaces the default; it does not create a second seat",
         "At least one matching Reviewer",
         "At least one focused Reviewer, main-agent remediation, then an `adversarial-verifier`",
-        "send the original Reviewer a\n   same-thread targeted follow-up",
+        "send the original Reviewer a same-thread targeted follow-up",
         "it is not a new full Review",
-        "current user message does not need to name a subagent or\nReviewer again",
-        "classify it as\nR2. This fail-closed fallback",
-        "explicit user prohibition on subagents or Reviewers still takes priority",
-        "repository implementation, tests, dependencies, build or deployment configuration",
+        "without a separate current-turn request",
+        "classify it as R2. This fail-closed fallback",
+        "explicit user prohibition on subagents or Reviewers still wins",
+        "final repository diffs after implementation, tests, dependencies, build or deployment",
         "Classify one final integrated diff",
     ):
-        require(phrase in review_skill, f"missing Review Skill contract: {phrase}", failures)
+        require(phrase in normalized_review, f"missing Review Skill contract: {phrase}", failures)
     require(
         0 <= review_skill.find("| R3 |") < review_skill.find("## Execute the gate"),
         "Review Skill risk table must precede its execution workflow",
@@ -988,10 +994,11 @@ def validate_source() -> list[str]:
         failures,
     )
     derived_identity = (
+        "derived, non-orchestrating agent",
         "Do not load or execute the codex-orchestration Skill",
-        "do not orchestrate any other agent",
         "call collaboration tools",
-        "panel member",
+        "create descendants",
+        "panel or hybrid work",
     )
     for name, source in profile_sources.items():
         for phrase in derived_identity:
@@ -1012,14 +1019,10 @@ def validate_source() -> list[str]:
         "prototype-worker does not load its method Skill",
         failures,
     )
-    for phrase in (
-        "Method workers",
-        "returns a checkpoint instead of guessing",
-        "without turning it into production architecture",
-    ):
+    for phrase in ("returns a checkpoint instead of guessing", "at most three writable rounds"):
         require(
             phrase in worker_contract,
-            f"worker contract missing method boundary: {phrase}",
+            f"worker contract missing lease boundary: {phrase}",
             failures,
         )
     require(
@@ -1030,12 +1033,11 @@ def validate_source() -> list[str]:
     )
 
     for phrase in (
-        "compact natural-language brief, not a required form",
-        "Optional headings",
+        "main Skill's natural-language brief contract",
+        "intended change and handoff focus",
         "recover ordinary implementation context",
         "necessary adjacent files",
-        "Do not create a temporary handoff file",
-        "follow-up to the same worker thread may contain only",
+        "selected through [model-routing.md](model-routing.md)",
         "complete diff",
     ):
         require(
@@ -1051,10 +1053,11 @@ def validate_source() -> list[str]:
     )
 
     for phrase in (
-        "Deterministic installation contract",
-        "`scripts/install.py` is the only write implementation",
+        "Deterministic installation and uninstall contract",
+        "`scripts/install.py` is the only mutation implementation",
         "dry run",
         "`--apply`",
+        "`--uninstall`",
         "`--language en` or `--language zh-CN`",
         "CODEX-ORCHESTRATION:GLOBAL-RULES",
         "AGENTS.override.md",
@@ -1063,9 +1066,14 @@ def validate_source() -> list[str]:
         "one-time migration from links or a different checkout",
         "examples/preferences.toml",
         "--skills-root",
-        "caught write or verification failure",
+        "caught mutation or verification failure",
         "abrupt process termination",
         "does not confirm the resolved model",
+        "changed managed file is a conflict",
+        "ancestor of the source checkout",
+        "filesystem identity",
+        "same-directory staged file",
+        "verified uninstall commit",
     ):
         require(phrase in install_contract, f"missing install contract: {phrase}", failures)
 
@@ -1126,6 +1134,11 @@ def validate_source() -> list[str]:
         "legacy cleanup boundary ADR missing",
         failures,
     )
+    require(
+        (ROOT / "docs" / "adr" / "0013-safe-current-projection-uninstall.md").is_file(),
+        "current projection uninstall ADR missing",
+        failures,
+    )
     for script in PROJECT_HOOK_FILENAMES:
         require(
             not os.path.lexists(ROOT / "hooks" / script),
@@ -1159,20 +1172,18 @@ def validate_source() -> list[str]:
         )
         decoded_global_rules = global_rules.decode("utf-8")
         for phrase in (
+            "Root tasks load `codex-orchestration` before creating, coordinating, or waiting",
             "independent Worktree Roots",
-            "neither the Integration Root nor its local workers write the repository",
-            "at most three nonterminal lanes",
-            "Each root task has one active writer",
-            "derived agents never call collaboration tools or orchestrate other agents",
-            "loads `codex-review-gate` before final delivery",
+            "simple tasks and ordinary documentation stay with the main agent",
+            "loads `codex-review-gate` before delivery",
             "repository implementation, tests, dependencies",
-            "This rule authorizes only those Reviewer calls",
-            "current user explicitly prohibits subagents or Reviewers",
-            "R3 completes with an `adversarial-verifier`",
+            "R1-R3 route authorizes only the selected read-only Reviewers",
+            "classifies the diff rather than starting a Reviewer",
+            "current explicit user prohibition still wins",
         ):
             require(
                 phrase in decoded_global_rules,
-                f"global rules missing worktree-root contract: {phrase}",
+                f"global rules missing routing contract: {phrase}",
                 failures,
             )
     routing_example = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
