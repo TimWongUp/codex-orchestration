@@ -26,6 +26,19 @@ Setup copies the required Skills and Agent profiles and injects one marker-delim
 
 Use `--no-global-rules` to leave global instructions unchanged; an existing owned block must already be current, so stale Review routing blocks the plan.
 
+To uninstall the global runtime, preview the complete removal plan first, then apply the same plan:
+
+```text
+python3 scripts/install.py --uninstall
+python3 scripts/install.py --uninstall --apply
+```
+
+Interactive terminals ask for confirmation instead of requiring `--apply`. Uninstall removes only
+current managed files that still match this checkout and the marker-owned global rules block. It
+preserves model routing, Hooks, personal instructions, unmanaged Agents and Skills, project rules,
+and extra files. Any changed managed file or malformed marker blocks the complete operation; there
+is no force-delete mode.
+
 The authoritative procedure is [INSTALL.md](INSTALL.md), including conflict handling and runtime verification.
 
 The repository is the only source of truth for its portable Skills, Agents, installer, and managed global-rules block. Installed files are replaceable runtime artifacts; model routes and unrelated Hook registrations stay local. Shared context, memory-routing, and closeout Hooks remain owned by their runtime repository.
@@ -49,7 +62,7 @@ The repository is the only source of truth for its portable Skills, Agents, inst
   model judgments on one question, and `hybrid` runs that same-question panel alongside separate
   specialist workstreams. `single` remains the ordinary one-agent path, not a multi-agent
   evaluation mode.
-- **Review is a separate delivery gate.** `codex-review-gate` defines the route independently of proactive-delegation admission, while the root main agent classifies and remediates. R0 covers fully verifiable non-behavioral changes; R1 uses one Reviewer for one localized, validated, recoverable risk, including a localized public-contract or managed-policy change; `correctness-reviewer` is the R1 default, and a matching specialist replaces rather than supplements it when the sole risk is specialist; R2 covers multiple independent risks, broad or hard-to-recover public contracts, sensitive boundaries, or otherwise unclassified risks; R3 adds focused remediation and adversarial verification for changed trust boundaries or high-impact failure. R1-R3 always use at least one matching Reviewer; additional seats follow only additional material failure hypotheses, never a quota.
+- **Review is a separate delivery gate.** `codex-review-gate` defines the route independently of proactive-delegation admission, while the root main agent classifies and remediates. R0 covers local, self-contained, fully verified changes that leave no material failure hypothesis, so runtime behavior changes and self-contained illustrative artifacts can qualify; R1 uses one Reviewer for one localized, validated, recoverable material failure hypothesis that independent judgment could change, including a localized public-contract or managed-policy change; `correctness-reviewer` is the R1 default, and a matching specialist replaces rather than supplements it when the sole risk is specialist; R2 covers multiple independent risks, broad or hard-to-recover public contracts, sensitive boundaries, or material uncertainty; R3 adds focused remediation and adversarial verification for changed trust boundaries or high-impact failure. R1-R3 always use at least one matching Reviewer; additional seats follow only additional material failure hypotheses, never a quota.
 - **Review findings preserve evidence classes.** Reviewers stay within the assigned change boundary and risk. When a finding depends on a task or spec requirement or a repository standard, they cite that source and identify the evidence class without starting a generic Standards/Spec pass. Judgment calls remain labelled, and checks conclusively covered by current passing tooling are omitted unless that coverage is itself in question. After an accepted finding is fixed, the original Reviewer verifies that finding through a same-thread targeted follow-up; this does not restart a full Review loop merely to obtain a clean report.
 - **Tests must earn their maintenance cost.** Writable Agents add tests only when they supply unique confidence at a correct observable seam, preferring an existing test at the lowest-cost appropriate layer. The test-reliability Reviewer also identifies coverage-chasing, redundant, implementation-bound, prose-bound, flaky, or retired-compatibility tests, but recommends removal only when equivalent behavior and failure protection remain.
 - **Models stay local and replaceable.** Agent profiles are model-neutral; optional role routes,
@@ -84,7 +97,7 @@ For a broader feature discussion, ask Codex to use `web-researcher` for public i
 - No project Hook; tool schemas own call mechanics, the Skill owns orchestration policy, and Agent profiles own derived-agent scope.
 - One small, managed global `AGENTS.md` block that independently routes subagent execution and code-change Review without replacing personal instructions.
 - A local, optional model-routing file. No model IDs are pinned in the repository.
-- A deterministic installation contract for macOS and native Windows with planning, ownership checks, rollback, and runtime verification.
+- A deterministic installation and uninstall contract for macOS and native Windows with planning, ownership checks, rollback, and runtime verification.
 
 The write lease is an orchestration contract, not an operating-system ACL. Each root task remains responsible for its local Git and validation; the Integration Root remains responsible for cross-worktree merges, final review selection, and final delivery.
 

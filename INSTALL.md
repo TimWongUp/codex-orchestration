@@ -1,11 +1,12 @@
-# Deterministic installation contract
+# Deterministic installation and uninstall contract
 
-Use this contract when installing, updating, repairing, or verifying this checkout for a local
-Codex environment. Read it completely before changing user configuration.
+Use this contract when installing, updating, repairing, uninstalling, or verifying this checkout
+for a local Codex environment. Read it completely before changing user configuration.
 
-`scripts/install.py` is the only write implementation of this contract. In an interactive terminal,
-it prints the complete plan and writes only after confirmation. In non-interactive use, it plans by
-default and writes only with `--apply`. Do not reproduce its projection with ad hoc copy commands.
+`scripts/install.py` is the only mutation implementation of this contract. In an interactive
+terminal, it prints the complete plan and changes the runtime only after confirmation. In
+non-interactive use, it plans by default and changes the runtime only with `--apply`. Do not
+reproduce its projection or removal with ad hoc file commands.
 The checkout remains the source of truth for portable Skills, Agents, the managed global-rules
 block, and the deterministic installer. Installed files are runtime artifacts; task-package
 language, model routes, unrelated Hook registrations, and unrelated user configuration stay local.
@@ -56,6 +57,17 @@ Explicit `--codex-home`, `--skills-root`, `--language`, and `--no-global-rules` 
 available for non-standard or automated deployments. Passing a different language explicitly plans
 that change.
 
+To remove the globally installed current projection, run the same checkout with `--uninstall`:
+
+```text
+python3 scripts/install.py --uninstall
+```
+
+On native Windows use `py -3`. Interactive use prints the complete removal plan and asks for one
+confirmation. Non-interactive use is likewise a dry run until `--apply` is added. Uninstall does
+not use `--language`, and it rejects `--no-global-rules` because keeping the global routing block
+while removing its Skills would leave unusable instructions.
+
 ## 3. Required runtime projection
 
 The installer copies physical files so the same result works on macOS and native Windows:
@@ -80,11 +92,17 @@ target, or a file where a directory is required is also a conflict.
 Every existing parent below the selected roots must be a physical directory. User-created
 symlinks, Windows reparse points such as junctions, and paths containing `..` are conflicts. The
 platform-owned `/var`, `/tmp`, and `/etc` aliases on macOS are canonicalized before the displayed
-plan. Managed targets at or beyond the conservative native Windows path limit are conflicts rather
-than partial long-path support. The installer never intentionally traverses, unlinks, or replaces
-links. Its plan contains no delete operations: it writes only the named current projection and
-preserves every unmanaged Skill, Agent, Hook registration, Hook file, local preference, model route,
-configuration key, and file.
+plan. Uninstall also rejects either selected runtime root when it is inside, equal to, or an
+ancestor of the source checkout, so a custom target cannot map managed deletions onto repository
+sources. This overlap check uses filesystem identity as well as lexical containment, covering case
+aliases on case-insensitive filesystems. Managed targets at or beyond the conservative native
+Windows path limit are conflicts rather than partial long-path support. The installer never
+intentionally traverses, unlinks, or replaces
+links. A normal installation plan contains no delete operations: it writes only the named current
+projection. Explicit `--uninstall` removes only current managed files whose bytes still match this
+checkout, plus a well-formed marker-owned global-rules block. A changed managed file is a conflict
+that blocks the whole removal plan. Both modes preserve every unmanaged Skill, Agent, Hook
+registration, Hook file, model route, configuration key, and file.
 New POSIX directories use mode `0700`; replacement preserves an existing POSIX file mode or
 Windows file ACL and attributes.
 
@@ -113,6 +131,11 @@ opt-out, but an owned block that already exists must match the current canonical
 malformed owned block conflicts so an update cannot silently install new Skills with old Review
 routing.
 
+Explicit `--uninstall` scans both global instruction candidates and removes one well-formed owned
+block wherever it exists, including a stale block from an older release. Marker ownership is the
+deletion authority; malformed or duplicated markers fail closed. Bytes outside the block remain
+unchanged, and a global instruction file is retained even when removing the block leaves it empty.
+
 ## 5. No project Hook installation
 
 This project installs no Hook. Worker authority, task boundaries, and acceptance live in the policy
@@ -120,9 +143,9 @@ Skills, Agent profiles, current tool schemas, and main-agent diff inspection. Se
 `hooks.json`, inspect the Hook directory, or classify unmanaged Agent profiles. Existing context,
 memory-routing, closeout, user Hook groups, and files from earlier project versions remain untouched.
 
-Removing legacy runtime assets is a separate, user-directed maintenance action. Inspect and approve
-the exact files and registrations outside this installer; installation success makes no claim about
-them.
+Uninstall removes only the current named projection. Removing legacy runtime assets remains a
+separate, user-directed maintenance action. Inspect and approve the exact files and registrations
+outside this installer; installation or uninstall success makes no claim about them.
 
 ## 6. Local model routing
 
@@ -136,14 +159,22 @@ selection requests inheritance from current Codex settings; it does not confirm 
 
 ## 7. Transaction and conflicts
 
-Within one running installer process, a caught write or verification failure triggers rollback of
-the displayed managed file operations:
+Within one running installer process, a caught mutation or verification failure before the
+verified uninstall commit triggers rollback of the displayed managed file operations:
 
 - Each write uses a same-directory temporary file and atomic replacement.
+- Each uninstall deletion is first moved to a same-directory staged file and is permanently removed
+  only after absence verification succeeds.
 - The installer retains the pre-transaction bytes in memory.
-- A caught write failure or failed post-install verification restores completed target bytes and
-  removes newly created empty directories where possible.
+- A caught mutation failure or failed verification restores completed target bytes and removes
+  newly created empty directories where possible.
 - A preflight conflict prevents all writes.
+
+Successful absence verification is the uninstall commit point. The installer then removes every
+staged copy. If operating-system attributes or another local process prevent that cleanup, the
+named runtime remains uninstalled and the command succeeds with a warning that names the retained,
+recoverable staged copy; it does not claim that post-commit cleanup was complete or attempt a
+partial rollback after other staged copies may already be gone.
 
 The plan is a snapshot, not a lock. Before each operation, the installer rechecks the physical
 path and the target bytes captured during planning, and it rechecks the result after each operation.
@@ -152,9 +183,9 @@ is not an operating-system security boundary against an adversarial same-user pr
 or replace the selected runtime roots concurrently.
 
 An abrupt process termination or power loss is not journaled and can leave a partial projection or
-a same-directory installer temporary file. After either event, stop concurrent editors, run a fresh
-dry run, inspect every reported drift or conflict, and apply again only after the plan is understood.
-Rollback restores managed bytes.
+a same-directory installer temporary or staged file. After either event, stop concurrent editors,
+inspect any such file before changing it, then run a fresh dry run and apply again only after the
+plan is understood. Rollback restores managed bytes.
 
 A one-time migration from links or a different checkout remains an explicit cutover. The installer
 reports those paths as conflicts; the user first chooses the exact targets to move or unlink, then
@@ -171,6 +202,11 @@ python3 scripts/validate.py --runtime --codex-home <codex-home> --skills-root <s
 
 With `--no-global-rules`, omit `--global-rules`.
 
+For `--uninstall`, verification instead requires every current managed Skill, Agent, and task
+language file to be absent and requires both global instruction candidates to contain no owned
+block. Unmanaged files inside a formerly managed directory may keep that directory in place.
+
 Installation is complete only when required Skill and Agent copies match, any saved language or
-model route is valid, and no unapproved target was changed. Start a new Codex task after success so
-Skills, Agents, global rules, and task instructions reload.
+model route is valid, and no unapproved target was changed. Uninstall is complete only after the
+current named projection is absent without changing preserved local content. Start a new Codex task
+after either operation so Skills, Agents, global rules, and task instructions reload.

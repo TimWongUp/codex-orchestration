@@ -1,25 +1,25 @@
 ---
 name: codex-orchestration
-description: Orchestrate Codex custom subagents and independent Worktree Roots for explicit delegation, parallel investigation or implementation, writable worker leases, and model-diverse panels. Use when the user asks for subagents, parallel work, or official Codex worktrees, when codex-review-gate selects R1-R3 Reviewers, or when a coding task has a clear delegation payoff. Keep simple tasks and ordinary documentation with the main agent. Derived subagents must not invoke this Skill.
+description: Root-task orchestration for explicit subagent or parallel work, official Codex Worktree Roots, R1-R3 Reviewers selected by codex-review-gate, and coding tasks with a clear delegation payoff. Keep simple tasks and ordinary documentation with the main agent; derived agents must not invoke it.
 metadata:
-  version: 0.10.2
+  version: 0.10.4
 ---
 
 # Codex subagent orchestration
 
 ## Authority
 
-This Skill belongs to root Codex tasks. A Worktree Root is an independent task and session, not a
-derived agent, so it has the same local orchestration authority as any other root inside its lane.
-Derived agents do not call collaboration tools or create, coordinate, wait for, interrupt, message,
-manage, or summarize any other agent. Do not load or execute this Skill from a derived agent;
-panel membership never grants orchestration authority.
+This Skill belongs to root Codex tasks. A Worktree Root is an independent task and session with the
+same local orchestration authority as any other root inside its lane. Derived agents do not load or
+execute this Skill, call collaboration tools, or orchestrate any agent; panel membership does not
+change that boundary.
 
-The main agent owns the goal, decomposition, model selection, local write lease, Git, acceptance,
-and delivery. An Integration Root additionally owns peer-lane coordination and integrated
-acceptance. Delegate only when the result can change a decision or materially improve execution.
-`codex-review-gate` separately authorizes only the read-only Reviewers selected for R1-R3; that
-permission does not admit unrelated implementation or investigation delegation.
+The root main agent owns the goal, decomposition, model selection, local write lease, Git,
+acceptance, and delivery. An Integration Root additionally owns peer-lane coordination and
+integrated acceptance. Delegate only when the result can change a decision or materially improve
+execution. `codex-review-gate` separately authorizes only its selected R1-R3 read-only Reviewers;
+run them with this Skill's routing, brief, lifecycle, and waiting rules without reapplying the
+ordinary delegation threshold. That permission admits no unrelated delegation.
 
 ## Route the work
 
@@ -51,9 +51,7 @@ lease.
 
 Before creating a writable worker, read
 [references/worker-writing.md](references/worker-writing.md) and apply its admission, brief,
-round, and acceptance contract. While the lease is active, the main agent and all other agents are
-read-only. The worker never performs Git operations or external writes. No prior lease is extended
-into another round.
+round, lease, and acceptance contract.
 
 ## Independent Worktree Roots
 
@@ -86,24 +84,7 @@ Before sending a same-thread follow-up, interrupting or replacing an agent, resp
 sparse progress, or stopping agent work, read
 [references/collaboration-lifecycle.md](references/collaboration-lifecycle.md). It owns stale-result
 handling after follow-ups, interruption/replacement choices, and stop convergence; ordinary waits
-use the inline dependency barrier. Worktree-batch lifecycle also follows
-[references/worktree-roots.md](references/worktree-roots.md).
-
-A branch receives at most three writable worker rounds: initial implementation; one same-thread
-correction after the target is idle; then, only when requested by acceptance or Review, one new
-worker selected through [references/model-routing.md](references/model-routing.md). After round
-three, the main agent takes over, decomposes again, or reports the blocker.
-
-## Git and review handoff
-
-The main agent owns branch creation, commits, merges, pushes, and pull requests. A Worktree Root
-owns Git only inside its lane and returns one candidate handoff branch; its Integration Root owns
-cross-lane integration and publishing. Workers do not use Git.
-
-`codex-review-gate` defines the review route and authorizes its R1-R3 read-only Reviewers. The root
-main agent classifies the final integrated diff, selects roles, remediates accepted findings,
-verifies the result, and decides delivery. For selected Reviewers, use this Skill's model routing,
-brief, lifecycle, and waiting rules without reapplying the proactive-delegation threshold.
+use the inline dependency barrier.
 
 ## Runtime boundary
 
