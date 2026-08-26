@@ -102,24 +102,43 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(second.conflicts, [])
             self.assertEqual(second.operations, [])
 
-    def test_install_preserves_valid_hooks_json_bytes(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            codex_home, skills_root = self.paths(temporary)
-            codex_home.mkdir()
-            skills_root.mkdir()
-            hooks_content = (
-                b'{"hooks": { "SessionStart": [ { "hooks": [ '
-                b'{ "command": "echo ok", "type": "command" } ], '
-                b'"matcher": "startup" } ] }, "custom": 1}\n'
-            )
-            hooks_path = codex_home / "hooks.json"
-            hooks_path.write_bytes(hooks_content)
+    def test_first_install_without_global_rules_preserves_global_files_and_hooks(self) -> None:
+        cases = (
+            ("base-exists", "AGENTS.md", b"user-owned base\n"),
+            ("override-exists", "AGENTS.override.md", b"user-owned override\n"),
+        )
+        for label, existing_name, existing_content in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                codex_home, skills_root = self.paths(temporary)
+                codex_home.mkdir()
+                skills_root.mkdir()
+                hooks_content = (
+                    b'{"hooks": { "SessionStart": [ { "hooks": [ '
+                    b'{ "command": "echo ok", "type": "command" } ], '
+                    b'"matcher": "startup" } ] }, "custom": 1}\n'
+                )
+                hooks_path = codex_home / "hooks.json"
+                hooks_path.write_bytes(hooks_content)
+                global_paths = {
+                    name: codex_home / name for name in ("AGENTS.md", "AGENTS.override.md")
+                }
+                global_paths[existing_name].write_bytes(existing_content)
+                global_before = {
+                    name: path.read_bytes() if path.exists() else None
+                    for name, path in global_paths.items()
+                }
 
-            plan = self.build(codex_home, skills_root, global_rules=False)
-            self.assertEqual(plan.conflicts, [])
-            INSTALL.apply_plan(plan, global_rules=False)
+                plan = self.build(codex_home, skills_root, global_rules=False)
+                self.assertEqual(plan.conflicts, [])
+                INSTALL.apply_plan(plan, global_rules=False)
 
-            self.assertEqual(hooks_path.read_bytes(), hooks_content)
+                global_after = {
+                    name: path.read_bytes() if path.exists() else None
+                    for name, path in global_paths.items()
+                }
+                self.assertEqual(hooks_path.read_bytes(), hooks_content)
+                self.assertEqual(global_after, global_before)
+                self.assertEqual(INSTALL.contract.validate_runtime(codex_home, skills_root), [])
 
     def test_no_global_rules_rejects_a_stale_managed_block(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -234,7 +253,7 @@ class InstallerTests(unittest.TestCase):
                 global_rules=True,
             )
 
-            self.assertFalse(any("first install requires" in item for item in plan.conflicts))
+            self.assertEqual(plan.conflicts, [])
             self.assertFalse(any(operation.path == preferences for operation in plan.operations))
 
     def test_linked_managed_target_is_a_conflict(self) -> None:
@@ -372,6 +391,41 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(agents_path.read_bytes(), b"original\n")
             self.assertEqual(list(skills_root.iterdir()), [])
             self.assertFalse((codex_home / "agents").exists())
+
+    def test_write_failure_rolls_back_completed_writes_and_created_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.paths(temporary)
+            codex_home.mkdir()
+            skills_root.mkdir()
+            existing = codex_home / "existing.txt"
+            existing.write_bytes(b"old\n")
+            created = skills_root / "created-parent" / "created.txt"
+            failed = codex_home / "failed-parent" / "failed.txt"
+            plan = INSTALL.InstallPlan(codex_home=codex_home, skills_root=skills_root)
+            plan.operations.extend(
+                (
+                    INSTALL.Operation(existing, "update", b"new\n", b"old\n"),
+                    INSTALL.Operation(created, "create", b"created\n", None),
+                    INSTALL.Operation(failed, "fail", b"failed\n", None),
+                )
+            )
+            real_atomic_write = INSTALL.atomic_write
+
+            def fail_selected_write(path: Path, content: bytes) -> None:
+                if path == failed:
+                    raise OSError("forced write failure")
+                real_atomic_write(path, content)
+
+            with (
+                mock.patch.object(INSTALL, "atomic_write", fail_selected_write),
+                self.assertRaisesRegex(OSError, "forced write failure"),
+            ):
+                INSTALL.apply_plan(plan, global_rules=False)
+
+            self.assertEqual(existing.read_bytes(), b"old\n")
+            self.assertFalse(created.exists())
+            self.assertFalse(created.parent.exists())
+            self.assertFalse(failed.parent.exists())
 
     def test_rollback_refuses_a_parent_link_created_after_write(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
