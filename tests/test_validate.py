@@ -402,29 +402,35 @@ class SourceValidationTest(unittest.TestCase):
 
         self.assertTrue(VALIDATOR.worktree_contract_failures("   \n"))
 
-    def test_worktree_contract_missing_path_has_actionable_failure(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            failures: list[str] = []
-            source = VALIDATOR.read_required_text(
-                Path(temporary_directory) / "worktree-roots.md",
-                "worktree-root contract",
-                failures,
-            )
-        self.assertEqual(source, "")
-        self.assertEqual(failures, ["worktree-root contract missing"])
+    def test_worktree_contract_read_failures_are_reported_once(self) -> None:
+        target = ROOT / "references" / "worktree-roots.md"
+        original_read = Path.read_text
 
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            invalid_path = Path(temporary_directory) / "worktree-roots.md"
-            invalid_path.write_bytes(b"\xff")
-            failures = []
-            source = VALIDATOR.read_required_text(
-                invalid_path,
-                "worktree-root contract",
-                failures,
-            )
-        self.assertEqual(source, "")
-        self.assertEqual(len(failures), 1)
-        self.assertTrue(failures[0].startswith("worktree-root contract unreadable:"))
+        for error in (FileNotFoundError(), UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")):
+            with self.subTest(error=type(error).__name__):
+
+                def unavailable(
+                    path: Path,
+                    encoding: str | None = None,
+                    errors: str | None = None,
+                ) -> str:
+                    if path == target:
+                        raise error
+                    return original_read(path, encoding=encoding, errors=errors)
+
+                with mock.patch.object(Path, "read_text", unavailable):
+                    failures = VALIDATOR.validate_source()
+
+                if isinstance(error, FileNotFoundError):
+                    self.assertEqual(failures.count("worktree-root contract missing"), 1)
+                else:
+                    self.assertEqual(
+                        sum(
+                            item.startswith("worktree-root contract unreadable:")
+                            for item in failures
+                        ),
+                        1,
+                    )
 
     def test_public_source_scan_reports_invalid_utf8(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
