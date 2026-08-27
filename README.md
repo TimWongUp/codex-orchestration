@@ -12,7 +12,23 @@ Repository: [github.com/TimWongUp/codex-orchestration](https://github.com/TimWon
 
 Requirements: macOS or native Windows, Codex with custom subagents enabled, and Python 3.9 or newer.
 
-After downloading or cloning the repository, run this from the checkout:
+You do not need to download the repository manually. Paste this prompt into Codex:
+
+```text
+Install the latest Codex Orchestration from https://github.com/TimWongUp/codex-orchestration.
+Obtain and keep a suitable local checkout, read INSTALL.md completely, and use only
+scripts/install.py for installation. Run the non-interactive dry run for this platform first
+(use language en on a first install), show me the complete plan, and ask for my approval before
+running it again with --apply. After applying, verify the runtime and remind me to start a new
+Codex task. Preserve any existing checkout with uncommitted changes and all unmanaged local files.
+```
+
+Codex still obtains a checkout because the installer consumes the repository's Skills, Agent
+profiles, managed rules, and validation logic together. That checkout remains the source of truth
+for deterministic updates and uninstall; the prompt simply removes the manual download and command
+selection steps.
+
+For manual installation, download or clone the repository, then run this from the checkout:
 
 ```text
 python3 scripts/install.py

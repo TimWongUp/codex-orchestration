@@ -12,7 +12,22 @@ Codex Orchestration 刻意不追求“Agent 越多越好”。简单任务仍由
 
 要求：macOS 或原生 Windows、已启用自定义子代理的 Codex，以及 Python 3.9 或更高版本。
 
-下载或克隆仓库后，在项目目录运行：
+不需要手动下载仓库。把下面这段 prompt 直接交给 Codex：
+
+```text
+请从 https://github.com/TimWongUp/codex-orchestration 安装最新版 Codex Orchestration。
+请取得并保留一个合适的本地 checkout，完整阅读 INSTALL.md，并且只使用
+scripts/install.py 执行安装。先针对当前平台做一次非交互 dry run（首次安装使用
+zh-CN），向我展示完整计划，并在追加 --apply 实际写入前征得我的确认。应用后验证
+Runtime，并提醒我新建一个 Codex 任务。保留现有 checkout 中未提交的改动以及所有未
+托管的本机文件。
+```
+
+Codex 仍会在后台取得一份 checkout，因为安装器需要一起使用仓库中的 Skills、Agent 配置、
+受控规则和校验逻辑；这份 checkout 也是以后确定性更新与卸载的源码基准。上面的 prompt
+省掉的是手动下载和选择命令，不是把源码基准改成不透明的一键脚本。
+
+如需手动安装，下载或克隆仓库后，在项目目录运行：
 
 ```text
 python3 scripts/install.py
