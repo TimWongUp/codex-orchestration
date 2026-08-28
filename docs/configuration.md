@@ -14,7 +14,7 @@ Interactive user installation defaults to `~/.codex` and the documented user Ski
 configuration and installed Skill listings. Managed destinations are:
 
 - `<skills-root>/codex-orchestration` — the main Skill copy.
-- `<skills-root>/codex-review-gate` — the independent delivery Review policy copy.
+- `<skills-root>/codex-review-gate` — the independent primary-branch pre-merge Review policy copy.
 - `<skills-root>/diagnosing-bugs` — the bundled complete debugging Skill copy.
 - `<skills-root>/prototype` — the bundled complete prototype Skill copy.
 - `<codex-home>/agents/*.toml` — managed custom-agent copies.
@@ -75,10 +75,11 @@ dependency barrier, a follow-up invalidates earlier completion evidence, an expl
 the active tree, and a third worker round starts with a fresh package and lease.
 
 This project installs no Hook. Agent profiles own derived-agent identity and read-only scope;
-`codex-orchestration` owns root-task Agent execution, while `codex-review-gate` defines the delivery
-Review route and Reviewer authorization. The root main agent executes classification, remediation,
-verification, and delivery, and main-agent acceptance checks the complete worker diff and
-validation. Delegation uses compact natural-language briefs instead of fixed authorization fields.
+`codex-orchestration` owns root-task Agent execution, while `codex-review-gate` defines the
+primary-branch pre-merge Review route and Reviewer authorization. The merge-owning root executes
+classification, remediation, verification, and integration; main-agent acceptance still checks the
+complete worker diff and validation. Delegation uses compact natural-language briefs instead of
+fixed authorization fields.
 
 ## Concurrency and Worktree Roots
 
@@ -118,16 +119,23 @@ Nested, unmatched, duplicated, or non-standalone marker tokens are conflicts.
 `--no-global-rules` leaves existing global files unchanged; it is not an uninstall operation. A
 managed block that already exists must match the current canonical block, so this option cannot
 silently combine new Skills with stale Review routing. The full workflows stay in their Skills to
-keep global context small. The Review pointer requires `codex-review-gate` after repository
-implementation, test, dependency, build/deployment, public-contract, or managed runtime-policy changes and
-authorizes only its R1-R3 read-only Reviewers. Ordinary proactive-delegation admission cannot
-suppress those Reviewer calls, while implementation and investigation delegation retain their
-normal threshold. Loading the gate classifies the final diff; it does not by itself start a
-Reviewer, since R0 completes with main-agent validation only.
+keep global context small. The Review pointer requires `codex-review-gate` only when the current
+root is about to merge a pull request, branch, or accepted Worktree integration branch into a Git
+repository's primary branch. It does not fire for ordinary task completion, unmerged handoff,
+pull-request creation or update without an imminent merge, or a repository without Git history.
+The gate authorizes only its R1-R3 read-only Reviewers. Ordinary proactive-delegation admission
+cannot suppress those Reviewer calls, while implementation and investigation delegation retain
+their normal threshold. Loading the gate classifies the latest candidate diff; it does not by
+itself start a Reviewer, since R0 completes with main-agent validation only.
 
-## Delivery review
+## Pre-merge review
 
-`codex-review-gate` classifies the final integrated diff before delivery. R0 covers local,
+`codex-review-gate` applies only with committed source and primary-branch histories and an imminent
+merge into the primary branch. If either condition is absent, the task continues with normal
+validation and handoff without R0-R3 classification. Once the gate applies, a pinned
+merge-base-to-candidate diff is required; inability to pin it blocks the merge until the required
+history and refs are available. It then classifies the latest validated candidate immediately
+before merge. R0 covers local,
 self-contained changes that the main agent completely verified at the boundary where their behavior
 is observable, that are easy to recover, and that leave no material failure hypothesis current
 validation does not exclude; runtime behavior changes qualify, and a self-contained illustrative or
@@ -141,7 +149,7 @@ fails closed to the higher level or R2 fallback.
 
 The risk level does not set a Reviewer quota. R1-R3 always select at least one matching read-only
 Reviewer; extra seats require additional material hypotheses where independent judgment can change
-delivery, and R3 still ends with adversarial verification. Validation-proven properties and missing
+integration, and R3 still ends with adversarial verification. Validation-proven properties and missing
 evidence axes do not receive filler Reviewers.
 
 R1 uses `correctness-reviewer` as its general default. When its sole material hypothesis clearly
@@ -160,8 +168,11 @@ distinct, and Reviewers omit checks conclusively covered by current passing tool
 tool's coverage or evidence is itself part of the assigned risk.
 
 After the main agent fixes an accepted finding and reruns affected validation, the original
-Reviewer receives a same-thread targeted follow-up to verify that finding against the final diff.
+Reviewer receives a same-thread targeted follow-up to verify that finding against the candidate diff.
 This closes the assigned finding without restarting a full Review merely to obtain a clean report.
+New substantive changes after Review stale the candidate and require reclassification. Optional
+early design or specialist consultation can still prevent risk from compounding, but it does not
+count as the mandatory pre-merge gate.
 
 ## Task-package language
 

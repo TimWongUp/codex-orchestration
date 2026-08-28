@@ -2,7 +2,7 @@
 name: codex-orchestration
 description: Root-task orchestration for explicit subagent or parallel work, official Codex Worktree Roots, R1-R3 Reviewers selected by codex-review-gate, and coding tasks with a clear delegation payoff. Keep simple tasks and ordinary documentation with the main agent; derived agents must not invoke it.
 metadata:
-  version: 0.10.4
+  version: 0.10.5
 ---
 
 # Codex subagent orchestration

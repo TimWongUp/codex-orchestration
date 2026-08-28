@@ -55,8 +55,9 @@ Use serialized stages inside one root task when any condition fails.
   normal root, it may use short-lived stage or prototype branches, but it returns one candidate lane
   branch for handoff acceptance.
 - The Integration Root owns the common base, lane contracts, batch lifecycle, handoff and batch
-  acceptance across lanes, merge order, integration fixes, the final `codex-review-gate` handoff,
-  publishing, and final delivery.
+  acceptance across lanes, merge order, integration fixes, and publishing. It owns the final
+  `codex-review-gate` only when the current batch is about to merge its accepted integration branch
+  into the primary branch; otherwise the future merge-owning task owns that gate.
 - While any lane is nonterminal, the Integration Root remains repository-read-only and does not
   modify its integration checkout. It neither creates nor retains a local writable-worker lease;
   neither its main agent nor any local worker writes the repository. It may activate one local
@@ -76,8 +77,9 @@ useful references, validation expectations, and handoff evidence that materially
 Do not require field labels or create a temporary handoff document.
 
 The Worktree Root recovers ordinary repository and environment context itself. Make clear that the
-lane is an intermediate stage whose acceptance and integrated review belong to the Integration
-Root. Its natural handoff still gives the Integration Root enough evidence to verify task/session
+lane is an intermediate stage whose acceptance and combined validation belong to the Integration
+Root; pre-merge Review belongs to whichever root later owns the primary-branch merge. Its natural
+handoff still gives the Integration Root enough evidence to verify task/session
 and worktree identity, branch and commit, complete diff, changed files, validation, and unresolved
 integration risks.
 
@@ -113,8 +115,10 @@ terminal and release a lane slot; task completion alone is not acceptance. For a
 handoff acceptance additionally requires the current user's explicit confirmation of the direction;
 a completed prototype task is never merged automatically.
 
-The original batch succeeds only when every declared lane is accepted, merged, and included in the
-combined validation and review. A failed or canceled lane blocks successful delivery of that batch.
+The original batch succeeds only when every declared lane is accepted, merged into the integration
+branch, and included in combined validation. When the current batch also merges that branch into
+the primary branch, the pre-merge Review is part of success. A failed or canceled lane blocks
+successful delivery of that batch.
 Excluding a declared lane requires the user's explicit rescoping; treat that as a new accepted
 outcome rather than silently completing a partial batch.
 
@@ -131,9 +135,11 @@ For a successful batch, it then:
    main branch.
 4. Resolves or returns merge conflicts and reruns affected lane validation after each correction.
 5. Runs the combined validation after all accepted branches are present.
-6. Loads `codex-review-gate`, then selects and completes its R0-R3 review gate against the combined diff.
+6. If the current batch is about to merge the integration branch into the primary branch, performs
+   the pre-merge gate: load `codex-review-gate` and complete its R0-R3 review against the latest
+   combined candidate diff. Otherwise hands off the validated integration branch without Review.
 
-Lane review never substitutes for the integrated review.
+Lane or intermediate review never substitutes for a required pre-merge Review.
 
 ## Stop convergence
 

@@ -108,8 +108,9 @@ WORKTREE_CONTRACT_PHRASES = (
     "prototype lane",
     "complete batch",
     "dedicated integration branch",
-    "R0-R3 review gate against the combined diff",
-    "Lane review never substitutes for the integrated review",
+    "complete its R0-R3 review against the latest combined candidate diff",
+    "Otherwise hands off the validated integration branch without Review",
+    "Lane or intermediate review never substitutes for a required pre-merge Review",
     "Stop convergence",
     "A stopped batch is not",
 )
@@ -117,8 +118,8 @@ WORKTREE_INTEGRATION_SEQUENCE = (
     "The Integration Root waits for the complete batch",
     "Serially merges accepted branches into a dedicated integration branch",
     "Runs the combined validation after all accepted branches are present",
-    "Loads `codex-review-gate`, then selects and completes its R0-R3 review gate against the "
-    "combined diff",
+    "If the current batch is about to merge the integration branch into the primary branch",
+    "load `codex-review-gate` and complete its R0-R3 review",
 )
 FORBIDDEN_PUBLIC_PATTERNS = {
     "/" + "Users/": "absolute macOS user path",
@@ -497,7 +498,7 @@ def worktree_contract_failures(source: str) -> list[str]:
         require(
             positions == sorted(set(positions)),
             "worktree-root integration sequence must be complete batch, serial merge, "
-            "combined validation, then R0-R3 review",
+            "combined validation, then conditional pre-merge Review",
             failures,
         )
     return failures
@@ -738,6 +739,18 @@ def validate_source() -> list[str]:
     )
     model_routing = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
+    architecture = (ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+    context = read_required_text(ROOT / "CONTEXT.md", "domain context", failures)
+    worktree_adr = read_required_text(
+        ROOT / "docs" / "adr" / "0009-coordinate-independent-worktree-roots.md",
+        "Worktree Root ADR",
+        failures,
+    )
+    review_timing_adr = read_required_text(
+        ROOT / "docs" / "adr" / "0015-review-at-primary-branch-integration.md",
+        "Review timing ADR",
+        failures,
+    )
     normalized_skill = re.sub(r"\s+", " ", skill)
     normalized_review = re.sub(r"\s+", " ", review_skill)
     normalized_read_only = re.sub(r"\s+", " ", read_only_contract)
@@ -825,8 +838,15 @@ def validate_source() -> list[str]:
         )
 
     for phrase in (
-        "delivery control, not an admission test",
+        "primary-branch integration control, not a task-completion or ordinary-delegation control",
         "authorizes its selected R1-R3 read-only Reviewers",
+        "Git repository with committed source and primary-branch histories",
+        "current workflow includes an imminent merge into the primary branch",
+        "pin the latest candidate diff from the target merge base to the candidate head",
+        "the candidate must not merge until the boundary is pinned",
+        "Repositories without Git history never use this gate",
+        "Opening or updating a pull request",
+        "pushing or handing off a branch",
         "Choose the highest matching level",
         "Changed line or file counts never determine a level",
         "R0 needs no Agent",
@@ -847,8 +867,8 @@ def validate_source() -> list[str]:
         "without a separate current-turn request",
         "classify it as R2. This fail-closed fallback",
         "explicit user prohibition on subagents or Reviewers still wins",
-        "final repository diffs after implementation, tests, dependencies, build or deployment",
-        "Classify one final integrated diff",
+        "about to merge a pull request, branch, or accepted Worktree integration branch",
+        "Classify one final integrated candidate diff",
     ):
         require(phrase in normalized_review, f"missing Review Skill contract: {phrase}", failures)
     require(
@@ -1087,12 +1107,58 @@ def validate_source() -> list[str]:
         "Every task, panel, and role entry includes `service_tier",
         "validates any saved task-package language and model route",
         "does not confirm the resolved model",
+        "primary-branch pre-merge Review route",
+        "The merge-owning root executes",
+        "inability to pin it blocks the merge",
     ):
         require(
             phrase in configuration,
             f"configuration missing current v2 lifecycle contract: {phrase}",
             failures,
         )
+    for source, label, phrases in (
+        (
+            architecture,
+            "architecture",
+            (
+                "It owns `codex-review-gate` only when it also owns the primary-branch merge",
+                "integration-branch handoff",
+                "the merge remains blocked until the required history and refs are available",
+            ),
+        ),
+        (
+            context,
+            "domain context",
+            (
+                "**Pre-merge Review**",
+                "latest pinned candidate diff immediately before",
+                "It owns Pre-merge Review only when it also owns the primary-branch merge",
+            ),
+        ),
+        (
+            worktree_adr,
+            "Worktree Root ADR",
+            (
+                "When the Integration Root also owns the primary-branch merge",
+                "otherwise it hands off the validated integration branch",
+            ),
+        ),
+        (
+            review_timing_adr,
+            "Review timing ADR",
+            (
+                "[ADR 0009](0009-coordinate-independent-worktree-roots.md)",
+                "the merge remains blocked until the required history and refs are available",
+            ),
+        ),
+    ):
+        normalized_source = re.sub(r"\s+", " ", source)
+        for phrase in phrases:
+            require(
+                phrase in normalized_source,
+                f"{label} missing pre-merge Review contract: {phrase}",
+                failures,
+            )
     for pattern in (
         r"terminal[- ]markers?",
         r"hashed session and agent identifiers",
@@ -1126,7 +1192,7 @@ def validate_source() -> list[str]:
     )
     require(
         (ROOT / "docs" / "adr" / "0011-separate-delivery-review-from-orchestration.md").is_file(),
-        "delivery Review boundary ADR missing",
+        "Review authority-boundary ADR missing",
         failures,
     )
     require(
@@ -1137,6 +1203,11 @@ def validate_source() -> list[str]:
     require(
         (ROOT / "docs" / "adr" / "0013-safe-current-projection-uninstall.md").is_file(),
         "current projection uninstall ADR missing",
+        failures,
+    )
+    require(
+        (ROOT / "docs" / "adr" / "0015-review-at-primary-branch-integration.md").is_file(),
+        "primary-branch Review timing ADR missing",
         failures,
     )
     for script in PROJECT_HOOK_FILENAMES:
@@ -1175,10 +1246,12 @@ def validate_source() -> list[str]:
             "Root tasks load `codex-orchestration` before creating, coordinating, or waiting",
             "independent Worktree Roots",
             "simple tasks and ordinary documentation stay with the main agent",
-            "loads `codex-review-gate` before delivery",
-            "repository implementation, tests, dependencies",
+            "Before merging a pull request, branch, or accepted Worktree integration branch",
+            "Ordinary task completion, unmerged handoff",
+            "pull-request creation or update without an imminent merge",
+            "repositories without Git history do not trigger it",
             "R1-R3 route authorizes only the selected read-only Reviewers",
-            "classifies the diff rather than starting a Reviewer",
+            "classifies the candidate rather than starting a Reviewer",
             "current explicit user prohibition still wins",
         ):
             require(
