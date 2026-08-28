@@ -11,6 +11,16 @@ left by earlier project versions. Their removal requires a separate user-directe
 Shared context, memory-routing, closeout, and Codex-native status behavior remain outside this
 project's ownership.
 
+## Manager-only prompt branch
+
+Manager-only orchestration is not a Hook or a long-lived setting. It starts only when the user
+explicitly asks for it (for example, “enable orchestration mode”, “main agent pure orchestration”,
+or “delegate everything to subagents”) and applies only to the current root task. The root Skill
+then points to `references/manager-only.md`, where adaptive strong delegation, worker failure
+handling, final acceptance, and the explicit user-consent exit are defined. No preference, model
+route, CLI flag, configuration file, Agent profile, or global prompt persists the mode. The global
+block remains the compact ordinary routing and primary-branch Review pointer shown below.
+
 ## Long-lived root-task prompt
 
 `examples/global-agents-block.md` is the canonical compact pair of pointers. Setup injects that exact block

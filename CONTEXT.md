@@ -21,6 +21,16 @@ _Avoid_: Worktree Writer, worktree subagent
 An agent created inside one root task and governed by that root task's orchestration authority.
 _Avoid_: child root, nested root
 
+**Manager-only mode**:
+An explicit, current-root-task-only branch in which the root agent decomposes, dispatches, and
+accepts work while substantive code investigation goes to `explorer` and code implementation,
+tests, and validation go to a leased `worker` or method worker. It is adaptive rather than a fixed
+pipeline, does not persist, and does not permit silent root-agent takeover after a failed agent.
+After three unsuccessful Worker rounds, it allows only read-only re-decomposition or a blocker
+report; new code writing waits for a new user direction or explicit exit. Leaving it requires the
+user's explicit consent.
+_Avoid_: default orchestration, persistent manager mode, mandatory pipeline
+
 **Pre-merge Review**:
 The mandatory root-task quality gate applied to the latest pinned candidate diff immediately before
 it enters the repository's primary branch. It is separate from ordinary validation and delegation

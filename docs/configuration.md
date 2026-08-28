@@ -30,6 +30,10 @@ write. Interactive terminals require confirmation; non-interactive runs write on
 `--apply`. Installation creates copies rather than links so the same contract works on macOS and
 native Windows. Existing symlinks and non-directory parents are conflicts: setup does not traverse,
 unlink, replace, or write through them. Unrelated files and Hook registrations are preserved.
+Every installation plan also reports whether local model routing is valid, absent, or conflicting.
+With no route, subagents request inheritance from current Codex settings; this does not confirm the
+resolved model. The installer does not invent host-specific routes; an installing Agent offers the
+optional configuration flow described below after live verification.
 
 Externally owned registrations and deployment metadata are reported with their owning runtime or
 registry and left untouched. They are outside the `current`, `missing`, `drift`, and `conflict`
@@ -44,9 +48,11 @@ All four Skill targets are checked before any installation write:
 - A same-named but different Skill, a symlink, a non-directory Skill target, or a non-directory
   parent is a conflict and remains untouched.
 
-Managed Agent, preference, and routing targets are classified the same way. Differing
-managed files are drift. The Agent shows the difference and replaces it only after explicit
-approval; conflicts are left for the user to resolve without deletion.
+Managed Agent and preference targets are classified the same way. Differing managed files are
+drift. The Agent shows the difference and replaces it only after explicit approval; conflicts are
+left for the user to resolve without deletion. Local model routing is not a managed projection:
+setup preserves a valid route, reports an absent route, and treats a linked, non-file, unreadable,
+or invalid route as a conflict without replacing it.
 
 Those rules govern ordinary installation. During a one-time migration from another source,
 `INSTALL.md` section 7 is authoritative: after the user approves the exact cutover targets, the
@@ -73,6 +79,23 @@ those tools, cache their return shapes, or define a transport fallback. `codex-o
 only orchestration policy: ordinary delegation uses `fork_turns="none"`, pending results form a
 dependency barrier, a follow-up invalidates earlier completion evidence, an explicit stop converges
 the active tree, and a third worker round starts with a fresh package and lease.
+
+### Explicit manager-only mode
+
+Manager-only mode is enabled only by a clear user request such as “enable orchestration mode”, “main
+agent pure orchestration”, or “delegate everything to subagents”. It applies to the current root
+task only and is not persisted in preferences, model routing, Hooks, the CLI, or another
+configuration file. Read [references/manager-only.md](../references/manager-only.md) for the full
+activation, adaptive delegation, acceptance, failure, and explicit-exit contract.
+
+In this mode the root agent decomposes and coordinates adaptively, sends substantive code
+investigation to `explorer`, and sends code implementation, tests, and validation to a leased
+`worker` or method worker. It handles Git/PR and non-code work, then reads only the complete final
+diff, key excerpts, and validation output for acceptance. Independent Review still follows current
+risk and the primary-branch `codex-review-gate` boundary. Failed agents require re-decomposition,
+replacement, or a blocker report; after three unsuccessful Worker rounds, only read-only
+re-decomposition or a blocker report is allowed. No fourth code-writing round starts, and new code
+writes wait for a new user direction or explicit mode exit.
 
 This project installs no Hook. Agent profiles own derived-agent identity and read-only scope;
 `codex-orchestration` owns root-task Agent execution, while `codex-review-gate` defines the
@@ -157,7 +180,7 @@ belongs to architecture, security, performance, test reliability, or another spe
 the matching specialist replaces the default rather than adding a second Reviewer.
 
 R0 uses main-agent inspection and validation only. R1-R3 use the Reviewer coverage selected above,
-and R3 performs focused Review and main-agent remediation before an `adversarial-verifier`.
+and R3 performs focused Review and root-controlled remediation before an `adversarial-verifier`.
 Review Agent execution reuses `codex-orchestration`; the Review Skill does not duplicate model
 routing, lifecycle, or waiting policy.
 
@@ -167,9 +190,12 @@ the evidence class without starting a generic Standards/Spec pass. Labelled judg
 distinct, and Reviewers omit checks conclusively covered by current passing tooling unless the
 tool's coverage or evidence is itself part of the assigned risk.
 
-After the main agent fixes an accepted finding and reruns affected validation, the original
-Reviewer receives a same-thread targeted follow-up to verify that finding against the candidate diff.
-This closes the assigned finding without restarting a full Review merely to obtain a clean report.
+The merge-owning root decides findings, controls remediation, and owns validation and gate
+authority. In ordinary mode, the main agent may implement an accepted fix and rerun affected
+validation. In manager-only mode, the leased worker implements the accepted fix and runs validation;
+the root inspects and accepts that result before the original Reviewer receives a same-thread
+targeted follow-up against the candidate diff. This closes the assigned finding without restarting a
+full Review merely to obtain a clean report.
 New substantive changes after Review stale the candidate and require reclassification. Optional
 early design or specialist consultation can still prevent risk from compounding, but it does not
 count as the mandatory pre-merge gate.
@@ -198,7 +224,10 @@ tasks use the ordinary role route, and unavailable override models fall back to 
 available entry. Ordinary `single`, `coverage`, worker, and Hybrid specialist delegation do not
 inspect the parent model. A `worker-round-three` override may cover every writable role; without a
 usable match, round three takes the next distinct available entry after round one's model. If none
-exists, the main agent takes over, decomposes again, or reports the blocker.
+exists, ordinary mode lets the main agent take over, decompose again, or report the blocker.
+Manager-only mode follows `references/manager-only.md`: it may only re-decompose read-only or report
+a blocker at that boundary, never start a fourth code-writing round, and waits for a new user
+direction or explicit mode exit before new code-writing work.
 
 `panel_routes.gpt` and `panel_routes.third_party` are used only by `panel` and the panel workstream
 in `hybrid`; a Hybrid brief makes the panel/specialist distinction clear when routing needs it.

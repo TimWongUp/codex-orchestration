@@ -25,25 +25,29 @@ risk-based scheduling that distinguishes routine diffs from high-risk components
 Optional delegation and mandatory delivery Review had different triggers and authority but shared
 one Skill, so a restriction on proactive subagents could incorrectly suppress the R0-R3 gate. The
 suite now gives `codex-review-gate` authority to define the risk route and authorize only its R1-R3
-read-only Reviewers, while the root main agent executes classification, role selection,
-remediation, verification, and delivery. `codex-orchestration` retains Agent execution, model
-routing, lifecycle, writer leases, and Worktree coordination. An applicable Review rule authorizes
-those Reviewer calls without a repeated current-turn request, unless the current user explicitly
-prohibits them; it does not authorize implementation delegation. The managed global rules expose
-orchestration and code Review as separate pointers, and deterministic installation projects both
-Skills. They remain components of one released suite and share its version; the separation is an
-authority boundary, not an independent distribution channel.
+read-only Reviewers, while the merge-owning root executes classification, role selection, finding
+decisions, remediation authority, verification, and delivery. In ordinary mode, the main agent may
+implement an accepted fix. In manager-only mode, the leased worker implements the accepted fix and
+runs validation; the root inspects and accepts that result before the original Reviewer performs a
+targeted follow-up. `codex-orchestration` retains Agent execution, model routing, lifecycle, writer
+leases, and Worktree coordination. An applicable Review rule authorizes those Reviewer calls
+without a repeated current-turn request, unless the current user explicitly prohibits them; it does
+not authorize implementation delegation. The managed global rules expose orchestration and code
+Review as separate pointers, and deterministic installation projects both Skills. They remain
+components of one released suite and share its version; the separation is an authority boundary,
+not an independent distribution channel.
 
 Risk level expresses impact and recoverability, not a Reviewer quota. R1-R3 always select at least
 one matching Reviewer; extra seats follow only additional material failure hypotheses for which
 independent judgment can change delivery. Passing mechanical validation, an absent evidence axis,
 or a desired headcount does not create an extra seat. Reviewer findings remain hypotheses until the
-root main agent verifies their cited evidence against the pinned final diff, and Review is not
+merge-owning root verifies their cited evidence against the pinned final diff, and Review is not
 repeated solely to obtain a clean report.
 
 An accepted finding is closed by a same-thread targeted follow-up from its original Reviewer after
-the main agent fixes it and reruns affected validation. This remediation check does not restart a
-full Review loop.
+the root accepts remediation and affected validation has run. Ordinary mode may have the main agent
+implement the fix; manager-only mode assigns implementation and validation to the leased worker.
+This remediation check does not restart a full Review loop.
 
 R1 uses `correctness-reviewer` as the general default. If its sole material hypothesis clearly
 belongs to a specialist domain, the matching specialist replaces that default rather than adding

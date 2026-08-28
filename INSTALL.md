@@ -44,10 +44,10 @@ py -3 scripts/install.py
 
 In an interactive terminal, a first install asks for `en` or `zh-CN` and suggests a default from the
 system locale. It then validates the checkout, classifies every managed target, prints every
-proposed create or update, shows the exact global-rules block, and reports conflicts. Answer `y` to
-apply that exact plan; any other answer leaves the runtime unchanged. A later run preserves the
-saved language and does not ask again. If every managed target is already current, setup exits
-without asking for confirmation.
+proposed create or update, shows the exact global-rules block, reports whether local model routing
+is valid, absent, or conflicting, and reports conflicts. Answer `y` to apply that exact plan; any
+other answer leaves the runtime unchanged. A later run preserves the saved language and does not
+ask again. If every managed target is already current, setup exits without asking for confirmation.
 
 Non-interactive use never prompts and remains a dry run unless `--apply` is present. Its first
 install must pass `--language en` or `--language zh-CN`. When an Agent performs the installation, it
@@ -151,11 +151,20 @@ outside this installer; installation or uninstall success makes no claim about t
 
 Setup does not create or change `<codex-home>/codex-orchestration/model-routing.toml`. Available
 models, reasoning levels, and service-tier enforcement are host facts that must be verified live.
+Every installation plan reports whether this file exists. When it is absent, the plan explicitly
+states that subagents request inheritance from current Codex settings, without claiming which model
+resolved, and that creating a route requires live host verification and approval. A valid existing
+file is identified as preserved local configuration. A linked, non-file, unreadable, or invalid
+route is a conflict that blocks installation without changing it.
 
-When local routing is wanted, start from `examples/model-routing.toml`, replace every placeholder
-with supported host values, remove unused examples, review the complete file, and install it only
-after explicit approval. An existing route remains local and is preserved by setup. Omitting model
-selection requests inheritance from current Codex settings; it does not confirm the resolved model.
+For Agent-assisted installation, inspect an existing route, validate it, report its effective role
+routes, and preserve it unless the user asks for a change. When no route exists, verify the models,
+reasoning levels, and service tiers available on the current host, explain the inheritance default,
+and ask whether to configure local routing. If the user chooses configuration, start from
+`examples/model-routing.toml`, replace every placeholder with supported host values, remove unused
+examples, show the complete proposed file, and install it only after explicit approval. Omitting
+model selection requests inheritance from current Codex settings.
+This does not confirm the resolved model.
 
 ## 7. Transaction and conflicts
 

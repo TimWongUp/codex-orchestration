@@ -105,6 +105,74 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(second.conflicts, [])
             self.assertEqual(second.operations, [])
 
+    def test_install_plan_reports_local_model_routing_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home, skills_root = self.paths(temporary)
+            plan = self.build(codex_home, skills_root)
+            routing_path = codex_home / "codex-orchestration" / "model-routing.toml"
+
+            missing_output = io.StringIO()
+            with contextlib.redirect_stdout(missing_output):
+                INSTALL.print_plan(plan, global_rules=True)
+
+            self.assertIn(
+                "Model routing: not configured; subagents request inheritance from current "
+                "Codex settings (resolved model unconfirmed)",
+                missing_output.getvalue(),
+            )
+            self.assertIn(
+                f"explicit approval before creating: {routing_path}",
+                missing_output.getvalue(),
+            )
+
+            template = (ROOT / "examples" / "model-routing.toml").read_text(encoding="utf-8")
+            route = (
+                template.replace('"TASK_KIND"', '"worker-round-three"')
+                .replace('"ROLE_NAME"', '"worker"')
+                .replace('"MODEL_ID_OVERRIDE"', '"model-override"')
+                .replace('"MODEL_ID_PRIMARY_1"', '"model-primary-1"')
+                .replace('"MODEL_ID_PRIMARY_2"', '"model-primary-2"')
+                .replace('"MODEL_ID_FALLBACK"', '"model-fallback"')
+                .replace('"MODEL_ID_PRIMARY"', '"model-role-primary"')
+                .replace('"REASONING_LEVEL"', '"high"')
+                .replace('"SERVICE_TIER"', '"standard"')
+            )
+            routing_path.parent.mkdir(parents=True)
+            routing_path.write_text(route, encoding="utf-8")
+            present_plan = self.build(codex_home, skills_root)
+            present_output = io.StringIO()
+            with contextlib.redirect_stdout(present_output):
+                INSTALL.print_plan(present_plan, global_rules=True)
+
+            self.assertIn(
+                f"Model routing: preserve validated local configuration: {routing_path}",
+                present_output.getvalue(),
+            )
+            self.assertNotIn("request inheritance", present_output.getvalue())
+
+            routing_path.write_text("invalid local route\n", encoding="utf-8")
+            invalid_plan = self.build(codex_home, skills_root)
+            self.assertTrue(
+                any("local model routing invalid" in item for item in invalid_plan.conflicts)
+            )
+            invalid_output = io.StringIO()
+            with contextlib.redirect_stdout(invalid_output):
+                INSTALL.print_plan(invalid_plan, global_rules=True)
+            self.assertIn(
+                f"Model routing: invalid or conflicting local path: {routing_path}",
+                invalid_output.getvalue(),
+            )
+
+            routing_path.unlink()
+            routing_path.mkdir()
+            directory_plan = self.build(codex_home, skills_root)
+            self.assertTrue(
+                any(
+                    "local model routing linked or conflicting" in item
+                    for item in directory_plan.conflicts
+                )
+            )
+
     def test_uninstall_removes_only_current_managed_projection_and_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home, skills_root = self.paths(temporary)

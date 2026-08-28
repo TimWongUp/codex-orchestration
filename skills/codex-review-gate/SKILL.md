@@ -2,7 +2,7 @@
 name: codex-review-gate
 description: Apply the R0-R3 pre-merge Review gate when a Git-managed repository is about to merge a pull request, branch, or accepted Worktree integration branch into its primary branch. It selects and authorizes read-only Reviewers for R1-R3; the root handles classification, remediation, validation, and integration. Do not use it for ordinary task completion, unmerged handoffs, or repositories without Git history.
 metadata:
-  version: 0.10.5
+  version: 0.10.6
 ---
 
 # Codex pre-merge review gate
@@ -29,8 +29,12 @@ workflow rule requiring a pre-merge Review authorizes its selected R1-R3 read-on
 a separate current-turn request; a current explicit user prohibition on subagents or Reviewers still
 wins.
 
-The merge-owning root owns classification, candidate diff inspection, validation, remediation, Git,
-and integration.
+The merge-owning root owns classification, candidate diff inspection, finding decisions,
+remediation authority, validation, Git, and integration. In ordinary mode, the main agent may
+implement an accepted fix. In manager-only mode, the leased worker implements the accepted fix and
+runs affected validation; the root inspects and accepts that result before the original Reviewer
+performs its targeted follow-up. The R3 route's main-agent remediation label names this root
+authority and coordination; it does not require the root to edit code.
 R0 needs no Agent solely for Review; for R1-R3, load `codex-orchestration` and use its model routing,
 brief, lifecycle, and waiting contracts.
 
@@ -74,12 +78,14 @@ create a second seat for the same hypothesis.
 2. For R0, finish main-agent validation. For R1-R3, load `codex-orchestration`, select the matching
    read-only roles, give each Reviewer a concrete failure hypothesis and evidence boundary, and wait
    for every result that can affect the merge.
-3. Treat Reviewer output as a hypothesis. Reconcile every finding against the actual diff and its
-   cited evidence. The main agent fixes accepted findings or records evidence for rejecting them,
-   then reruns affected validation. After fixing an accepted finding, send the original Reviewer a
-   same-thread targeted follow-up to verify that finding against the candidate diff. This resolves
-   the assigned finding; it is not a new full Review. Do not repeat full Review merely to obtain a
-   clean report.
+3. Treat Reviewer output as a hypothesis. The merge-owning root reconciles every finding against
+   the actual diff and its cited evidence, decides whether to accept it, and retains remediation
+   and validation authority. In ordinary mode, the main agent may fix an accepted finding. In
+   manager-only mode, assign the accepted fix to the leased worker, which implements it and reruns
+   affected validation; the root then inspects and accepts the result. After the root accepts the
+   fix, send the original Reviewer a same-thread targeted follow-up to verify that finding against
+   the candidate diff. This resolves the assigned finding; it is not a new full Review. Do not
+   repeat full Review merely to obtain a clean report.
 4. For R3, run `adversarial-verifier` only after focused review, remediation, and validation are
    complete, or after focused review and validation when no fix was required. Give it the candidate
    diff, original high-impact hypothesis, earlier findings, remediation, and validation evidence.
