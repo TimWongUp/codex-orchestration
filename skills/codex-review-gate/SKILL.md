@@ -15,17 +15,19 @@ Worktree integration branch into the repository's primary branch. Opening or upd
 request, pushing or handing off a branch, finishing implementation, and delivering an unmerged
 candidate do not trigger the gate. A future task that owns the merge owns the Review.
 
-Enter the gate only when all three preconditions hold:
+First determine whether the gate applies:
 
 1. The project is a Git repository with committed source and primary-branch histories.
 2. The current workflow includes an imminent merge into the primary branch.
-3. The root can pin the latest candidate diff from the target merge base to the candidate head.
 
-When any precondition is absent, stop before R0-R3 classification and continue normal main-agent
-validation and handoff. Repositories without Git history never use this gate. A project, user, or
-workflow rule requiring a pre-merge Review authorizes its selected R1-R3 read-only Reviewers
-without a separate current-turn request; a current explicit user prohibition on subagents or
-Reviewers still wins.
+When either condition is absent, stop before R0-R3 classification and continue normal main-agent
+validation and handoff. Repositories without Git history never use this gate. When both conditions
+hold, the root must pin the latest candidate diff from the target merge base to the candidate head.
+If the merge is imminent but the root cannot pin that diff, fetch the required history or resolve
+the ambiguous refs; the candidate must not merge until the boundary is pinned. A project, user, or
+workflow rule requiring a pre-merge Review authorizes its selected R1-R3 read-only Reviewers without
+a separate current-turn request; a current explicit user prohibition on subagents or Reviewers still
+wins.
 
 The merge-owning root owns classification, candidate diff inspection, validation, remediation, Git,
 and integration.

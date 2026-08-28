@@ -26,10 +26,13 @@ Every Worktree Root starts from one accepted committed base in a verified distin
 worktree and returns its task/worktree identity, one candidate handoff branch, commit, complete
 diff, validation evidence, and integration risks. The Integration Root waits for every declared
 handoff to reach `accepted` before it serially merges lanes into a dedicated integration branch,
-runs combined validation, and applies the final R0-R3 review gate to the integrated diff. Failed or
-canceled lanes block success; excluding one requires the user's explicit rescoping. Prototype lanes
-additionally require explicit user acceptance. Lane review is optional unless risk would otherwise
-compound; it never substitutes for the final integrated review.
+runs combined validation, and produces one accepted integration candidate. When the Integration
+Root also owns the primary-branch merge, it applies the R0-R3 pre-merge gate to that candidate;
+otherwise it hands off the validated integration branch and the future merge-owning root owns the
+Review. Failed or canceled lanes block success; excluding one requires the user's explicit
+rescoping. Prototype lanes additionally require explicit user acceptance. Lane consultation is
+optional unless risk would otherwise compound; it never substitutes for a required pre-merge
+Review.
 
 While any lane is nonterminal, the Integration Root remains repository-read-only. It becomes the
 repository writer for serial merge and integration fixes only after the complete batch is accepted.

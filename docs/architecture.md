@@ -60,10 +60,10 @@ nonterminal Worktree Roots. Each works in a verified distinct checkout, owns lan
 one candidate handoff branch, and may use the normal explorer, reviewer, specialist, and worker
 roles. While any lane is nonterminal, the Integration Root remains repository-read-only. After the
 complete batch is accepted, it owns the common base, serial merge order, integration branch,
-combined validation, the `codex-review-gate` handoff, and delivery. During the active batch neither its main
-agent nor a local worker may write; no local writable-worker lease remains active. This keeps
-concurrent repository writers at three or fewer without granting orchestration authority to a
-derived worker.
+combined validation, and integration-branch handoff. It owns `codex-review-gate` only when it also
+owns the primary-branch merge. During the active batch neither its main agent nor a local worker may
+write; no local writable-worker lease remains active. This keeps concurrent repository writers at
+three or fewer without granting orchestration authority to a derived worker.
 
 Each root session may keep at most eight spawned-agent threads open concurrently, excluding its
 primary agent; a lower host limit wins. The host must enforce and expose a confirmable cap before a
@@ -80,12 +80,13 @@ hybrid's specialist workstreams use ordinary role routes.
 ## Pre-merge Review boundary
 
 Ordinary delegation is optional execution optimization; mandatory Review is a primary-branch
-integration gate. It applies only when a Git-managed repository has committed source and target
-histories, the current workflow is about to merge a pull request, branch, or accepted Worktree
-integration branch into the primary branch, and the merge-owning root can pin the latest candidate
-diff. Ordinary task completion, an unmerged handoff, pull-request creation or update without an
-imminent merge, and repositories without Git history do not trigger it. Main-agent validation still
-applies to those tasks.
+integration gate. It applies when a Git-managed repository has committed source and target
+histories and the current workflow is about to merge a pull request, branch, or accepted Worktree
+integration branch into the primary branch. The merge-owning root must then pin the latest candidate
+diff; if it cannot, the merge remains blocked until the required history and refs are available.
+Ordinary task completion, an unmerged handoff, pull-request creation or update without an imminent
+merge, and repositories without Git history do not trigger it. Main-agent validation still applies
+to those tasks.
 
 `codex-review-gate` defines the R0-R3 route independently of the orchestration Skill. An applicable
 project, user, workflow, or global rule requiring the gate authorizes only the read-only Reviewers

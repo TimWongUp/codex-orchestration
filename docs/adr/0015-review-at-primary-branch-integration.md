@@ -2,10 +2,11 @@
 
 **Status:** accepted
 
-**Refines:** [ADR 0011](0011-separate-delivery-review-from-orchestration.md) and
-[ADR 0014](0014-risk-hypothesis-gate-threshold.md). Their authority split, R0-R3 taxonomy,
-Reviewer selection, remediation loop, and risk-hypothesis threshold remain in force; this decision
-replaces their task-delivery trigger.
+**Refines:** [ADR 0009](0009-coordinate-independent-worktree-roots.md),
+[ADR 0011](0011-separate-delivery-review-from-orchestration.md), and
+[ADR 0014](0014-risk-hypothesis-gate-threshold.md). Their Worktree ownership, authority split,
+R0-R3 taxonomy, Reviewer selection, remediation loop, and risk-hypothesis threshold remain in
+force; this decision replaces their task-delivery and unconditional integrated-review triggers.
 
 ## External reference points
 
@@ -29,12 +30,12 @@ accepted Worktree integration branch into the repository's primary branch. Openi
 pull request, finishing implementation, pushing or handing off an unmerged branch, and delivering a
 candidate do not trigger the gate; the future task that owns the merge owns the Review.
 
-The gate requires a Git repository with committed source and target histories, an imminent merge
-into the primary branch, and a pinned merge-base-to-candidate diff. Without Git history or any of
-those integration preconditions, normal main-agent validation still applies but R0-R3
-classification and independent Review do not. Optional early architecture, security, or specialist
-consultation remains available when it can prevent risk from compounding, but it is not the
-mandatory pre-merge gate.
+Git history and an imminent primary-branch merge determine whether the gate applies. Without either,
+normal main-agent validation still applies but R0-R3 classification and independent Review do not.
+Once an imminent merge exists, a pinned merge-base-to-candidate diff is required evidence: if the
+root cannot pin it, the merge remains blocked until the required history and refs are available.
+Optional early architecture, security, or specialist consultation remains available when it can
+prevent risk from compounding, but it is not the mandatory pre-merge gate.
 
 ## Consequences
 

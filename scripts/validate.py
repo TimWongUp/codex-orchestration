@@ -109,6 +109,7 @@ WORKTREE_CONTRACT_PHRASES = (
     "complete batch",
     "dedicated integration branch",
     "complete its R0-R3 review against the latest combined candidate diff",
+    "Otherwise hands off the validated integration branch without Review",
     "Lane or intermediate review never substitutes for a required pre-merge Review",
     "Stop convergence",
     "A stopped batch is not",
@@ -738,6 +739,18 @@ def validate_source() -> list[str]:
     )
     model_routing = (ROOT / "references" / "model-routing.md").read_text(encoding="utf-8")
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
+    architecture = (ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+    context = read_required_text(ROOT / "CONTEXT.md", "domain context", failures)
+    worktree_adr = read_required_text(
+        ROOT / "docs" / "adr" / "0009-coordinate-independent-worktree-roots.md",
+        "Worktree Root ADR",
+        failures,
+    )
+    review_timing_adr = read_required_text(
+        ROOT / "docs" / "adr" / "0015-review-at-primary-branch-integration.md",
+        "Review timing ADR",
+        failures,
+    )
     normalized_skill = re.sub(r"\s+", " ", skill)
     normalized_review = re.sub(r"\s+", " ", review_skill)
     normalized_read_only = re.sub(r"\s+", " ", read_only_contract)
@@ -830,8 +843,10 @@ def validate_source() -> list[str]:
         "Git repository with committed source and primary-branch histories",
         "current workflow includes an imminent merge into the primary branch",
         "pin the latest candidate diff from the target merge base to the candidate head",
+        "the candidate must not merge until the boundary is pinned",
         "Repositories without Git history never use this gate",
         "Opening or updating a pull request",
+        "pushing or handing off a branch",
         "Choose the highest matching level",
         "Changed line or file counts never determine a level",
         "R0 needs no Agent",
@@ -1092,12 +1107,58 @@ def validate_source() -> list[str]:
         "Every task, panel, and role entry includes `service_tier",
         "validates any saved task-package language and model route",
         "does not confirm the resolved model",
+        "primary-branch pre-merge Review route",
+        "The merge-owning root executes",
+        "inability to pin it blocks the merge",
     ):
         require(
             phrase in configuration,
             f"configuration missing current v2 lifecycle contract: {phrase}",
             failures,
         )
+    for source, label, phrases in (
+        (
+            architecture,
+            "architecture",
+            (
+                "It owns `codex-review-gate` only when it also owns the primary-branch merge",
+                "integration-branch handoff",
+                "the merge remains blocked until the required history and refs are available",
+            ),
+        ),
+        (
+            context,
+            "domain context",
+            (
+                "**Pre-merge Review**",
+                "latest pinned candidate diff immediately before",
+                "It owns Pre-merge Review only when it also owns the primary-branch merge",
+            ),
+        ),
+        (
+            worktree_adr,
+            "Worktree Root ADR",
+            (
+                "When the Integration Root also owns the primary-branch merge",
+                "otherwise it hands off the validated integration branch",
+            ),
+        ),
+        (
+            review_timing_adr,
+            "Review timing ADR",
+            (
+                "[ADR 0009](0009-coordinate-independent-worktree-roots.md)",
+                "the merge remains blocked until the required history and refs are available",
+            ),
+        ),
+    ):
+        normalized_source = re.sub(r"\s+", " ", source)
+        for phrase in phrases:
+            require(
+                phrase in normalized_source,
+                f"{label} missing pre-merge Review contract: {phrase}",
+                failures,
+            )
     for pattern in (
         r"terminal[- ]markers?",
         r"hashed session and agent identifiers",
@@ -1187,6 +1248,7 @@ def validate_source() -> list[str]:
             "simple tasks and ordinary documentation stay with the main agent",
             "Before merging a pull request, branch, or accepted Worktree integration branch",
             "Ordinary task completion, unmerged handoff",
+            "pull-request creation or update without an imminent merge",
             "repositories without Git history do not trigger it",
             "R1-R3 route authorizes only the selected read-only Reviewers",
             "classifies the candidate rather than starting a Reviewer",

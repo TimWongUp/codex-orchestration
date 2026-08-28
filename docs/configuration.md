@@ -75,10 +75,11 @@ dependency barrier, a follow-up invalidates earlier completion evidence, an expl
 the active tree, and a third worker round starts with a fresh package and lease.
 
 This project installs no Hook. Agent profiles own derived-agent identity and read-only scope;
-`codex-orchestration` owns root-task Agent execution, while `codex-review-gate` defines the delivery
-Review route and Reviewer authorization. The root main agent executes classification, remediation,
-verification, and delivery, and main-agent acceptance checks the complete worker diff and
-validation. Delegation uses compact natural-language briefs instead of fixed authorization fields.
+`codex-orchestration` owns root-task Agent execution, while `codex-review-gate` defines the
+primary-branch pre-merge Review route and Reviewer authorization. The merge-owning root executes
+classification, remediation, verification, and integration; main-agent acceptance still checks the
+complete worker diff and validation. Delegation uses compact natural-language briefs instead of
+fixed authorization fields.
 
 ## Concurrency and Worktree Roots
 
@@ -129,10 +130,12 @@ itself start a Reviewer, since R0 completes with main-agent validation only.
 
 ## Pre-merge review
 
-`codex-review-gate` requires committed source and primary-branch histories, an imminent merge into
-the primary branch, and a pinned merge-base-to-candidate diff. If any condition is absent, the task
-continues with normal validation and handoff without R0-R3 classification. When the gate applies,
-it classifies the latest validated candidate immediately before merge. R0 covers local,
+`codex-review-gate` applies only with committed source and primary-branch histories and an imminent
+merge into the primary branch. If either condition is absent, the task continues with normal
+validation and handoff without R0-R3 classification. Once the gate applies, a pinned
+merge-base-to-candidate diff is required; inability to pin it blocks the merge until the required
+history and refs are available. It then classifies the latest validated candidate immediately
+before merge. R0 covers local,
 self-contained changes that the main agent completely verified at the boundary where their behavior
 is observable, that are easy to recover, and that leave no material failure hypothesis current
 validation does not exclude; runtime behavior changes qualify, and a self-contained illustrative or
