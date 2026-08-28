@@ -61,6 +61,7 @@
 - Legacy cleanup boundary decision: `docs/adr/0012-remove-legacy-cleanup-from-installation.md`
 - Current projection uninstall decision: `docs/adr/0013-safe-current-projection-uninstall.md`
 - Review-threshold decision: `docs/adr/0014-risk-hypothesis-gate-threshold.md`
+- Review-timing decision: `docs/adr/0015-review-at-primary-branch-integration.md`
 - Decisions: create `docs/adr/` only when a hard-to-reverse choice needs a durable record.
 
 ## Update gate

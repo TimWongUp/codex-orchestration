@@ -278,8 +278,8 @@ class SourceValidationTest(unittest.TestCase):
         reordered_review = review.replace(
             "## Execute the gate", "## Deferred execution workflow", 1
         ).replace(
-            "## Classify the final diff",
-            "## Execute the gate\n\n## Classify the final diff",
+            "## Classify the candidate diff",
+            "## Execute the gate\n\n## Classify the candidate diff",
             1,
         )
         r2_review = VALIDATOR.REVIEW_ROUTE_REVIEW_CELLS["R2"]
@@ -303,6 +303,16 @@ class SourceValidationTest(unittest.TestCase):
             1,
         )
         contradicted_r2 += f"\n<!-- stale phrase: {r2_review} -->\n"
+        missing_merge_precondition = review.replace(
+            "The current workflow includes an imminent merge into the primary branch.",
+            "The current workflow may end with an unmerged handoff.",
+            1,
+        )
+        missing_no_git_exclusion = review.replace(
+            "Repositories without Git history never use this gate.",
+            "Repositories without Git history may use this gate.",
+            1,
+        )
         cases = (
             (
                 skill_path,
@@ -339,6 +349,18 @@ class SourceValidationTest(unittest.TestCase):
                 review_path,
                 contradicted_r2,
                 "Review Skill R2 independent-review route drifted",
+            ),
+            (
+                review_path,
+                missing_merge_precondition,
+                "missing Review Skill contract: current workflow includes an imminent merge "
+                "into the primary branch",
+            ),
+            (
+                review_path,
+                missing_no_git_exclusion,
+                "missing Review Skill contract: Repositories without Git history never use "
+                "this gate",
             ),
         )
         for target, mutated, expected in cases:
@@ -389,7 +411,7 @@ class SourceValidationTest(unittest.TestCase):
         reordered = reordered.replace(second, first, 1).replace("__FIRST__", second, 1)
         self.assertIn(
             "worktree-root integration sequence must be complete batch, serial merge, "
-            "combined validation, then R0-R3 review",
+            "combined validation, then conditional pre-merge Review",
             VALIDATOR.worktree_contract_failures(reordered),
         )
         for marker in VALIDATOR.WORKTREE_INTEGRATION_SEQUENCE:

@@ -4,9 +4,9 @@ Codex Orchestration separates six concerns:
 
 1. `SKILL.md` defines root-task routing and always-on orchestration invariants; branch-specific
    collaboration, worker, lifecycle, model, and Worktree contracts live under `references/`.
-2. `skills/codex-review-gate/SKILL.md` defines and authorizes the final-diff risk route; the root
-   main agent executes classification, Reviewer selection, remediation, and adversarial
-   verification.
+2. `skills/codex-review-gate/SKILL.md` defines and authorizes the primary-branch pre-merge risk
+   route; the merge-owning root executes classification, Reviewer selection, remediation, and
+   adversarial verification.
 3. `agents/*.toml` defines narrow custom-agent behavior and sandbox defaults.
 4. Local preference files select delegation language and models without placing user choices in
    the repository.
@@ -77,15 +77,21 @@ non-overlapping risk coverage can change the decision. The ordinary `single` pat
 agent and is not an evaluation mode. Only the panel path classifies the parent model; coverage and
 hybrid's specialist workstreams use ordinary role routes.
 
-## Delivery Review boundary
+## Pre-merge Review boundary
 
-Ordinary delegation is optional execution optimization; Delivery Review is a repository-change
-gate for implementation, tests, dependencies, build/deployment configuration, public contracts, and managed
-runtime policy. `codex-review-gate` defines the R0-R3 route independently of the orchestration
-Skill. An applicable project, user, workflow, or global rule requiring the gate authorizes only the
-read-only Reviewers selected by R1-R3 without a repeated current-turn request; a current explicit
-user prohibition still wins. The root main agent executes classification, role selection,
-remediation, validation, and delivery. When Reviewers are selected, it calls
+Ordinary delegation is optional execution optimization; mandatory Review is a primary-branch
+integration gate. It applies only when a Git-managed repository has committed source and target
+histories, the current workflow is about to merge a pull request, branch, or accepted Worktree
+integration branch into the primary branch, and the merge-owning root can pin the latest candidate
+diff. Ordinary task completion, an unmerged handoff, pull-request creation or update without an
+imminent merge, and repositories without Git history do not trigger it. Main-agent validation still
+applies to those tasks.
+
+`codex-review-gate` defines the R0-R3 route independently of the orchestration Skill. An applicable
+project, user, workflow, or global rule requiring the gate authorizes only the read-only Reviewers
+selected by R1-R3 without a repeated current-turn request; a current explicit user prohibition still
+wins. The merge-owning root executes classification, role selection, remediation, validation, and
+integration. When Reviewers are selected, it calls
 `codex-orchestration` for model routing, briefs, lifecycle, and waiting rather than duplicating
 those mechanics.
 
@@ -99,25 +105,27 @@ confidence in current behavior or credible failures at a correct seam, whether a
 already supplies that confidence, and whether removal preserves equivalent behavior and failure
 protection. Test count and coverage percentage are evidence inputs, not optimization targets.
 
-The gate evaluates the highest-risk property of the final integrated diff: local, self-contained
-work that the main agent completely verified and that leaves no material failure hypothesis may be
-R0 even when it changes runtime behavior; localized, validated, recoverable changes with one
-material failure hypothesis that independent judgment could change are R1, including localized
-public-contract and managed-policy changes; multiple independent risks, broad or hard-to-recover
-public contracts, sensitive boundaries, or material uncertainty are R2; changed trust boundaries or
+The gate evaluates the highest-risk property of the latest integration candidate diff: local,
+self-contained work that the main agent completely verified and that leaves no material failure
+hypothesis may be R0 even when it changes runtime behavior; localized, validated, recoverable
+changes with one material failure hypothesis that independent judgment could change are R1,
+including localized public-contract and managed-policy changes; multiple independent risks, broad
+or hard-to-recover public contracts, sensitive boundaries, or material uncertainty are R2; changed trust boundaries or
 high-impact failure are R3. Main-agent validation is required at every level but does not count as
 independent Review. R3 ends with adversarial verification after focused Review and remediation.
 
 Risk level and Reviewer count are separate decisions. The level expresses impact and
 recoverability; R1-R3 always select at least one matching Reviewer, and additional seats correspond
-only to additional material failure hypotheses for which independent judgment can change delivery.
+only to additional material failure hypotheses for which independent judgment can change
+integration.
 Mechanical validation, an absent evidence axis, and a desired panel size do not create extra seats.
 R1 defaults to `correctness-reviewer`; a matching specialist replaces that default when the sole
 material hypothesis belongs to its domain, rather than adding another Reviewer for the same risk.
 Reviewer findings remain hypotheses until the main agent checks their cited evidence against the
-pinned final diff. After an accepted finding is fixed, the original Reviewer verifies that finding
-through a same-thread targeted follow-up; the gate does not restart a full Review solely to obtain
-a clean report.
+pinned candidate diff. After an accepted finding is fixed, the original Reviewer verifies that
+finding through a same-thread targeted follow-up; the gate does not restart a full Review solely to
+obtain a clean report. A new substantive change after Review stales the candidate and requires the
+merge-owning root to re-pin and reclassify it.
 
 ## V2 lifecycle
 
@@ -142,10 +150,11 @@ An Integration Root applies the same dependency barrier to peer Worktree Roots t
 task/thread tools. It serially reserves at most three nonterminal lane slots, verifies distinct
 official worktree identities, and waits for the complete accepted batch before serial integration.
 Each Worktree Root performs local lane acceptance and validation; the Integration Root separately
-owns handoff and batch acceptance. Independent intermediate review is added only when risk would
+owns handoff and batch acceptance. Optional intermediate consultation is added only when risk would
 otherwise compound. A failed or canceled declared lane blocks successful delivery unless the user
-explicitly rescopes the outcome. `codex-review-gate` runs once against the combined integration
-diff.
+explicitly rescopes the outcome. `codex-review-gate` runs once against the latest combined
+candidate only when that integration branch is about to merge into the primary branch; an unmerged
+branch handoff defers Review to the future merge-owning task.
 
 An explicit stop freezes new delegation, snapshots the tree, interrupts every active descendant,
 and waits for final notifications plus a fresh snapshot showing no running agents. A leased worker

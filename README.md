@@ -4,7 +4,7 @@
 
 A disciplined, cross-platform orchestration system for Codex custom subagents and independent Worktree Roots. It gives each root task a concrete operating model for deciding when to delegate, what context every subagent receives, who may write, how parallel worktree lanes are integrated, how results are accepted, and how much independent review a change needs.
 
-Codex Orchestration is deliberately not a “spawn as many agents as possible” framework. Simple work stays with the main agent. Read-only agents can investigate in parallel by evidence area or independent viewpoint, while each root task follows a local single-writer lease. When the user explicitly requests official Codex worktrees and the work can be partitioned safely, one Integration Root may coordinate up to three independent Worktree Roots for isolated parallel implementation. Each Worktree Root behaves like a normal root task inside its assigned lane; neither the Integration Root nor its local workers write the repository until every declared handoff is accepted, after which it serially merges the batch and owns the final review and delivery.
+Codex Orchestration is deliberately not a “spawn as many agents as possible” framework. Simple work stays with the main agent. Read-only agents can investigate in parallel by evidence area or independent viewpoint, while each root task follows a local single-writer lease. When the user explicitly requests official Codex worktrees and the work can be partitioned safely, one Integration Root may coordinate up to three independent Worktree Roots for isolated parallel implementation. Each Worktree Root behaves like a normal root task inside its assigned lane; neither the Integration Root nor its local workers write the repository until every declared handoff is accepted, after which it serially merges the batch and owns combined validation. It owns the final Review only when the batch is about to merge into the primary branch.
 
 Repository: [github.com/TimWongUp/codex-orchestration](https://github.com/TimWongUp/codex-orchestration)
 
@@ -61,7 +61,7 @@ The repository is the only source of truth for its portable Skills, Agents, inst
 
 ## What makes it different
 
-- **Delegation has a threshold.** Subagents are used only when parallel evidence, specialization, or a bounded worker can materially improve the result; the separate delivery gate authorizes only its selected read-only Reviewers.
+- **Delegation has a threshold.** Subagents are used only when parallel evidence, specialization, or a bounded worker can materially improve the result; the separate pre-merge gate authorizes only its selected read-only Reviewers.
 - **Handoffs preserve useful compression.** Delegation uses compact natural-language briefs with optional task, context, handoff, and reference sections instead of mandatory fields or temporary documents. Agents recover ordinary repository context and return traceable evidence.
 - **Task language is local.** Setup can persist English or Simplified Chinese delegation prose while role names, paths, and external protocol literals stay stable.
 - **Parallel reading, locally serialized writing.** Explorers, researchers, and reviewers may run concurrently; inside each root task, only the main agent or one leased worker writes at a time.
@@ -78,7 +78,7 @@ The repository is the only source of truth for its portable Skills, Agents, inst
   model judgments on one question, and `hybrid` runs that same-question panel alongside separate
   specialist workstreams. `single` remains the ordinary one-agent path, not a multi-agent
   evaluation mode.
-- **Review is a separate delivery gate.** `codex-review-gate` defines the route independently of proactive-delegation admission, while the root main agent classifies and remediates. R0 covers local, self-contained, fully verified changes that leave no material failure hypothesis, so runtime behavior changes and self-contained illustrative artifacts can qualify; R1 uses one Reviewer for one localized, validated, recoverable material failure hypothesis that independent judgment could change, including a localized public-contract or managed-policy change; `correctness-reviewer` is the R1 default, and a matching specialist replaces rather than supplements it when the sole risk is specialist; R2 covers multiple independent risks, broad or hard-to-recover public contracts, sensitive boundaries, or material uncertainty; R3 adds focused remediation and adversarial verification for changed trust boundaries or high-impact failure. R1-R3 always use at least one matching Reviewer; additional seats follow only additional material failure hypotheses, never a quota.
+- **Review is a primary-branch integration gate.** `codex-review-gate` runs only when the current root is about to merge a pull request, branch, or accepted Worktree integration branch into a Git repository's primary branch. Ordinary task completion, unmerged handoff, pull-request creation or update without an imminent merge, and repositories without Git history stay with normal validation and do not enter R0-R3. When the gate applies, it classifies the latest candidate diff: R0 covers fully verified changes with no material failure hypothesis; R1 uses one matching Reviewer for one localized, validated, recoverable hypothesis; R2 covers multiple independent risks, broad or hard-to-recover contracts, sensitive boundaries, or material uncertainty; R3 adds focused remediation and adversarial verification for changed trust boundaries or high-impact failure. Additional seats follow only additional material hypotheses, never a quota.
 - **Review findings preserve evidence classes.** Reviewers stay within the assigned change boundary and risk. When a finding depends on a task or spec requirement or a repository standard, they cite that source and identify the evidence class without starting a generic Standards/Spec pass. Judgment calls remain labelled, and checks conclusively covered by current passing tooling are omitted unless that coverage is itself in question. After an accepted finding is fixed, the original Reviewer verifies that finding through a same-thread targeted follow-up; this does not restart a full Review loop merely to obtain a clean report.
 - **Tests must earn their maintenance cost.** Writable Agents add tests only when they supply unique confidence at a correct observable seam, preferring an existing test at the lowest-cost appropriate layer. The test-reliability Reviewer also identifies coverage-chasing, redundant, implementation-bound, prose-bound, flaky, or retired-compatibility tests, but recommends removal only when equivalent behavior and failure protection remain.
 - **Models stay local and replaceable.** Agent profiles are model-neutral; optional role routes,
@@ -106,7 +106,7 @@ For a broader feature discussion, ask Codex to use `web-researcher` for public i
 ## What is included
 
 - A root-task orchestration Skill that owns delegation briefs, local write leases, Worktree Root coordination, acceptance, and reusable Agent execution.
-- An independent `codex-review-gate` Skill that defines the R0–R3 route and authorizes only its selected read-only Reviewers; the root main agent executes classification, remediation, and delivery.
+- An independent `codex-review-gate` Skill that defines the pre-merge R0–R3 route and authorizes only its selected read-only Reviewers; the merge-owning root executes classification, remediation, and integration.
 - The complete `diagnosing-bugs` and `prototype` method Skills used by their workers.
 - Read-only explorer, official-reference research, web research, expert, and focused-review agents.
 - Writable implementation, debugging, and prototype workers governed by a per-root single-writer lease.
@@ -115,7 +115,7 @@ For a broader feature discussion, ask Codex to use `web-researcher` for public i
 - A local, optional model-routing file. No model IDs are pinned in the repository.
 - A deterministic installation and uninstall contract for macOS and native Windows with planning, ownership checks, rollback, and runtime verification.
 
-The write lease is an orchestration contract, not an operating-system ACL. Each root task remains responsible for its local Git and validation; the Integration Root remains responsible for cross-worktree merges, final review selection, and final delivery.
+The write lease is an orchestration contract, not an operating-system ACL. Each root task remains responsible for its local Git and validation; the merge-owning root remains responsible for pre-merge Review, and the Integration Root remains responsible for cross-worktree integration.
 
 ## Continue reading
 
