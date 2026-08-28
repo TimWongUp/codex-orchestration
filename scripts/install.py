@@ -38,6 +38,8 @@ class InstallPlan:
     current: list[tuple[Path, str]] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     global_rules_target: Path | None = None
+    model_routing_path: Path | None = None
+    model_routing_state: str = "unchecked"
 
     def add_write(
         self,
@@ -579,11 +581,37 @@ def build_plan(
         plan_skill(plan, name, source_root, plan.skills_root / name)
     plan_agents(plan)
     plan_preferences(plan, language)
+    inspect_model_routing(plan)
     if global_rules:
         plan_global_rules(plan)
     else:
         check_unchanged_global_rules(plan)
     return plan
+
+
+def inspect_model_routing(plan: InstallPlan) -> None:
+    target = plan.codex_home / "codex-orchestration" / "model-routing.toml"
+    plan.model_routing_path = target
+    if not regular_target(target, plan.codex_home, "local model routing", plan):
+        plan.model_routing_state = "conflict"
+        return
+    if not target.is_file():
+        plan.model_routing_state = "absent"
+        return
+    try:
+        source = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        plan.conflicts.append(f"local model routing unreadable: {target}: {error}")
+        plan.model_routing_state = "conflict"
+        return
+    failures = contract.model_routing_failures(source, allow_placeholders=False)
+    if failures:
+        plan.conflicts.extend(
+            f"local model routing invalid: {target}: {failure}" for failure in failures
+        )
+        plan.model_routing_state = "conflict"
+        return
+    plan.model_routing_state = "present"
 
 
 def build_uninstall_plan(codex_home: Path, skills_root: Path) -> InstallPlan:
@@ -907,6 +935,20 @@ def print_plan(plan: InstallPlan, *, global_rules: bool, uninstall: bool = False
         print("Global rules: remove managed block")
     else:
         print(f"Global rules: {'managed block' if global_rules else 'unchanged'}")
+        routing_path = plan.model_routing_path
+        if plan.model_routing_state == "present":
+            print(f"Model routing: preserve validated local configuration: {routing_path}")
+        elif plan.model_routing_state == "absent":
+            print(
+                "Model routing: not configured; subagents request inheritance from current "
+                "Codex settings (resolved model unconfirmed)"
+            )
+            print(
+                "Optional model routing requires live host-model verification and explicit "
+                f"approval before creating: {routing_path}"
+            )
+        elif plan.model_routing_state == "conflict":
+            print(f"Model routing: invalid or conflicting local path: {routing_path}")
     for operation in plan.operations:
         if operation.content is None:
             label = "DELETE"

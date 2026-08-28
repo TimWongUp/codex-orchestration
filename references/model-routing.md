@@ -67,9 +67,16 @@ Worker round two keeps the same model and thread through a follow-up task after 
 Round three creates a new agent and first uses a matching `worker-round-three` task override. If
 none is usable, it selects the next distinct available model after the round-one model in the same
 effective route. Apply this override to all writable roles it names, including method workers. If
-no distinct model remains, do not start round three: the main agent takes over, decomposes the work
-again, or reports the blocker. The new agent receives a fresh standalone brief; no previous
-thread is closed or reused for the lease.
+no distinct model remains, do not start round three: in ordinary mode the main agent takes over,
+decomposes the work again, or reports the blocker. In manager-only mode, do not silently take over:
+re-decompose read-only or report a blocker, and do not start a replacement code-writing round. New
+code-writing work waits for a new user direction or the user's explicit consent to exit
+manager-only mode. The new agent receives a fresh standalone brief; no previous thread is closed or
+reused for the lease.
+
+If a manager-only task reaches three unsuccessful Worker rounds, no route entry authorizes another
+write: only read-only re-decomposition or a blocker report is allowed. New code-writing work waits
+for a new user direction or the user's explicit consent to exit manager-only mode.
 
 ## Resolution evidence
 

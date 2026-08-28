@@ -6,6 +6,8 @@
 
 Codex Orchestration 刻意不追求“Agent 越多越好”。简单任务仍由主代理直接完成；只读 Agent 可以按证据范围或独立观点并行调查，每个根任务内部则遵循本地单 Writer 租约。当用户明确要求使用 Codex 官方 Worktree，且任务可以安全拆分时，一个 Integration Root 最多可协调三个独立 Worktree Root 并行实现。每个 Worktree Root 都在分配的工作线内按普通根任务运行；全部声明工作线通过交接验收前，Integration Root 及其本地 Worker 均不得写仓库，之后它才串行合并整批结果并负责组合验证。只有整批结果准备并入主分支时，它才负责最终 Review。
 
+可选的 manager-only 模式只有在用户明确提出“开启编排模式”“主代理纯编排”或“全交给子代理”等请求时才启用，并且只对当前根任务生效。此时主代理自适应地拆解和协调：由 `explorer` 调查代码，由 `worker` 或方法 Worker 实现、测试和验证代码，再按当前风险交给合适的 Reviewer 做独立审查。主代理负责 Git/PR 与非代码工作，最终验收时才读取完整 diff、关键片段和验证输出。子代理失败时必须重拆、换代理或报告阻塞；三轮 Worker 不通过后只能只读重拆或报告阻塞，不得启动第四轮代码写入，新的代码写入必须等待用户新方向或明确退出模式。模式也不会持久化。
+
 项目仓库：[github.com/TimWongUp/codex-orchestration](https://github.com/TimWongUp/codex-orchestration)
 
 ## 安装
@@ -18,9 +20,13 @@ Codex Orchestration 刻意不追求“Agent 越多越好”。简单任务仍由
 请从 https://github.com/TimWongUp/codex-orchestration 安装最新版 Codex Orchestration。
 请取得并保留一个合适的本地 checkout，完整阅读 INSTALL.md，并且只使用
 scripts/install.py 执行安装。先针对当前平台做一次非交互 dry run（首次安装使用
-zh-CN），向我展示完整计划，并在追加 --apply 实际写入前征得我的确认。应用后验证
-Runtime，并提醒我新建一个 Codex 任务。保留现有 checkout 中未提交的改动以及所有未
-托管的本机文件。
+zh-CN），向我展示完整计划，并在追加 --apply 实际写入前征得我的确认。检查本机的
+model-routing.toml：若已存在，验证它、向我展示当前角色路由，并在我未要求修改时保留；
+若不存在，核对当前宿主可用的模型、推理等级和 service tier，说明继承默认配置的行为，
+再询问我是否配置本地模型路由。创建前向我展示完整候选文件并取得明确批准。应用后验证
+Runtime，并提醒我新建一个 Codex 任务。如果你只为本次安装新建了 checkout，请先说明
+删除后未来更新或卸载时需要重新取得合适的 checkout，再询问我是否删除；未经我的明确
+确认不得删除，也绝不能删除本次安装前已经存在的 checkout。保留所有未托管的本机文件。
 ```
 
 Codex 仍会在后台取得一份 checkout，因为安装器需要一起使用仓库中的 Skills、Agent 配置、
@@ -60,6 +66,7 @@ python3 scripts/install.py --uninstall --apply
 ## 鲜明特点
 
 - **委派有门槛。** 只有并行证据、专业分工或边界清晰的 Worker 能实质改善结果时，才启动子代理；独立的主分支合并前门禁只授权它选中的只读 Reviewer。
+- **manager-only 必须显式且临时。** 用户明确请求后，当前根任务才进入强委派管理模式：代码调查交给 `explorer`，实现、测试和验证交给带租约的 Worker；子代理失败时主代理不得静默接管，必须重拆、替换或报告阻塞。三轮不通过后只能只读重拆或报告阻塞，不得启动第四轮代码写入；新的代码写入要等用户新方向或明确退出模式。
 - **交接保留有效压缩。** 委派使用自然语言简报，任务、必要上下文、交接重点和参考资料都只是可选结构，不要求固定字段或临时文档；Agent 自行恢复普通仓库上下文并返回可追溯证据。
 - **任务语言保留在本机。** 初始化可持久化选择英文或简体中文的委派措辞；角色名、路径和外部协议字面量保持稳定。
 - **读取可并行，根任务内写入串行。** Explorer、研究和 Review Agent 可以并发；每个根任务内同一时刻只能由主代理或一个获得租约的 Worker 写入。
@@ -98,9 +105,16 @@ python3 scripts/install.py --uninstall --apply
 
 讨论功能时，可以让 Codex 使用 `web-researcher` 调查公开实现模式，或使用 `reference-researcher` 核对官方文档。
 
+如需对单个任务启用 manager-only 模式，可以说：
+
+```text
+开启编排模式。主代理保持纯编排：把实质性代码调查交给 explorer，把所有代码实现、测试和验证交给 worker；按风险选择 Reviewer，Worker 失败时不要静默接管。
+```
+
 ## 包含什么
 
 - 负责委派简报、本地写入租约、Worktree Root 协调、验收和通用 Agent 执行的根任务编排 Skill。
+- 一个显式、仅当前根任务生效的 manager-only 分支，提供自适应强委派并禁止静默接管代码工作。
 - 独立定义合并前 R0–R3 路由、且只授权所选只读 Reviewer 的 `codex-review-gate` Skill；分级、整改和集成由合并负责人执行。
 - `diagnosing-bugs-worker` 与 `prototype-worker` 使用的完整方法 Skill。
 - 只读代码探索、官方资料研究、Web 研究、专家和专项 Review Agent。
@@ -117,6 +131,7 @@ python3 scripts/install.py --uninstall --apply
 - [架构](docs/architecture.md)
 - [配置](docs/configuration.md)
 - [Hooks 与长期规则提示词](docs/hooks-and-prompts.md)
+- [Manager-only 模式契约](references/manager-only.md)
 - [确定性安装契约](INSTALL.md)
 - [贡献指南](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)

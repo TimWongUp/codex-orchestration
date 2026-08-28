@@ -6,6 +6,16 @@ A disciplined, cross-platform orchestration system for Codex custom subagents an
 
 Codex Orchestration is deliberately not a “spawn as many agents as possible” framework. Simple work stays with the main agent. Read-only agents can investigate in parallel by evidence area or independent viewpoint, while each root task follows a local single-writer lease. When the user explicitly requests official Codex worktrees and the work can be partitioned safely, one Integration Root may coordinate up to three independent Worktree Roots for isolated parallel implementation. Each Worktree Root behaves like a normal root task inside its assigned lane; neither the Integration Root nor its local workers write the repository until every declared handoff is accepted, after which it serially merges the batch and owns combined validation. It owns the final Review only when the batch is about to merge into the primary branch.
 
+An optional manager-only mode is enabled only by an explicit request such as “enable orchestration
+mode”, “main agent pure orchestration”, or “delegate everything to subagents”. For that current root
+task, the main agent adaptively decomposes and coordinates work: `explorer` investigates code,
+`worker` or a method worker implements, tests, and validates code, and risk-appropriate Reviewers
+handle independent review. The main agent performs Git/PR and non-code work, then reads the complete
+diff, key excerpts, and validation output only for final acceptance. Failed agents require
+re-decomposition, replacement, or a blocker report; after three unsuccessful Worker rounds, only
+read-only re-decomposition or a blocker report is allowed. No fourth code-writing round starts, and
+new code writes wait for a new user direction or explicit mode exit. The mode is not persisted.
+
 Repository: [github.com/TimWongUp/codex-orchestration](https://github.com/TimWongUp/codex-orchestration)
 
 ## Install
@@ -19,8 +29,16 @@ Install the latest Codex Orchestration from https://github.com/TimWongUp/codex-o
 Obtain and keep a suitable local checkout, read INSTALL.md completely, and use only
 scripts/install.py for installation. Run the non-interactive dry run for this platform first
 (use language en on a first install), show me the complete plan, and ask for my approval before
-running it again with --apply. After applying, verify the runtime and remind me to start a new
-Codex task. Preserve any existing checkout with uncommitted changes and all unmanaged local files.
+running it again with --apply. Inspect the local model-routing.toml: if it exists, validate it,
+show me the active role routes, and preserve it unless I request a change; if it is absent, verify
+the models, reasoning levels, and service tiers available on this host, explain the inheritance
+default, and ask whether I want to configure local routing. Show me the complete proposed route
+file and obtain my explicit approval before creating it. After applying, verify the runtime and
+remind me to start a new Codex task. If you created a new checkout only for this installation,
+explain that deleting it means a suitable checkout must be obtained again for future updates or
+uninstall, then ask whether I want it deleted. Do not delete it without my explicit confirmation,
+and never delete a checkout that existed before this installation. Preserve all unmanaged local
+files.
 ```
 
 Codex still obtains a checkout because the installer consumes the repository's Skills, Agent
@@ -62,6 +80,7 @@ The repository is the only source of truth for its portable Skills, Agents, inst
 ## What makes it different
 
 - **Delegation has a threshold.** Subagents are used only when parallel evidence, specialization, or a bounded worker can materially improve the result; the separate pre-merge gate authorizes only its selected read-only Reviewers.
+- **Manager-only is explicit and ephemeral.** A clear user request can make the current root task a strong-delegation manager: code investigation goes to `explorer`, implementation/tests/validation go to a leased Worker, and the root cannot silently take over after failure. After three unsuccessful rounds, only read-only re-decomposition or a blocker report remains; the user must give a new direction or explicitly consent before new code work.
 - **Handoffs preserve useful compression.** Delegation uses compact natural-language briefs with optional task, context, handoff, and reference sections instead of mandatory fields or temporary documents. Agents recover ordinary repository context and return traceable evidence.
 - **Task language is local.** Setup can persist English or Simplified Chinese delegation prose while role names, paths, and external protocol literals stay stable.
 - **Parallel reading, locally serialized writing.** Explorers, researchers, and reviewers may run concurrently; inside each root task, only the main agent or one leased worker writes at a time.
@@ -103,9 +122,18 @@ Use the explorer subagent to map the execution path for this feature, then summa
 
 For a broader feature discussion, ask Codex to use `web-researcher` for public implementation patterns or `reference-researcher` for official documentation.
 
+To opt into manager-only mode for one task, say:
+
+```text
+Enable orchestration mode for this task. Keep the main agent in pure orchestration: delegate
+substantive code investigation to explorer and all code implementation, tests, and validation to a
+worker. Use risk-appropriate reviewers, and do not take over silently if a worker fails.
+```
+
 ## What is included
 
 - A root-task orchestration Skill that owns delegation briefs, local write leases, Worktree Root coordination, acceptance, and reusable Agent execution.
+- An explicit, current-root-only manager-only branch with adaptive strong delegation and no silent code-work takeover.
 - An independent `codex-review-gate` Skill that defines the pre-merge R0–R3 route and authorizes only its selected read-only Reviewers; the merge-owning root executes classification, remediation, and integration.
 - The complete `diagnosing-bugs` and `prototype` method Skills used by their workers.
 - Read-only explorer, official-reference research, web research, expert, and focused-review agents.
@@ -122,6 +150,7 @@ The write lease is an orchestration contract, not an operating-system ACL. Each 
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/configuration.md)
 - [Hooks and long-lived prompts](docs/hooks-and-prompts.md)
+- [Manager-only mode contract](references/manager-only.md)
 - [Deterministic installation contract](INSTALL.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)

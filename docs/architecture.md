@@ -3,7 +3,8 @@
 Codex Orchestration separates six concerns:
 
 1. `SKILL.md` defines root-task routing and always-on orchestration invariants; branch-specific
-   collaboration, worker, lifecycle, model, and Worktree contracts live under `references/`.
+   collaboration, manager-only, worker, lifecycle, model, and Worktree contracts live under
+   `references/`.
 2. `skills/codex-review-gate/SKILL.md` defines and authorizes the primary-branch pre-merge risk
    route; the merge-owning root executes classification, Reviewer selection, remediation, and
    adversarial verification.
@@ -77,6 +78,24 @@ non-overlapping risk coverage can change the decision. The ordinary `single` pat
 agent and is not an evaluation mode. Only the panel path classifies the parent model; coverage and
 hybrid's specialist workstreams use ordinary role routes.
 
+## Manager-only branch
+
+Manager-only mode is an explicit opt-in for one current root task, documented in
+`references/manager-only.md`. It is adaptive strong delegation rather than a fixed pipeline:
+the root agent decomposes the goal, dispatches and coordinates work, handles Git/PR and non-code
+work, and retains final acceptance. Substantive code investigation goes to `explorer`, while code
+implementation, tests, and validation go to a leased `worker` or method worker. Independent Review
+still follows the current risk and the primary-branch boundary of `codex-review-gate`.
+
+In this branch, final acceptance is the only root-agent code inspection: it reads the complete diff,
+key excerpts, and validation output. A failed subagent or unaccepted handoff never permits a silent
+root-agent takeover; before three unsuccessful Worker rounds, the root may re-decompose or replace
+the agent, while after three rounds it may only re-decompose read-only or report a blocker. It never
+starts a fourth code-writing round, and new code-writing work waits for a new user direction or
+explicit mode exit. The mode is current-task-only and not persisted in preferences, model routing,
+Hooks, CLI, or other configuration. The root agent may resume ordinary code work only after the
+user explicitly consents to exit the mode.
+
 ## Pre-merge Review boundary
 
 Ordinary delegation is optional execution optimization; mandatory Review is a primary-branch
@@ -122,11 +141,16 @@ integration.
 Mechanical validation, an absent evidence axis, and a desired panel size do not create extra seats.
 R1 defaults to `correctness-reviewer`; a matching specialist replaces that default when the sole
 material hypothesis belongs to its domain, rather than adding another Reviewer for the same risk.
-Reviewer findings remain hypotheses until the main agent checks their cited evidence against the
-pinned candidate diff. After an accepted finding is fixed, the original Reviewer verifies that
+Reviewer findings remain hypotheses until the merge-owning root checks their cited evidence against
+the pinned candidate diff. After an accepted finding is fixed, the original Reviewer verifies that
 finding through a same-thread targeted follow-up; the gate does not restart a full Review solely to
 obtain a clean report. A new substantive change after Review stales the candidate and requires the
 merge-owning root to re-pin and reclassify it.
+
+The merge-owning root retains finding decisions, remediation authority, validation authority, and
+gate authority. In ordinary mode, the main agent may implement an accepted fix. In manager-only
+mode, the leased worker implements the accepted fix and runs validation; the root inspects and
+accepts the result before the original Reviewer performs the targeted follow-up.
 
 ## V2 lifecycle
 
