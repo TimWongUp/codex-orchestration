@@ -56,6 +56,7 @@ class SourceValidationTest(unittest.TestCase):
             "correctness-reviewer",
             "performance-reviewer",
             "security-reviewer",
+            "simplicity-reviewer",
             "specialist-reviewer",
             "test-reliability-reviewer",
         }

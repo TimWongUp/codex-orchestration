@@ -78,6 +78,7 @@ The installer copies physical files so the same result works on macOS and native
 | `skills/codex-review-gate/` | `<skills-root>/codex-review-gate/` |
 | `skills/diagnosing-bugs/` | `<skills-root>/diagnosing-bugs/` |
 | `skills/prototype/` | `<skills-root>/prototype/` |
+| `skills/simplicity-review/` | `<skills-root>/simplicity-review/` |
 | `agents/*.toml` | `<codex-home>/agents/` |
 | rendered `examples/preferences.toml` | `<codex-home>/codex-orchestration/preferences.toml` |
 

@@ -4,6 +4,8 @@
 
 - `README.md` and `README.zh-CN.md` are human-facing. Read them only when changing public usage or installation behavior.
 - Runtime behavior is defined by `SKILL.md`, `skills/`, `agents/`, `references/`, and `scripts/`.
+- Bundled method Skills and their corresponding Agent profiles are one portable runtime contract;
+  installation and validation must add or remove both sides together.
 - This repository is the source of truth for portable runtime behavior. Installed Skills, Agents,
   and global rules are deployment artifacts; task-package language, machine-specific routing, and unrelated Hook registration stay outside the repository.
 - The target local platforms are macOS and native Windows. Claim support only after both CI

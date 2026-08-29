@@ -40,8 +40,9 @@ Codex plugin packaging is not the suite authority because plugins do not replace
 custom-Agent projection.
 
 The `skills/diagnosing-bugs` and `skills/prototype` directories contain the complete method Skills
-loaded by their corresponding writable workers. The Agent profiles retain lease and orchestration
-boundaries; the method Skills provide the detailed debugging and prototype workflows.
+loaded by their corresponding writable workers. `skills/simplicity-review` contains the review
+method loaded by the read-only `simplicity-reviewer`. Agent profiles retain authority and
+orchestration boundaries; method Skills provide the detailed task workflow.
 
 Every Codex task is a root for its own agent tree. Derived agents remain non-orchestrators, while a
 Worktree Root is an independent task and session with the same local orchestration authority as any
