@@ -1181,6 +1181,7 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue((effective_home / "AGENTS.md").is_file())
             self.assertTrue((effective_skills / "codex-orchestration" / "SKILL.md").is_file())
             self.assertTrue((effective_skills / "codex-review-gate" / "SKILL.md").is_file())
+            self.assertTrue((effective_skills / "simplicity-review" / "SKILL.md").is_file())
             if os.name != "nt":
                 self.assertEqual(stat.S_IMODE(effective_home.stat().st_mode), 0o700)
                 self.assertEqual(stat.S_IMODE(effective_skills.stat().st_mode), 0o700)

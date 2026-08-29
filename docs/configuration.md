@@ -17,6 +17,7 @@ configuration and installed Skill listings. Managed destinations are:
 - `<skills-root>/codex-review-gate` — the independent primary-branch pre-merge Review policy copy.
 - `<skills-root>/diagnosing-bugs` — the bundled complete debugging Skill copy.
 - `<skills-root>/prototype` — the bundled complete prototype Skill copy.
+- `<skills-root>/simplicity-review` — the bundled read-only simplification-review method copy.
 - `<codex-home>/agents/*.toml` — managed custom-agent copies.
 - `<codex-home>/codex-orchestration/preferences.toml` — only when a task-package language is
   saved.
@@ -41,7 +42,7 @@ states used for managed installation targets.
 
 ## Existing Skill preflight
 
-All four Skill targets are checked before any installation write:
+All listed Skill targets are checked before any installation write:
 
 - An exact source copy is `current`.
 - A missing Skill is planned for creation.
