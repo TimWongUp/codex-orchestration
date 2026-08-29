@@ -42,7 +42,7 @@ states used for managed installation targets.
 
 ## Existing Skill preflight
 
-All four Skill targets are checked before any installation write:
+All listed Skill targets are checked before any installation write:
 
 - An exact source copy is `current`.
 - A missing Skill is planned for creation.
