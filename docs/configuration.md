@@ -18,7 +18,6 @@ inspecting their current configuration and installed Skill listings. Managed des
 - `<skills-root>/codex-review-gate` — the independent primary-branch pre-merge Review policy copy.
 - `<skills-root>/diagnosing-bugs` — the bundled complete debugging Skill copy.
 - `<skills-root>/prototype` — the bundled complete prototype Skill copy.
-- `<skills-root>/simplicity-review` — the bundled read-only simplification-review method copy.
 - `<codex-home>/agents/*.toml` — managed custom-agent copies.
 - `<codex-home>/codex-orchestration/preferences.toml` — only when a task-package language is
   saved.

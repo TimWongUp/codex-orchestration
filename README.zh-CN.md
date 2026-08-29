@@ -84,7 +84,7 @@ python3 scripts/install.py --uninstall --apply
 - **Review 是主分支集成门。** `codex-review-gate` 只在当前根任务准备把 PR、分支或已验收的 Worktree 集成分支并入 Git 仓库主分支时运行。普通任务完成、未合并交接、并不准备立即合并的 PR 创建或更新，以及没有 Git 历史的仓库只做正常验证，不进入 R0–R3。门生效时检查最新候选 diff：R0 覆盖已完整验证且不存在实质失败假设的改动；R1 对一个局部、已验证、可恢复的假设使用一名匹配 Reviewer；R2 覆盖多个独立风险、广泛或难恢复的合同、敏感边界及实质性不确定；R3 对信任边界变化或高影响失败追加专项整改与对抗式复核。只有新增实质失败假设才增加席位，不设人数配额。
 - **Review 结论保留证据类别。** Reviewer 留在指定变更边界和风险内；当结论依赖任务或 Spec 要求、仓库规范时，引用对应来源并标明证据类别，不因此启动通用 Standards/Spec 审查。判断性风险明确标注，当前通过的工具已能确定覆盖的检查不再重复报告，除非工具覆盖本身存在疑问。接受的 finding 修复后，由原 Reviewer 在同一线程做定向复核；这不等于为取得 clean 报告而重启整轮 Review。
 - **测试必须值得其维护成本。** 可写 Agent 只在测试能通过正确的可观察 seam 提供独特信心时才补测试，并优先扩展成本最低的合适层级中的现有测试。测试可靠性 Reviewer 还会识别为覆盖率凑数、重复、绑定实现或文案、不稳定及只保留退役兼容性的测试，但只有在等价行为与故障保护仍然存在时才建议删除。
-- **简化审查保持显式且只读。** 可选的 `simplicity-reviewer` 加载一份专项方法 Skill，查找可删除代码、无必要抽象、重复防护和过度测试，同时不替代正确性、安全或性能审查。
+- **简化审查保持显式、只读且自包含。** 可选的 `simplicity-reviewer` 查找可删除代码、无必要抽象、重复防护和过度测试，同时不替代正确性、安全或性能审查。
 - **模型路由留在本机。** Agent 配置不绑定模型；角色顺位、任务级覆盖、按主代理家族区分的
   Panel 阵容和宿主强制的服务层级要求都按本机配置。只有 `panel` 与 `hybrid` 的 Panel 部分读取
   宿主最新模型绑定，普通委派直接使用本地角色路由。
@@ -117,7 +117,7 @@ python3 scripts/install.py --uninstall --apply
 - 负责委派简报、本地写入租约、Worktree Root 协调、验收和通用 Agent 执行的根任务编排 Skill。
 - 一个显式、仅当前根任务生效的 manager-only 分支，提供自适应强委派并禁止静默接管代码工作。
 - 独立定义合并前 R0–R3 路由、且只授权所选只读 Reviewer 的 `codex-review-gate` Skill；分级、整改和集成由合并负责人执行。
-- `diagnosing-bugs`、`prototype` 和 `simplicity-review` 三份由对应 Agent 使用的完整方法 Skill。
+- `diagnosing-bugs` 和 `prototype` 两份由对应可写 Agent 使用的完整方法 Skill。
 - 只读代码探索、官方资料研究、Web 研究、专家和专项 Review Agent。
 - 受每个根任务单 Writer 租约约束的实现、Bug 诊断和原型 Worker。
 - 不安装项目 Hook；工具 schema 负责调用机制，Skill 负责编排策略，Agent 配置负责派生代理职责边界。

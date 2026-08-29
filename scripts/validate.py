@@ -17,7 +17,6 @@ BUNDLED_SKILLS = {
     "codex-review-gate": ROOT / "skills" / "codex-review-gate",
     "diagnosing-bugs": ROOT / "skills" / "diagnosing-bugs",
     "prototype": ROOT / "skills" / "prototype",
-    "simplicity-review": ROOT / "skills" / "simplicity-review",
 }
 THIRD_PARTY_SKILLS = {"diagnosing-bugs", "prototype"}
 WRITERS = {"worker", "diagnosing-bugs-worker", "prototype-worker"}
@@ -1041,10 +1040,17 @@ def validate_source() -> list[str]:
         "prototype-worker does not load its method Skill",
         failures,
     )
+    simplicity_reviewer = (ROOT / "agents" / "simplicity-reviewer.toml").read_text(encoding="utf-8")
     require(
-        "load the `simplicity-review` Skill"
-        in (ROOT / "agents" / "simplicity-reviewer.toml").read_text(encoding="utf-8"),
-        "simplicity-reviewer does not load its method Skill",
+        all(
+            phrase in simplicity_reviewer
+            for phrase in (
+                "Review in this order",
+                "For each finding, identify its location",
+                "If no material simplification remains",
+            )
+        ),
+        "simplicity-reviewer missing its embedded review contract",
         failures,
     )
     for phrase in ("returns a checkpoint instead of guessing", "at most three writable rounds"):
