@@ -65,6 +65,9 @@ class InstallerTests(unittest.TestCase):
             (codex_home / "AGENTS.md").write_bytes(user_rules)
             hooks_content = b"{invalid but user-owned\n"
             (codex_home / "hooks.json").write_bytes(hooks_content)
+            independent_skill = skills_root / "simplicity-review" / "SKILL.md"
+            independent_skill.parent.mkdir()
+            independent_skill.write_text("independently managed\n", encoding="utf-8")
 
             plan = self.build(codex_home, skills_root)
             self.assertEqual(plan.conflicts, [])
@@ -81,6 +84,9 @@ class InstallerTests(unittest.TestCase):
                 legacy_agent.read_text(encoding="utf-8"), "user-owned legacy profile\n"
             )
             self.assertEqual(legacy_hook.read_text(encoding="utf-8"), "user-owned legacy hook\n")
+            self.assertEqual(
+                independent_skill.read_text(encoding="utf-8"), "independently managed\n"
+            )
             self.assertTrue((skills_root / "codex-review-gate" / "SKILL.md").is_file())
             self.assertTrue(
                 (
@@ -194,6 +200,9 @@ class InstallerTests(unittest.TestCase):
             local_root = codex_home / "codex-orchestration"
             model_route = local_root / "model-routing.toml"
             model_route.write_bytes(b"local model route\n")
+            independent_skill_file = skills_root / "simplicity-review" / "SKILL.md"
+            independent_skill_file.parent.mkdir()
+            independent_skill_file.write_bytes(b"independently managed\n")
             unmanaged_skill_file = skills_root / "codex-orchestration" / "personal-note.md"
             unmanaged_skill_file.write_bytes(b"preserve inside managed directory\n")
             rules_path = codex_home / "AGENTS.md"
@@ -218,6 +227,7 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual((codex_home / "hooks.json").read_bytes(), hooks_content)
             self.assertEqual(unmanaged_agent.read_bytes(), b"personal agent\n")
             self.assertEqual(model_route.read_bytes(), b"local model route\n")
+            self.assertEqual(independent_skill_file.read_bytes(), b"independently managed\n")
             self.assertEqual(
                 unmanaged_skill_file.read_bytes(), b"preserve inside managed directory\n"
             )
@@ -1200,7 +1210,7 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue((effective_home / "AGENTS.md").is_file())
             self.assertTrue((effective_skills / "codex-orchestration" / "SKILL.md").is_file())
             self.assertTrue((effective_skills / "codex-review-gate" / "SKILL.md").is_file())
-            self.assertTrue((effective_skills / "simplicity-review" / "SKILL.md").is_file())
+            self.assertFalse((effective_skills / "simplicity-review").exists())
             if os.name != "nt":
                 self.assertEqual(stat.S_IMODE(effective_home.stat().st_mode), 0o700)
                 self.assertEqual(stat.S_IMODE(effective_skills.stat().st_mode), 0o700)
