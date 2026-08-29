@@ -67,6 +67,33 @@ TEST_NECESSITY_REVIEW_CONTRACT = (
     "candidates. Recommend removal only when equivalent behavior and failure protection remain; "
     "never optimize for test count."
 )
+SIMPLICITY_REVIEW_ORDER_PHRASES = (
+    "Review in this order, stopping when an earlier option fully satisfies the current contract",
+    "Delete code, configuration, compatibility logic, or future scaffolding",
+    "Reuse existing repository code or a repository pattern",
+    "Consolidate single-implementation interfaces, one-caller forwarding layers",
+    "Reduce hashes, checksums, caches, retries, compatibility handling",
+    "Reduce tests without independent behavior protection",
+)
+SIMPLICITY_REVIEW_CONTRACT_PHRASES = (
+    "category as delete, reuse, consolidation, defense, or test",
+    "why the current complexity is unnecessary",
+    "the smallest replacement that preserves equivalent behavior",
+    "the behavior or protection retained",
+    "Do not treat personal style, line count, file count, or abstraction preference alone",
+    "Preserve validation at real trust boundaries",
+    "security and data-integrity requirements, data-loss prevention, accessibility, explicit user "
+    "requirements, repository gates, and tests with independent regression value",
+    "when evidence is incomplete, state the uncertainty",
+    "Report only concrete deletion, reuse, consolidation, defensive-complexity, or test-complexity "
+    "findings",
+    "supported by current requirements, call paths, and repository evidence",
+    "Stay within the assigned boundary",
+    "do not turn the review into a general refactor or duplicate correctness, security, "
+    "performance, or style review",
+    "If no material simplification remains",
+    "do not invent findings to fill a quota",
+)
 REVIEW_ROUTE_REVIEW_CELLS = {
     "R0": "None; the main agent inspects the complete diff and validates it.",
     "R1": "One Reviewer; select its role by the R1 rule below.",
@@ -935,6 +962,15 @@ def validate_source() -> list[str]:
             ):
                 require(phrase in bundled, f"{name} missing attribution: {phrase}", failures)
 
+    expected_skill_dirs = set(BUNDLED_SKILLS) - {"codex-orchestration"}
+    actual_skill_dirs = {path.name for path in (ROOT / "skills").iterdir() if path.is_dir()}
+    require(
+        actual_skill_dirs == expected_skill_dirs,
+        "unregistered or missing bundled Skill directories: "
+        f"expected {sorted(expected_skill_dirs)}, found {sorted(actual_skill_dirs)}",
+        failures,
+    )
+
     notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
     upstream_license = (ROOT / "licenses" / "mattpocock-skills-MIT.txt").read_text(encoding="utf-8")
     require(
@@ -1040,17 +1076,20 @@ def validate_source() -> list[str]:
         "prototype-worker does not load its method Skill",
         failures,
     )
-    simplicity_reviewer = (ROOT / "agents" / "simplicity-reviewer.toml").read_text(encoding="utf-8")
+    simplicity_reviewer = profile_instructions.get("simplicity-reviewer", "")
+    simplicity_order = [
+        simplicity_reviewer.find(phrase) for phrase in SIMPLICITY_REVIEW_ORDER_PHRASES
+    ]
     require(
-        all(
-            phrase in simplicity_reviewer
-            for phrase in (
-                "Review in this order",
-                "For each finding, identify its location",
-                "If no material simplification remains",
-            )
-        ),
+        all(position >= 0 for position in simplicity_order)
+        and simplicity_order == sorted(set(simplicity_order))
+        and all(phrase in simplicity_reviewer for phrase in SIMPLICITY_REVIEW_CONTRACT_PHRASES),
         "simplicity-reviewer missing its embedded review contract",
+        failures,
+    )
+    require(
+        "load the `simplicity-review` Skill" not in simplicity_reviewer,
+        "simplicity-reviewer must not depend on the independently managed Skill",
         failures,
     )
     for phrase in ("returns a checkpoint instead of guessing", "at most three writable rounds"):

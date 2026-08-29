@@ -118,6 +118,63 @@ class SourceValidationTest(unittest.TestCase):
                     failures,
                 )
 
+    def test_simplicity_reviewer_embeds_its_method_without_skill_dependency(self) -> None:
+        target = ROOT / "agents" / "simplicity-reviewer.toml"
+        original_read = Path.read_text
+        source = target.read_text(encoding="utf-8")
+        second = "2. Reuse existing repository code or a repository pattern"
+        third = "3. Consolidate single-implementation interfaces, one-caller forwarding layers"
+        safety_clause = (
+            "security and data-integrity requirements, data-loss prevention, accessibility, "
+            "explicit user requirements, repository gates, and tests with independent regression "
+            "value"
+        )
+        cases = (
+            (
+                source.replace("why the current complexity is unnecessary", "why it matters", 1),
+                "simplicity-reviewer missing its embedded review contract",
+            ),
+            (
+                source.replace(safety_clause, "basic protections", 1),
+                "simplicity-reviewer missing its embedded review contract",
+            ),
+            (
+                source.replace(safety_clause, "", 1).replace(
+                    'description = "', f'description = "{safety_clause} ', 1
+                ),
+                "simplicity-reviewer missing its embedded review contract",
+            ),
+            (
+                source.replace(
+                    '\n"""', '\nBefore reviewing, load the `simplicity-review` Skill.\n"""', 1
+                ),
+                "simplicity-reviewer must not depend on the independently managed Skill",
+            ),
+            (
+                source.replace(second, "__SECOND_STEP__", 1)
+                .replace(third, second, 1)
+                .replace("__SECOND_STEP__", third, 1),
+                "simplicity-reviewer missing its embedded review contract",
+            ),
+        )
+
+        for mutated, expected in cases:
+            with self.subTest(expected=expected):
+
+                def mutated_profile(
+                    path: Path,
+                    encoding: str | None = None,
+                    errors: str | None = None,
+                ) -> str:
+                    if path == target:
+                        return mutated
+                    return original_read(path, encoding=encoding, errors=errors)
+
+                with mock.patch.object(Path, "read_text", mutated_profile):
+                    failures = VALIDATOR.validate_source()
+
+                self.assertIn(expected, failures)
+
     def test_test_assurance_contracts_reject_tail_contradictions(self) -> None:
         original_read = Path.read_text
         cases: list[tuple[Path, str, str]] = []
