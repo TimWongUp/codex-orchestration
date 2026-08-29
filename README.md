@@ -52,7 +52,7 @@ For manual installation, download or clone the repository, then run this from th
 python3 scripts/install.py
 ```
 
-On a first install, setup suggests `en` or `zh-CN` from the system locale, prints the complete plan, and asks once before applying it. Later updates reuse the saved language. The default targets are `~/.codex` and the documented Codex user Skill directory `~/.agents/skills`. Replace `python3` with `py -3` on native Windows.
+On a first install, setup suggests `en` or `zh-CN` from the system locale, prints the complete plan, and asks once before applying it. Later updates reuse the saved language. The default targets are `~/.codex` and its `skills` directory (`~/.codex/skills`). Replace `python3` with `py -3` on native Windows.
 
 Non-interactive runs never prompt and are dry runs by default. Pass `--language en` or `--language zh-CN` on the first run, review the plan, then add `--apply`. Non-standard runtimes can still override `--codex-home` and `--skills-root`.
 

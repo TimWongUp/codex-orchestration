@@ -9,9 +9,10 @@ can serve different machines without publishing private paths or model identifie
 
 ## Install scope
 
-Interactive user installation defaults to `~/.codex` and the documented user Skill root
-`~/.agents/skills`. Non-standard runtimes pass explicit targets after inspecting their current
-configuration and installed Skill listings. Managed destinations are:
+Interactive user installation defaults to `~/.codex` and its `skills` directory
+(`~/.codex/skills`). An explicit or environment-selected Codex home uses its own `skills`
+directory unless `--skills-root` overrides it. Non-standard runtimes pass explicit targets after
+inspecting their current configuration and installed Skill listings. Managed destinations are:
 
 - `<skills-root>/codex-orchestration` — the main Skill copy.
 - `<skills-root>/codex-review-gate` — the independent primary-branch pre-merge Review policy copy.

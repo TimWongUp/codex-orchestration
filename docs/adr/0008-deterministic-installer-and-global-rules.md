@@ -20,7 +20,7 @@ a second installation path.
 
 Ship `scripts/install.py` as the deterministic implementation of `INSTALL.md`. An interactive human
 can run it without arguments: Codex home follows `CODEX_HOME` or `~/.codex`, the Skill root defaults
-to the documented user location `~/.agents/skills`, a first install prompts for its task-package
+to `<codex-home>/skills`, a first install prompts for its task-package
 language with a locale-derived default, and the complete plan requires explicit confirmation before
 writing. Non-interactive use remains dry-run by default, requires an explicit language on first
 install, and writes only with `--apply`. Every default remains overridable for a non-standard
@@ -46,6 +46,10 @@ the installer and keeps all unmanaged Agent and Hook content outside its project
 Model routing stays local and outside automated setup because availability and service-tier
 enforcement require live host evidence. Symlink cutovers and ambiguous legacy ownership remain
 explicit user decisions rather than `--apply` side effects.
+
+The earlier fixed `~/.agents/skills` default is superseded by the active Codex home's `skills`
+directory. Explicit `--skills-root` remains the compatibility path for an intentionally shared or
+legacy root; the installer does not migrate or remove another root implicitly.
 
 The installer is not a journaled or hostile-local-process transaction boundary. Abrupt termination
 can leave a partial projection, and concurrent replacement of selected roots is unsupported. The

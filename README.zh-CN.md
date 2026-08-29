@@ -39,7 +39,7 @@ Codex 仍会在后台取得一份 checkout，因为安装器需要一起使用�
 python3 scripts/install.py
 ```
 
-首次安装会根据系统语言建议 `zh-CN` 或 `en`，输出完整计划，再询问一次是否应用；以后更新直接复用已有语言。默认目标是 `~/.codex` 和 Codex 官方用户 Skill 目录 `~/.agents/skills`。原生 Windows 只需把 `python3` 换成 `py -3`。
+首次安装会根据系统语言建议 `zh-CN` 或 `en`，输出完整计划，再询问一次是否应用；以后更新直接复用已有语言。默认目标是 `~/.codex` 及其 `skills` 目录（`~/.codex/skills`）。原生 Windows 只需把 `python3` 换成 `py -3`。
 
 非交互环境不会询问并默认只做 dry run；首次运行须传入 `--language zh-CN` 或 `--language en`，确认计划后追加 `--apply`。非标准运行时仍可通过 `--codex-home` 和 `--skills-root` 覆盖默认路径。
 

@@ -19,7 +19,6 @@ ROOT = Path(__file__).resolve().parents[1]
 GLOBAL_RULES_CANDIDATES = ("AGENTS.md", "AGENTS.override.md")
 WINDOWS_CONSERVATIVE_PATH_LIMIT = 248
 TEMPORARY_TOKEN_LENGTH = 24
-DEFAULT_SKILLS_ROOT = Path.home() / ".agents" / "skills"
 
 
 @dataclass(frozen=True)
@@ -978,8 +977,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--skills-root",
         type=Path,
-        default=DEFAULT_SKILLS_ROOT,
-        help="Codex user Skill root (default: ~/.agents/skills)",
+        help="Codex user Skill root (default: <codex-home>/skills)",
     )
     parser.add_argument(
         "--language",
@@ -1013,7 +1011,7 @@ def main(argv: list[str] | None = None, *, interactive: bool | None = None) -> i
             print(f"FAIL: {failure}")
         return 1
     codex_home = args.codex_home.expanduser().absolute()
-    skills_root = args.skills_root.expanduser().absolute()
+    skills_root = (args.skills_root or codex_home / "skills").expanduser().absolute()
     if interactive is None:
         interactive = interactive_terminal()
     if args.uninstall and args.language is not None:

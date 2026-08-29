@@ -21,12 +21,16 @@ The standard user targets require no path arguments:
 - `--codex-home`: the active Codex home. An explicit value wins, then `CODEX_HOME`, then the
   documented Codex default `~/.codex`.
 - `--skills-root`: the Skill root loaded by the current Codex runtime. An explicit value wins;
-  otherwise the installer uses the documented user Skill root `~/.agents/skills`.
+  otherwise the installer uses `<codex-home>/skills` (normally `~/.codex/skills`).
 
 Pass explicit roots only for a non-standard runtime. Inspect current Codex configuration and
 installed Skill listings when its active targets are not the documented defaults. Existing
 deployment registries may record this checkout as the suite authority, but they must mark its
 members as externally installed and leave runtime writes to this installer.
+
+An installation that intentionally remains under a previous or shared Skill root must keep passing
+that path with `--skills-root`. Changing the default does not move or delete files from another
+root; a cutover remains the explicit migration described in section 7.
 
 ## 2. Plan before applying
 
