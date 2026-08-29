@@ -36,6 +36,8 @@
   With no route, subagents request inheritance from current Codex settings; the resolved model
   remains unconfirmed. The installer never invents host-specific model IDs; an Agent-assisted
   install offers optional local routing only after live host verification and explicit approval.
+- Without an explicit `--skills-root`, installation targets the resolved Codex home's `skills`
+  directory; alternate and legacy roots remain explicit, non-migrating overrides.
 - Keep delegation prose language local while role names, paths, and external protocol literals remain portable.
 - Deterministic installation writes only the current named projection. Explicit uninstall removes
   only byte-matching current managed files and the marker-owned global-rules block. Preserve all

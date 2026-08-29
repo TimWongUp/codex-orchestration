@@ -20,4 +20,4 @@ select = ["E", "F", "I", "UP"]
 
 [tool.pyright]
 pythonVersion = "3.9"
-include = ["scripts", "hooks", "tests"]
+include = ["scripts", "tests"]

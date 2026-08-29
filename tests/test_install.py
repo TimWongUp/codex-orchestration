@@ -928,10 +928,32 @@ class InstallerTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             self.assertIn(f"Codex home: {home / '.codex'}", result.stdout)
-            self.assertIn(f"Skill root: {home / '.agents' / 'skills'}", result.stdout)
+            self.assertIn(f"Skill root: {home / '.codex' / 'skills'}", result.stdout)
             self.assertIn("first install requires --language", result.stdout)
             self.assertFalse((home / ".codex").exists())
-            self.assertFalse((home / ".agents").exists())
+
+    def test_cli_explicit_codex_home_derives_its_skill_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary).resolve() / "custom-codex"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS_ROOT / "install.py"),
+                    "--codex-home",
+                    str(codex_home),
+                    "--language",
+                    "en",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(f"Codex home: {codex_home}", result.stdout)
+            self.assertIn(f"Skill root: {codex_home / 'skills'}", result.stdout)
+            self.assertFalse(codex_home.exists())
 
     def test_interactive_terminal_requires_input_and_output_ttys(self) -> None:
         for stdin_isatty, stdout_isatty, expected in (
@@ -955,7 +977,7 @@ class InstallerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary).resolve()
             codex_home = home / ".codex"
-            skills_root = home / ".agents" / "skills"
+            skills_root = codex_home / "skills"
             answers = iter(("", "y"))
 
             def answer_prompt(prompt: str) -> str:
@@ -972,7 +994,6 @@ class InstallerTests(unittest.TestCase):
             output = io.StringIO()
             with (
                 mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}),
-                mock.patch.object(INSTALL, "DEFAULT_SKILLS_ROOT", skills_root),
                 mock.patch.object(INSTALL, "detected_task_package_language", return_value="zh-CN"),
                 mock.patch("builtins.input", side_effect=answer_prompt) as prompt,
                 contextlib.redirect_stdout(output),
@@ -1010,7 +1031,6 @@ class InstallerTests(unittest.TestCase):
             current_output = io.StringIO()
             with (
                 mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}),
-                mock.patch.object(INSTALL, "DEFAULT_SKILLS_ROOT", skills_root),
                 mock.patch("builtins.input", side_effect=AssertionError("unexpected prompt")),
                 contextlib.redirect_stdout(current_output),
             ):
@@ -1037,7 +1057,6 @@ class InstallerTests(unittest.TestCase):
 
             with (
                 mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}),
-                mock.patch.object(INSTALL, "DEFAULT_SKILLS_ROOT", skills_root),
                 mock.patch("builtins.input", side_effect=confirm_update) as update_prompt,
                 contextlib.redirect_stdout(update_output),
             ):
