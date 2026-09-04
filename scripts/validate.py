@@ -802,6 +802,8 @@ def validate_source() -> list[str]:
         "same local orchestration authority as any other",
         "separately authorizes only its selected R1-R3 read-only Reviewers",
         "without reapplying the ordinary delegation threshold",
+        "when the calling Skill or Agent role supplies a machine-validated return schema",
+        "follow that specialized schema",
     ):
         require(phrase in normalized_skill, f"missing Skill contract: {phrase}", failures)
 

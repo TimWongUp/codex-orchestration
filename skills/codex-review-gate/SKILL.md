@@ -2,7 +2,7 @@
 name: codex-review-gate
 description: Apply the R0-R3 pre-merge Review gate when a Git-managed repository is about to merge a pull request, branch, or accepted Worktree integration branch into its primary branch. It selects and authorizes read-only Reviewers for R1-R3; the root handles classification, remediation, validation, and integration. Do not use it for ordinary task completion, unmerged handoffs, or repositories without Git history.
 metadata:
-  version: 0.10.6
+  version: 0.10.7
 ---
 
 # Codex pre-merge review gate

@@ -2,7 +2,7 @@
 name: codex-orchestration
 description: Root-task orchestration for explicit subagent or parallel work, official Codex Worktree Roots, R1-R3 Reviewers selected by codex-review-gate, and coding tasks with a clear delegation payoff. An explicit user request for manager-only or pure-orchestration mode enables strong delegation for the current root task; in ordinary mode keep simple tasks and ordinary documentation with the main agent; derived agents must not invoke it.
 metadata:
-  version: 0.10.6
+  version: 0.10.7
 ---
 
 # Codex subagent orchestration
@@ -81,8 +81,9 @@ Keep role names, paths, and tool or protocol literals unchanged.
 Give each agent one primary outcome in a compact natural-language brief. Include only context the
 agent cannot cheaply recover, the handoff focus, and useful files, diffs, logs, or URLs. State
 exclusions, authority boundaries, validation expectations, or completion signals only when they
-materially change the assignment. Ask for decision-relevant evidence rather than fixed field
-labels; redact sensitive data and omit unrelated conversation history and reasoning.
+materially change the assignment. Ask for decision-relevant evidence without inventing fixed field
+labels; when the calling Skill or Agent role supplies a machine-validated return schema, follow that
+specialized schema. Redact sensitive data and omit unrelated conversation history and reasoning.
 
 ## Lifecycle
 
