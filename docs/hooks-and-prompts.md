@@ -19,7 +19,7 @@ or “delegate everything to subagents”) and applies only to the current root 
 then points to `references/manager-only.md`, where adaptive strong delegation, worker failure
 handling, final acceptance, and the explicit user-consent exit are defined. No preference, model
 route, CLI flag, configuration file, Agent profile, or global prompt persists the mode. The global
-block remains the compact ordinary routing and primary-branch Review pointer shown below.
+block remains the compact ordinary routing and PR Review/merge-check pointer shown below.
 
 ## Long-lived root-task prompt
 
