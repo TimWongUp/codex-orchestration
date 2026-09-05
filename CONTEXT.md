@@ -7,8 +7,8 @@ from agents derived inside one task.
 
 **Integration Root**:
 The root Codex task that coordinates independent worktree lanes and owns the accepted integration
-branch and combined validation. It owns Pre-merge Review only when it also owns the primary-branch
-merge.
+branch and combined validation. It owns PR Review when handling that PR, and Pre-merge Review
+when it also owns the primary-branch merge.
 _Avoid_: parent agent, integration worker
 
 **Worktree Root**:
@@ -31,8 +31,11 @@ report; new code writing waits for a new user direction or explicit exit. Leavin
 user's explicit consent.
 _Avoid_: default orchestration, persistent manager mode, mandatory pipeline
 
+**PR Review**:
+Risk-based assessment of a pinned PR candidate, started after creation or update or on an explicit
+review request, independently of CI availability.
+_Avoid_: merge authorization, automatic repository monitoring
+
 **Pre-merge Review**:
-The mandatory root-task quality gate applied to the latest pinned candidate diff immediately before
-it enters the repository's primary branch. It is separate from ordinary validation and delegation
-admission.
+The final check that valid risk Review and required validation cover the latest pinned candidate diff before it enters the primary branch; it may reuse an earlier PR Review.
 _Avoid_: implementation delegation, proactive delegation

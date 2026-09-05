@@ -15,7 +15,7 @@ directory unless `--skills-root` overrides it. Non-standard runtimes pass explic
 inspecting their current configuration and installed Skill listings. Managed destinations are:
 
 - `<skills-root>/codex-orchestration` — the main Skill copy.
-- `<skills-root>/codex-review-gate` — the independent primary-branch pre-merge Review policy copy.
+- `<skills-root>/codex-review-gate` — the independent PR Review and final merge-check policy copy.
 - `<skills-root>/diagnosing-bugs` — the bundled complete debugging Skill copy.
 - `<skills-root>/prototype` — the bundled complete prototype Skill copy.
 - `<codex-home>/agents/*.toml` — managed custom-agent copies.
@@ -93,15 +93,15 @@ In this mode the root agent decomposes and coordinates adaptively, sends substan
 investigation to `explorer`, and sends code implementation, tests, and validation to a leased
 `worker` or method worker. It handles Git/PR and non-code work, then reads only the complete final
 diff, key excerpts, and validation output for acceptance. Independent Review still follows current
-risk and the primary-branch `codex-review-gate` boundary. Failed agents require re-decomposition,
+risk and the PR/merge triggers of `codex-review-gate`. Failed agents require re-decomposition,
 replacement, or a blocker report; after three unsuccessful Worker rounds, only read-only
 re-decomposition or a blocker report is allowed. No fourth code-writing round starts, and new code
 writes wait for a new user direction or explicit mode exit.
 
 This project installs no Hook. Agent profiles own derived-agent identity and read-only scope;
 `codex-orchestration` owns root-task Agent execution, while `codex-review-gate` defines the
-primary-branch pre-merge Review route and Reviewer authorization. The merge-owning root executes
-classification, remediation, verification, and integration; main-agent acceptance still checks the
+PR Review and final merge-check route and Reviewer authorization. The review-owning root executes
+classification, authorized remediation, and verification; the merge-owning root owns integration; main-agent acceptance still checks the
 complete worker diff and validation. Delegation uses compact natural-language briefs instead of
 fixed authorization fields.
 
@@ -143,23 +143,25 @@ Nested, unmatched, duplicated, or non-standalone marker tokens are conflicts.
 `--no-global-rules` leaves existing global files unchanged; it is not an uninstall operation. A
 managed block that already exists must match the current canonical block, so this option cannot
 silently combine new Skills with stale Review routing. The full workflows stay in their Skills to
-keep global context small. The Review pointer requires `codex-review-gate` only when the current
-root is about to merge a pull request, branch, or accepted Worktree integration branch into a Git
-repository's primary branch. It does not fire for ordinary task completion, unmerged handoff,
-pull-request creation or update without an imminent merge, or a repository without Git history.
+keep global context small. The Review pointer requires `codex-review-gate` after creating or updating a PR, when asked to
+review an existing PR including external contributions, and before an authorized primary-branch merge.
+Ordinary local completion, branch-only handoff without a review request, and repositories without
+Git history do not trigger it. PR creation/update includes Review but not merge authorization.
 The gate authorizes only its R1-R3 read-only Reviewers. Ordinary proactive-delegation admission
 cannot suppress those Reviewer calls, while implementation and investigation delegation retain
 their normal threshold. Loading the gate classifies the latest candidate diff; it does not by
 itself start a Reviewer, since R0 completes with main-agent validation only.
 
-## Pre-merge review
+## PR Review and final merge check
 
-`codex-review-gate` applies only with committed source and primary-branch histories and an imminent
-merge into the primary branch. If either condition is absent, the task continues with normal
-validation and handoff without R0-R3 classification. Once the gate applies, a pinned
-merge-base-to-candidate diff is required; inability to pin it blocks the merge until the required
-history and refs are available. It then classifies the latest validated candidate immediately
-before merge. R0 covers local,
+Review needs committed source and target histories and a pinned candidate diff; inability to pin it blocks the merge until the required history and refs are available. Start Review independently
+of CI availability and alongside relevant CI when configured. Use appropriate local validation
+when CI is absent; disclose validation gaps. Expected CI awaiting approval, missing a run, or
+failing to start is a blocker, not absent CI or a pass. Do not create CI merely for this gate.
+External contributions follow the same risk criteria, with no implicit authority to edit the
+contributor's branch, approve workflow execution, or merge.
+
+R0 covers local,
 self-contained changes that the main agent completely verified at the boundary where their behavior
 is observable, that are easy to recover, and that leave no material failure hypothesis current
 validation does not exclude; runtime behavior changes qualify, and a self-contained illustrative or
@@ -191,15 +193,17 @@ the evidence class without starting a generic Standards/Spec pass. Labelled judg
 distinct, and Reviewers omit checks conclusively covered by current passing tooling unless the
 tool's coverage or evidence is itself part of the assigned risk.
 
-The merge-owning root decides findings, controls remediation, and owns validation and gate
-authority. In ordinary mode, the main agent may implement an accepted fix and rerun affected
+The review-owning root decides findings and controls authorized remediation and validation; the
+merge-owning root retains final integration authority. In ordinary mode, the main agent may implement an accepted fix and rerun affected
 validation. In manager-only mode, the leased worker implements the accepted fix and runs validation;
 the root inspects and accepts that result before the original Reviewer receives a same-thread
 targeted follow-up against the candidate diff. This closes the assigned finding without restarting a
 full Review merely to obtain a clean report.
-New substantive changes after Review stale the candidate and require reclassification. Optional
-early design or specialist consultation can still prevent risk from compounding, but it does not
-count as the mandatory pre-merge gate.
+Before merge, reuse Review whose candidate boundary, coverage, findings, and validation evidence
+remain applicable. Changes to the head or target/base require inspection of the changed diff and
+integration effects, reclassification where needed, and only affected supplemental checks.
+Repeat a full Review only when earlier conclusions cannot be preserved. A prior approval alone
+does not establish coverage. Optional early consultation can contribute evidence for the risks it covers.
 
 ## Task-package language
 

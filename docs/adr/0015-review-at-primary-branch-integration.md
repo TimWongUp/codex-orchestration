@@ -24,25 +24,25 @@ submission while allowing earlier feedback on major design problems.
 
 ## Decision
 
-The mandatory `codex-review-gate` is a primary-branch integration control. It runs once against the
-latest validated candidate when the current root task is about to merge a pull request, branch, or
-accepted Worktree integration branch into the repository's primary branch. Opening or updating a
-pull request, finishing implementation, pushing or handing off an unmerged branch, and delivering a
-candidate do not trigger the gate; the future task that owns the merge owns the Review.
+Start risk Review after creating or updating a PR and when asked to review an existing PR,
+including external contributions. The final primary-branch integration boundary remains a check
+that valid Review and required validation cover the latest candidate, not a requirement to start
+another full Review. PR work includes automatic Review; merging remains separately authorized.
 
-Git history and an imminent primary-branch merge determine whether the gate applies. Without either,
-normal main-agent validation still applies but R0-R3 classification and independent Review do not.
-Once an imminent merge exists, a pinned merge-base-to-candidate diff is required evidence: if the
-root cannot pin it, the merge remains blocked until the required history and refs are available.
-Optional early architecture, security, or specialist consultation remains available when it can
-prevent risk from compounding, but it is not the mandatory pre-merge gate.
+CI availability does not determine whether Review starts. Run Review alongside relevant CI where
+configured, and use appropriate local validation otherwise. A blocked or missing expected CI run
+is not a pass. Review authority does not grant permission to edit contributor branches or execute
+untrusted workflow changes with credentials. These instructions do not install event automation.
+
+Git history and a pinned candidate remain required evidence: the merge remains blocked until the required history and refs are available.
+When head or target/base changes, inspect changed behavior and integration effects, retain valid
+coverage, and supplement affected risks. Repeat a full Review only when earlier conclusions cannot
+be preserved. Fixes for accepted findings retain same-thread targeted follow-up.
 
 ## Consequences
 
-Review no longer delays ordinary task delivery or duplicates validation for repositories and
-artifacts that have no integration boundary. Worktree lanes and unmerged integration branches can
-be handed off without Review; the merge-owning root reviews the final combined candidate once.
-New substantive changes after Review stale the candidate and require reclassification, while fixes
-for accepted findings retain the same-thread targeted follow-up. Direct work already on the primary
-branch has no eligible merge boundary and is not retroactively made compliant by this gate; normal
-repository workflow should keep mergeable work on a candidate branch.
+PR feedback can arrive while CI runs without weakening the final merge requirement. Ordinary local
+completion and branch-only handoffs still use normal validation. The review-owning root records
+enough candidate and risk evidence for the merge-owning root to reuse it; approval text alone is
+insufficient. Integrated candidates require combined-risk coverage, not mechanically duplicated
+lane reviews. R0-R3 thresholds and Reviewer selection remain unchanged.

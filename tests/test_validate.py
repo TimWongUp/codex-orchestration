@@ -361,9 +361,10 @@ class SourceValidationTest(unittest.TestCase):
             1,
         )
         contradicted_r2 += f"\n<!-- stale phrase: {r2_review} -->\n"
-        missing_merge_precondition = review.replace(
-            "The current workflow includes an imminent merge into the primary branch.",
-            "The current workflow may end with an unmerged handoff.",
+        missing_pr_trigger = review.replace(
+            "Creating or updating a pull request as part of an authorized task "
+            "includes automatic Review.",
+            "Creating a pull request does not include automatic Review.",
             1,
         )
         missing_no_git_exclusion = review.replace(
@@ -382,6 +383,24 @@ class SourceValidationTest(unittest.TestCase):
             1,
         )
         cases = (
+            (
+                review_path,
+                review.replace(
+                    "Review does not depend on CI being configured.",
+                    "Review requires configured CI.",
+                    1,
+                ),
+                "missing Review Skill contract: Review does not depend on CI being configured",
+            ),
+            (
+                review_path,
+                review.replace(
+                    "A valid earlier Review satisfies the gate",
+                    "Always start a full Review before merge",
+                    1,
+                ),
+                "missing Review Skill contract: A valid earlier Review satisfies the gate",
+            ),
             (
                 skill_path,
                 skill + "\nfunctions.exec\n",
@@ -420,9 +439,9 @@ class SourceValidationTest(unittest.TestCase):
             ),
             (
                 review_path,
-                missing_merge_precondition,
-                "missing Review Skill contract: current workflow includes an imminent merge "
-                "into the primary branch",
+                missing_pr_trigger,
+                "missing Review Skill contract: Creating or updating a pull request as part of "
+                "an authorized task includes automatic Review",
             ),
             (
                 review_path,
@@ -501,7 +520,7 @@ class SourceValidationTest(unittest.TestCase):
                     VALIDATOR.worktree_contract_failures(missing),
                 )
 
-        handoff = "Otherwise hands off the validated integration branch without Review"
+        handoff = "Otherwise hand off the validated branch without the gate"
         missing_handoff = contract.replace(handoff, "Otherwise merges without Review", 1)
         self.assertIn(
             f"worktree-root contract missing: {handoff}",
@@ -521,19 +540,19 @@ class SourceValidationTest(unittest.TestCase):
             ),
             (
                 ROOT / "docs" / "architecture.md",
-                "It owns `codex-review-gate` only",
+                "It owns PR Review when handling the integration PR",
                 "It always owns `codex-review-gate` before delivery",
                 "architecture missing pre-merge Review contract",
             ),
             (
                 ROOT / "docs" / "configuration.md",
-                "primary-branch pre-merge Review route",
+                "PR Review and final merge-check route",
                 "delivery Review route",
                 "configuration missing current v2 lifecycle contract",
             ),
             (
                 ROOT / "docs" / "adr" / "0009-coordinate-independent-worktree-roots.md",
-                "otherwise it hands off the validated integration branch",
+                "otherwise it hands off\nthe validated integration branch",
                 "otherwise it applies final Review before handoff",
                 "Worktree Root ADR missing pre-merge Review contract",
             ),
@@ -561,26 +580,29 @@ class SourceValidationTest(unittest.TestCase):
             with self.subTest(target=target), mock.patch.object(Path, "read_text", stale_contract):
                 self.assertTrue(any(expected in failure for failure in VALIDATOR.validate_source()))
 
-    def test_global_rules_require_pr_only_exclusion(self) -> None:
+    def test_global_rules_require_pr_review_trigger(self) -> None:
         template = VALIDATOR.GLOBAL_RULES_TEMPLATE
         hooks = ROOT / "docs" / "hooks-and-prompts.md"
-        phrase = b"pull-request creation or update without an imminent merge"
+        phrase = (
+            b"After creating or updating a PR, when asked to review an existing PR "
+            b"including external contributions"
+        )
         original_read = Path.read_bytes
         mutated = {
             template: template.read_bytes().replace(phrase, b"pull-request creation or update"),
             hooks: hooks.read_bytes().replace(phrase, b"pull-request creation or update"),
         }
 
-        def missing_pr_only_exclusion(path: Path) -> bytes:
+        def missing_pr_review_trigger(path: Path) -> bytes:
             if path in mutated:
                 return mutated[path]
             return original_read(path)
 
-        with mock.patch.object(Path, "read_bytes", missing_pr_only_exclusion):
+        with mock.patch.object(Path, "read_bytes", missing_pr_review_trigger):
             failures = VALIDATOR.validate_source()
         self.assertIn(
-            "global rules missing routing contract: pull-request creation or update without "
-            "an imminent merge",
+            "global rules missing routing contract: After creating or updating a PR, when asked "
+            "to review an existing PR including external contributions",
             failures,
         )
 

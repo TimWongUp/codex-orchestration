@@ -27,12 +27,11 @@ worktree and returns its task/worktree identity, one candidate handoff branch, c
 diff, validation evidence, and integration risks. The Integration Root waits for every declared
 handoff to reach `accepted` before it serially merges lanes into a dedicated integration branch,
 runs combined validation, and produces one accepted integration candidate. When the Integration
-Root also owns the primary-branch merge, it applies the R0-R3 pre-merge gate to that candidate;
-otherwise it hands off the validated integration branch and the future merge-owning root owns the
-Review. Failed or canceled lanes block success; excluding one requires the user's explicit
+Root handles an integration PR, it applies PR Review to that candidate; otherwise it hands off
+the validated integration branch. The root authorized to merge confirms final Review coverage. Failed or canceled lanes block success; excluding one requires the user's explicit
 rescoping. Prototype lanes additionally require explicit user acceptance. Lane consultation is
-optional unless risk would otherwise compound; it never substitutes for a required pre-merge
-Review.
+optional unless risk would otherwise compound; its evidence can be reused for covered risks,
+while combined behavior and remaining integration risks still need assessment.
 
 While any lane is nonterminal, the Integration Root remains repository-read-only. It becomes the
 repository writer for serial merge and integration fixes only after the complete batch is accepted.

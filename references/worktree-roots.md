@@ -56,8 +56,8 @@ Use serialized stages inside one root task when any condition fails.
   branch for handoff acceptance.
 - The Integration Root owns the common base, lane contracts, batch lifecycle, handoff and batch
   acceptance across lanes, merge order, integration fixes, and publishing. It owns the final
-  `codex-review-gate` only when the current batch is about to merge its accepted integration branch
-  into the primary branch; otherwise the future merge-owning task owns that gate.
+  PR Review when it creates, updates, or is asked to review the integration PR; the final merge
+  check belongs to the root authorized to merge into the primary branch.
 - While any lane is nonterminal, the Integration Root remains repository-read-only and does not
   modify its integration checkout. It neither creates nor retains a local writable-worker lease;
   neither its main agent nor any local worker writes the repository. It may activate one local
@@ -135,11 +135,11 @@ For a successful batch, it then:
    main branch.
 4. Resolves or returns merge conflicts and reruns affected lane validation after each correction.
 5. Runs the combined validation after all accepted branches are present.
-6. If the current batch is about to merge the integration branch into the primary branch, performs
-   the pre-merge gate: load `codex-review-gate` and complete its R0-R3 review against the latest
-   combined candidate diff. Otherwise hands off the validated integration branch without Review.
+6. When handling an integration PR or about to merge the integration branch into the primary branch,
+   load `codex-review-gate` and complete its R0-R3 review against the latest combined candidate diff,
+   reusing applicable earlier coverage. Otherwise hand off the validated branch without the gate.
 
-Lane or intermediate review never substitutes for a required pre-merge Review.
+Lane review covers only its assigned risks; check combined behavior and remaining integration risks.
 
 ## Stop convergence
 

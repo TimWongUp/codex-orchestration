@@ -10,8 +10,8 @@ an Agent, or an ordinary delegation decision does not enable this mode by implic
 Manager-only mode is an ephemeral branch of the current root task. It applies only to that root
 task, is not inherited by a new root task, and is not persisted in preferences, model routing,
 Hooks, the CLI, or another configuration file. It does not add an Agent profile. The root agent
-keeps final acceptance authority, the local single-writer lease, and the existing primary-branch
-merge boundary for `codex-review-gate`.
+keeps final acceptance authority, the local single-writer lease, and the PR Review and final
+merge-check boundaries of `codex-review-gate`.
 
 The mode is adaptive strong delegation, not a fixed pipeline. The root agent decomposes the goal,
 dispatches work, coordinates dependencies and handoffs, handles Git/PR and non-code work, and
@@ -26,7 +26,7 @@ every role or stage on every task.
   worker holds the write lease at a time, and the root agent waits on results that can change a
   decision or write.
 - Independent review uses the Reviewer selected by the current risk and any applicable
-  `codex-review-gate`. The primary-branch merge boundary and its R0-R3 rules remain unchanged.
+  `codex-review-gate`. Its PR/merge triggers and R0-R3 rules remain unchanged by manager-only mode.
 
 The root agent may read a complete final diff, key excerpts, and validation output for acceptance.
 That bounded inspection is not permission to perform new substantive code exploration or to edit
