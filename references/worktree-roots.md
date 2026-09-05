@@ -116,8 +116,8 @@ handoff acceptance additionally requires the current user's explicit confirmatio
 a completed prototype task is never merged automatically.
 
 The original batch succeeds only when every declared lane is accepted, merged into the integration
-branch, and included in combined validation, with the applicable PR Review or final merge check
-in the integration barrier completed. A failed or canceled lane blocks
+branch, and included in combined validation. Complete PR Review or the final merge check when
+required by the integration barrier below. A failed or canceled lane blocks
 successful delivery of that batch.
 Excluding a declared lane requires the user's explicit rescoping; treat that as a new accepted
 outcome rather than silently completing a partial batch.
