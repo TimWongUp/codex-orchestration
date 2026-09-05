@@ -5,9 +5,9 @@ Codex Orchestration separates six concerns:
 1. `SKILL.md` defines root-task routing and always-on orchestration invariants; branch-specific
    collaboration, manager-only, worker, lifecycle, model, and Worktree contracts live under
    `references/`.
-2. `skills/codex-review-gate/SKILL.md` defines and authorizes the primary-branch pre-merge risk
-   route; the merge-owning root executes classification, Reviewer selection, remediation, and
-   adversarial verification.
+2. `skills/codex-review-gate/SKILL.md` defines PR risk Review and the final merge check; the review-owning
+   root handles classification, Reviewer selection, authorized remediation, and adversarial
+   verification, while the merge-owning root retains integration authority.
 3. `agents/*.toml` defines narrow custom-agent behavior and sandbox defaults.
 4. Local preference files select delegation language and models without placing user choices in
    the repository.
@@ -62,7 +62,7 @@ nonterminal Worktree Roots. Each works in a verified distinct checkout, owns lan
 one candidate handoff branch, and may use the normal explorer, reviewer, specialist, and worker
 roles. While any lane is nonterminal, the Integration Root remains repository-read-only. After the
 complete batch is accepted, it owns the common base, serial merge order, integration branch,
-combined validation, and integration-branch handoff. It owns `codex-review-gate` only when it also
+combined validation, and integration-branch handoff. It owns PR Review when handling the integration PR and the final merge check when it also
 owns the primary-branch merge. During the active batch neither its main agent nor a local worker may
 write; no local writable-worker lease remains active. This keeps concurrent repository writers at
 three or fewer without granting orchestration authority to a derived worker.
@@ -86,7 +86,7 @@ Manager-only mode is an explicit opt-in for one current root task, documented in
 the root agent decomposes the goal, dispatches and coordinates work, handles Git/PR and non-code
 work, and retains final acceptance. Substantive code investigation goes to `explorer`, while code
 implementation, tests, and validation go to a leased `worker` or method worker. Independent Review
-still follows the current risk and the primary-branch boundary of `codex-review-gate`.
+still follows the current risk and PR/merge triggers of `codex-review-gate`.
 
 In this branch, final acceptance is the only root-agent code inspection: it reads the complete diff,
 key excerpts, and validation output. A failed subagent or unaccepted handoff never permits a silent
@@ -97,24 +97,22 @@ explicit mode exit. The mode is current-task-only and not persisted in preferenc
 Hooks, CLI, or other configuration. The root agent may resume ordinary code work only after the
 user explicitly consents to exit the mode.
 
-## Pre-merge Review boundary
+## PR Review and merge boundary
 
-Ordinary delegation is optional execution optimization; mandatory Review is a primary-branch
-integration gate. It applies when a Git-managed repository has committed source and target
-histories and the current workflow is about to merge a pull request, branch, or accepted Worktree
-integration branch into the primary branch. The merge-owning root must then pin the latest candidate
-diff; if it cannot, the merge remains blocked until the required history and refs are available.
-Ordinary task completion, an unmerged handoff, pull-request creation or update without an imminent
-merge, and repositories without Git history do not trigger it. Main-agent validation still applies
-to those tasks.
+`codex-review-gate` applies after PR creation or update, when asked to review an existing PR,
+and before an authorized primary-branch merge. It requires committed source and target histories
+and a pinned candidate boundary; the merge remains blocked until the required history and refs are available.
+Ordinary local completion and branch-only handoff without a PR or review request use normal validation.
 
-`codex-review-gate` defines the R0-R3 route independently of the orchestration Skill. An applicable
-project, user, workflow, or global rule requiring the gate authorizes only the read-only Reviewers
-selected by R1-R3 without a repeated current-turn request; a current explicit user prohibition still
-wins. The merge-owning root executes classification, role selection, remediation, validation, and
-integration. When Reviewers are selected, it calls
-`codex-orchestration` for model routing, briefs, lifecycle, and waiting rather than duplicating
-those mechanics.
+Review starts independently of CI availability and may run alongside relevant checks. With no CI,
+use appropriate local validation; expected CI that is pending or blocked is not absent CI or a pass.
+PR Review does not authorize merging or edits to a contributor's branch. External contributions
+use the same risk criteria and are treated as untrusted inputs during validation.
+
+The review-owning root applies R0-R3, reconciles findings, and remediates only within task authority.
+The policy authorizes only the selected R1-R3 read-only Reviewers; a current user prohibition wins.
+Reviewer execution uses `codex-orchestration` rather than duplicating routing, briefs, or lifecycle.
+The merge-owning root confirms coverage of the final candidate and reuses applicable earlier Review.
 
 Normal Reviewers remain within the assigned change boundary and risk. When a finding depends on a
 task or spec requirement or a repository standard, it cites and identifies that evidence class;
@@ -142,14 +140,14 @@ integration.
 Mechanical validation, an absent evidence axis, and a desired panel size do not create extra seats.
 R1 defaults to `correctness-reviewer`; a matching specialist replaces that default when the sole
 material hypothesis belongs to its domain, rather than adding another Reviewer for the same risk.
-Reviewer findings remain hypotheses until the merge-owning root checks their cited evidence against
+Reviewer findings remain hypotheses until the review-owning root checks their cited evidence against
 the pinned candidate diff. After an accepted finding is fixed, the original Reviewer verifies that
 finding through a same-thread targeted follow-up; the gate does not restart a full Review solely to
 obtain a clean report. A new substantive change after Review stales the candidate and requires the
-merge-owning root to re-pin and reclassify it.
+root to re-pin and reclassify it, supplementing affected coverage while preserving valid results.
 
-The merge-owning root retains finding decisions, remediation authority, validation authority, and
-gate authority. In ordinary mode, the main agent may implement an accepted fix. In manager-only
+The review-owning root retains finding decisions and authorized remediation and validation; the
+merge-owning root retains final integration authority. In ordinary mode, the main agent may implement an accepted fix. In manager-only
 mode, the leased worker implements the accepted fix and runs validation; the root inspects and
 accepts the result before the original Reviewer performs the targeted follow-up.
 
@@ -178,9 +176,8 @@ official worktree identities, and waits for the complete accepted batch before s
 Each Worktree Root performs local lane acceptance and validation; the Integration Root separately
 owns handoff and batch acceptance. Optional intermediate consultation is added only when risk would
 otherwise compound. A failed or canceled declared lane blocks successful delivery unless the user
-explicitly rescopes the outcome. `codex-review-gate` runs once against the latest combined
-candidate only when that integration branch is about to merge into the primary branch; an unmerged
-branch handoff defers Review to the future merge-owning task.
+explicitly rescopes the outcome. `codex-review-gate` reviews the combined candidate when handling its PR and confirms coverage
+before an authorized merge. A branch-only handoff without a review request uses normal validation.
 
 An explicit stop freezes new delegation, snapshots the tree, interrupts every active descendant,
 and waits for final notifications plus a fresh snapshot showing no running agents. A leased worker

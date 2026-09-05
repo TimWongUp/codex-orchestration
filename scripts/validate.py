@@ -137,8 +137,8 @@ WORKTREE_CONTRACT_PHRASES = (
     "complete batch",
     "dedicated integration branch",
     "complete its R0-R3 review against the latest combined candidate diff",
-    "Otherwise hands off the validated integration branch without Review",
-    "Lane or intermediate review never substitutes for a required pre-merge Review",
+    "Otherwise hand off the validated branch without the gate",
+    "Lane review covers only its assigned risks",
     "Stop convergence",
     "A stopped batch is not",
 )
@@ -146,7 +146,8 @@ WORKTREE_INTEGRATION_SEQUENCE = (
     "The Integration Root waits for the complete batch",
     "Serially merges accepted branches into a dedicated integration branch",
     "Runs the combined validation after all accepted branches are present",
-    "If the current batch is about to merge the integration branch into the primary branch",
+    "When handling an integration PR or about to merge the integration branch "
+    "into the primary branch",
     "load `codex-review-gate` and complete its R0-R3 review",
 )
 FORBIDDEN_PUBLIC_PATTERNS = {
@@ -868,14 +869,15 @@ def validate_source() -> list[str]:
         )
 
     for phrase in (
-        "primary-branch integration control, not a task-completion or ordinary-delegation control",
+        "PR risk Review and the final primary-branch merge check",
         "authorizes its selected R1-R3 read-only Reviewers",
-        "Git repository with committed source and primary-branch histories",
-        "current workflow includes an imminent merge into the primary branch",
+        "Git repository with committed source and target-branch histories",
+        "Creating or updating a pull request as part of an authorized task "
+        "includes automatic Review",
         "pin the latest candidate diff from the target merge base to the candidate head",
         "the candidate must not merge until the boundary is pinned",
         "Repositories without Git history never use this gate",
-        "Opening or updating a pull request",
+        "The user asks to review an existing pull request, including an external contribution",
         "pushing or handing off a branch",
         "Choose the highest matching level",
         "Changed line or file counts never determine a level",
@@ -899,6 +901,12 @@ def validate_source() -> list[str]:
         "explicit user prohibition on subagents or Reviewers still wins",
         "about to merge a pull request, branch, or accepted Worktree integration branch",
         "Classify one final integrated candidate diff",
+        "Review does not depend on CI being configured",
+        "start PR Review alongside any relevant CI",
+        "A standalone review request authorizes findings, not changes to a contributor's "
+        "branch or merging",
+        "A valid earlier Review satisfies the gate",
+        "When either changes, inspect the changed diff and integration effects",
     ):
         require(phrase in normalized_review, f"missing Review Skill contract: {phrase}", failures)
     require(
@@ -1162,8 +1170,8 @@ def validate_source() -> list[str]:
         "Every task, panel, and role entry includes `service_tier",
         "validates any saved task-package language and model route",
         "does not confirm the resolved model",
-        "primary-branch pre-merge Review route",
-        "The merge-owning root executes",
+        "PR Review and final merge-check route",
+        "The review-owning root executes",
         "inability to pin it blocks the merge",
     ):
         require(
@@ -1176,7 +1184,7 @@ def validate_source() -> list[str]:
             architecture,
             "architecture",
             (
-                "It owns `codex-review-gate` only when it also owns the primary-branch merge",
+                "It owns PR Review when handling the integration PR",
                 "integration-branch handoff",
                 "the merge remains blocked until the required history and refs are available",
             ),
@@ -1186,15 +1194,15 @@ def validate_source() -> list[str]:
             "domain context",
             (
                 "**Pre-merge Review**",
-                "latest pinned candidate diff immediately before",
-                "It owns Pre-merge Review only when it also owns the primary-branch merge",
+                "latest pinned candidate diff before",
+                "It owns PR Review when handling that PR",
             ),
         ),
         (
             worktree_adr,
             "Worktree Root ADR",
             (
-                "When the Integration Root also owns the primary-branch merge",
+                "When the Integration Root handles an integration PR",
                 "otherwise it hands off the validated integration branch",
             ),
         ),
@@ -1301,9 +1309,10 @@ def validate_source() -> list[str]:
             "Root tasks load `codex-orchestration` before creating, coordinating, or waiting",
             "independent Worktree Roots",
             "simple tasks and ordinary documentation stay with the main agent",
-            "Before merging a pull request, branch, or accepted Worktree integration branch",
+            "before merging a pull request, branch, or accepted Worktree integration branch",
             "Ordinary task completion, unmerged handoff",
-            "pull-request creation or update without an imminent merge",
+            "After creating or updating a PR, when asked to review an existing PR "
+            "including external contributions",
             "repositories without Git history do not trigger it",
             "R1-R3 route authorizes only the selected read-only Reviewers",
             "classifies the candidate rather than starting a Reviewer",

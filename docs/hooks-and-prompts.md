@@ -19,7 +19,7 @@ or “delegate everything to subagents”) and applies only to the current root 
 then points to `references/manager-only.md`, where adaptive strong delegation, worker failure
 handling, final acceptance, and the explicit user-consent exit are defined. No preference, model
 route, CLI flag, configuration file, Agent profile, or global prompt persists the mode. The global
-block remains the compact ordinary routing and primary-branch Review pointer shown below.
+block remains the compact ordinary routing and PR Review/merge-check pointer shown below.
 
 ## Long-lived root-task prompt
 
@@ -34,7 +34,7 @@ into the active global `AGENTS.override.md` or `AGENTS.md` by default and owns o
 
 ## Code review
 
-- Before merging a pull request, branch, or accepted Worktree integration branch into a Git repository's primary branch, the merge-owning root loads `codex-review-gate` after validation and against the latest candidate diff. Ordinary task completion, unmerged handoff, pull-request creation or update without an imminent merge, and repositories without Git history do not trigger it. Its R1-R3 route authorizes only the selected read-only Reviewers without a separate request; loading the gate classifies the candidate rather than starting a Reviewer, and a current explicit user prohibition still wins.
+- After creating or updating a PR, when asked to review an existing PR including external contributions, or before merging a pull request, branch, or accepted Worktree integration branch into a Git repository's primary branch, load `codex-review-gate`. Review does not depend on CI; reuse valid coverage at merge and supplement affected checks. Ordinary task completion, unmerged handoff without a PR or review request, and repositories without Git history do not trigger it. Its R1-R3 route authorizes only the selected read-only Reviewers; loading the gate classifies the candidate rather than starting a Reviewer, and a current explicit user prohibition still wins. Merge requires separate authorization.
 <!-- CODEX-ORCHESTRATION:GLOBAL-RULES:END -->
 ```
 
