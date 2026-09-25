@@ -81,6 +81,11 @@ only orchestration policy: ordinary delegation uses `fork_turns="none"`, pending
 dependency barrier, a follow-up invalidates earlier completion evidence, an explicit stop converges
 the active tree, and a third worker round starts with a fresh package and lease.
 
+Codex hosts may instruct the model not to spawn subagents unless the user or applicable
+`AGENTS.md`/Skill instructions explicitly ask for delegation. The global block therefore routes
+bounded read-only questions to `codex-orchestration`, and the Skill explicitly requests read-only
+delegation for them; without that wording, ordinary delegation rarely starts unless the user asks.
+
 ### Explicit manager-only mode
 
 Manager-only mode is enabled only by a clear user request such as “enable orchestration mode”, “main

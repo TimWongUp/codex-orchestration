@@ -79,7 +79,7 @@ The repository is the only source of truth for its portable Skills, Agents, inst
 
 ## What makes it different
 
-- **Delegation has a threshold.** Subagents are used only when parallel evidence, specialization, or a bounded worker can materially improve the result; the separate PR Review policy authorizes only its selected read-only Reviewers.
+- **Delegation has a threshold.** Subagents are used when parallel evidence, specialization, or a bounded worker can materially improve the result, and bounded read-only search, authority, or public-practice questions are delegated proactively; the separate PR Review policy authorizes only its selected read-only Reviewers.
 - **Manager-only is explicit and ephemeral.** A clear user request can make the current root task a strong-delegation manager: code investigation goes to `explorer`, implementation/tests/validation go to a leased Worker, and the root cannot silently take over after failure. After three unsuccessful rounds, only read-only re-decomposition or a blocker report remains; the user must give a new direction or explicitly consent before new code work.
 - **Handoffs preserve useful compression.** Delegation uses compact natural-language briefs with optional task, context, handoff, and reference sections instead of inventing mandatory fields or temporary documents. When a calling Skill or Agent role supplies a machine-validated return schema, that specialized contract still applies. Agents recover ordinary repository context and return traceable evidence.
 - **Task language is local.** Setup can persist English or Simplified Chinese delegation prose while role names, paths, and external protocol literals stay stable.
