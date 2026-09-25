@@ -30,7 +30,7 @@ into the active global `AGENTS.override.md` or `AGENTS.md` by default and owns o
 <!-- CODEX-ORCHESTRATION:GLOBAL-RULES:START -->
 ## Agent orchestration
 
-- Root tasks load `codex-orchestration` before creating, coordinating, or waiting for subagents or independent Worktree Roots; simple tasks and ordinary documentation stay with the main agent.
+- Root tasks load `codex-orchestration` before creating, coordinating, or waiting for subagents or independent Worktree Roots, and when a bounded read-only question needs only a conclusion with evidence: broad code search or call-path tracing, version-specific external facts, or public practice evidence; simple tasks and ordinary documentation stay with the main agent.
 
 ## Code review
 

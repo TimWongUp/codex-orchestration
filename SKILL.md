@@ -1,6 +1,6 @@
 ---
 name: codex-orchestration
-description: Root-task orchestration for explicit subagent or parallel work, official Codex Worktree Roots, R1-R3 Reviewers selected by codex-review-gate, and coding tasks with a clear delegation payoff. An explicit user request for manager-only or pure-orchestration mode enables strong delegation for the current root task; in ordinary mode keep simple tasks and ordinary documentation with the main agent; derived agents must not invoke it.
+description: Root-task orchestration for explicit subagent or parallel work, bounded read-only questions such as broad code search, call-path tracing, version-specific external facts, or public practice evidence, official Codex Worktree Roots, R1-R3 Reviewers selected by codex-review-gate, and coding tasks with a clear delegation payoff. An explicit user request for manager-only or pure-orchestration mode enables strong delegation for the current root task; in ordinary mode keep simple tasks and ordinary documentation with the main agent; derived agents must not invoke it.
 metadata:
   version: 0.10.7
 ---
@@ -16,7 +16,7 @@ change that boundary.
 
 The root main agent owns the goal, decomposition, model selection, local write lease, Git,
 acceptance, and delivery. An Integration Root additionally owns peer-lane coordination and
-integrated acceptance. Delegate only when the result can change a decision or materially improve
+integrated acceptance. Delegate when the result can change a decision or materially improve
 execution. `codex-review-gate` separately authorizes only its selected R1-R3 read-only Reviewers;
 run them with this Skill's routing, brief, lifecycle, and waiting rules without reapplying the
 ordinary delegation threshold. That permission admits no unrelated delegation.
@@ -35,6 +35,18 @@ repository exploration to `explorer`, official contracts or version facts to
 research only when it can change the decision and local or official sources do not already answer
 it. In manager-only mode, substantive code investigation follows
 [references/manager-only.md](references/manager-only.md).
+
+In ordinary mode, this Skill explicitly requests read-only delegation when the question can be
+stated up front with a completion condition and the main agent needs only the conclusion and
+evidence locations rather than the raw material: broad searches or call-path tracing across modules
+or directories, or searches unlikely to hit in the first few tries, go to `explorer`; conclusions
+that depend on version-specific behavior of an external library, API, protocol, or platform without
+an authoritative in-repository source go to `reference-researcher`; decision-relevant public
+practice, product comparison, or case evidence goes to `web-researcher`. When two or more such
+questions are independent, delegate each to its own read-only agent in parallel and continue main
+work that does not depend on their results. Keep with the main agent code it will edit next,
+step-by-step investigation whose next step depends on the previous finding, single-file or
+known-location work, and questions answerable in one or two searches.
 
 In ordinary mode, the main agent directly reads project-owned architecture, ADR, and handoff
 documents that define the decision frame, and the active writer reads the exact code it changes.
