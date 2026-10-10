@@ -92,7 +92,7 @@ python3 scripts/install.py --uninstall --apply
 
 ## 适合谁
 
-当前版本以 macOS 和原生 Windows 上的 Codex 为目标，提供可复用的代码探索、资料研究、正式实现、原型、疑难 Bug 和专项 Review 子代理。候选版本只有在两个平台的 CI 都通过后才声明受支持。
+当前版本以 macOS 和原生 Windows 上的 Codex 为目标，提供可复用的代码探索、资料研究、正式实现、疑难 Bug 和专项 Review 子代理，并保留独立的 prototype Skill。候选版本只有在两个平台的 CI 都通过后才声明受支持。
 
 安装在两个平台上共用一个确定性、默认 dry run 的 Python 实现。Agent 可以在完整阅读 `INSTALL.md` 后代为运行，但不再自行重建文件投影。
 
@@ -117,9 +117,9 @@ python3 scripts/install.py --uninstall --apply
 - 负责委派简报、本地写入租约、Worktree Root 协调、验收和通用 Agent 执行的根任务编排 Skill。
 - 一个显式、仅当前根任务生效的 manager-only 分支，提供自适应强委派并禁止静默接管代码工作。
 - 独立定义合并前 R0–R3 路由、且只授权所选只读 Reviewer 的 `codex-review-gate` Skill；分级、整改和集成由合并负责人执行。
-- `diagnosing-bugs` 和 `prototype` 两份由对应可写 Agent 使用的完整方法 Skill。
+- 由可写 Agent 使用的完整 `diagnosing-bugs` 方法 Skill，以及独立可用的 `prototype` Skill。
 - 只读代码探索、官方资料研究、Web 研究、专家和专项 Review Agent。
-- 受每个根任务单 Writer 租约约束的实现、Bug 诊断和原型 Worker。
+- 受每个根任务单 Writer 租约约束的实现与 Bug 诊断 Worker。
 - 不安装项目 Hook；工具 schema 负责调用机制，Skill 负责编排策略，Agent 配置负责派生代理职责边界。
 - 一个精简的全局 `AGENTS.md` 受控块：分别路由子代理执行与代码变更 Review，同时不替换个人指令。
 - 可选的本地模型路由文件；仓库不固定任何模型 ID。

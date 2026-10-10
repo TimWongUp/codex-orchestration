@@ -19,7 +19,7 @@ BUNDLED_SKILLS = {
     "prototype": ROOT / "skills" / "prototype",
 }
 THIRD_PARTY_SKILLS = {"diagnosing-bugs", "prototype"}
-WRITERS = {"worker", "diagnosing-bugs-worker", "prototype-worker"}
+WRITERS = {"worker", "diagnosing-bugs-worker"}
 REVIEWERS = {
     "architecture-reviewer",
     "correctness-reviewer",
@@ -1079,12 +1079,6 @@ def validate_source() -> list[str]:
         "load the `diagnosing-bugs` Skill"
         in (ROOT / "agents" / "diagnosing-bugs-worker.toml").read_text(encoding="utf-8"),
         "diagnosing-bugs-worker does not load its method Skill",
-        failures,
-    )
-    require(
-        "load the `prototype` Skill"
-        in (ROOT / "agents" / "prototype-worker.toml").read_text(encoding="utf-8"),
-        "prototype-worker does not load its method Skill",
         failures,
     )
     simplicity_reviewer = profile_instructions.get("simplicity-reviewer", "")
