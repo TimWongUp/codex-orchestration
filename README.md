@@ -109,7 +109,7 @@ The repository is the only source of truth for its portable Skills, Agents, inst
 
 ## Who it is for
 
-This release targets Codex on macOS and native Windows for reusable exploration, research, implementation, prototype, debugging, and focused-review agents. A release candidate is supported only after both platform CI jobs pass.
+This release targets Codex on macOS and native Windows for reusable exploration, research, implementation, debugging, and focused-review agents, plus a standalone prototype Skill. A release candidate is supported only after both platform CI jobs pass.
 
 Installation uses one deterministic, dry-run-first Python implementation on both platforms. An Agent may operate it after reading `INSTALL.md`, but it does not reconstruct the filesystem projection itself.
 
@@ -136,9 +136,9 @@ worker. Use risk-appropriate reviewers, and do not take over silently if a worke
 - A root-task orchestration Skill that owns delegation briefs, local write leases, Worktree Root coordination, acceptance, and reusable Agent execution.
 - An explicit, current-root-only manager-only branch with adaptive strong delegation and no silent code-work takeover.
 - An independent `codex-review-gate` Skill that defines the PR/merge R0–R3 route and authorizes only its selected read-only Reviewers; the review-owning root handles classification and authorized remediation; the merge-owning root retains integration.
-- The complete `diagnosing-bugs` and `prototype` method Skills used by their corresponding writable Agents.
+- The complete `diagnosing-bugs` method Skill used by its writable Agent, plus the standalone `prototype` Skill.
 - Read-only explorer, official-reference research, web research, expert, and focused-review agents.
-- Writable implementation, debugging, and prototype workers governed by a per-root single-writer lease.
+- Writable implementation and debugging workers governed by a per-root single-writer lease.
 - No project Hook; tool schemas own call mechanics, the Skill owns orchestration policy, and Agent profiles own derived-agent scope.
 - One small, managed global `AGENTS.md` block that independently routes subagent execution and code-change Review without replacing personal instructions.
 - A local, optional model-routing file. No model IDs are pinned in the repository.
